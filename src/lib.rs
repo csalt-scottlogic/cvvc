@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 
 mod init;
+mod log;
 mod objects;
 mod shared;
 
@@ -43,6 +44,13 @@ enum Commands {
         #[arg(default_value = ".", value_name = "PATH")]
         pathname: String,
     },
+    /// Display the history of a given commit
+    #[command()]
+    Log {
+        /// Commit to start at
+        #[arg(default_value = "HEAD", value_name = "COMMIT")]
+        commit: String,
+    }
 }
 
 pub fn parse_dispatch() {
@@ -56,6 +64,7 @@ pub fn parse_dispatch() {
             filename,
         } => objects::object_hash(write, &obj_type, &filename),
         Commands::Init { pathname } => init::cmd(&pathname),
+        Commands::Log { commit } => Ok(log::cmd(&commit)),
     }
     .expect("Error!")
 }

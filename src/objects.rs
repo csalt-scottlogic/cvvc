@@ -5,7 +5,7 @@ use std::{
     path::Path,
 };
 
-use crate::shared::{object_write, repo_find, Blob, GitObject, Repository};
+use crate::shared::{object_write, repo_find, Blob, Repository};
 
 pub fn cat_file(obj_type: &str, obj_name: &str) -> Result<(), anyhow::Error> {
     let repo = repo_find(Path::new("."))?;
@@ -22,7 +22,9 @@ fn cat_file_from_repo(
 ) -> Result<(), anyhow::Error> {
     let obj = repo.object_read(repo.find_object(obj_name))?;
     if obj.is_some() {
-        stdout().write_all(obj.unwrap().serialise())?;
+        let mut buf = Vec::<u8>::new();
+        obj.unwrap().serialise(&mut buf);
+        stdout().write_all(&buf)?;
     }
     Ok(())
 }
