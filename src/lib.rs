@@ -50,7 +50,7 @@ enum Commands {
         /// Commit to start at
         #[arg(default_value = "HEAD", value_name = "COMMIT")]
         commit: String,
-    }
+    },
 }
 
 pub fn parse_dispatch() {

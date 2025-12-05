@@ -1,4 +1,4 @@
-use crate::shared::{Repository, repo_find, StoredObject};
+use crate::shared::{repo_find, Repository, StoredObject};
 use std::{collections::HashSet, path::Path};
 
 pub fn cmd(commit: &str) {
@@ -17,7 +17,11 @@ pub fn log_from_repo(repo: Repository, commit: &str) {
     println!("}}");
 }
 
-pub fn log_object_graphviz<'a>(repo: &'a Repository, object_name: &'a str, seen: &mut HashSet<String>) {
+pub fn log_object_graphviz<'a>(
+    repo: &'a Repository,
+    object_name: &'a str,
+    seen: &mut HashSet<String>,
+) {
     if seen.contains(object_name) {
         return;
     }
@@ -25,13 +29,16 @@ pub fn log_object_graphviz<'a>(repo: &'a Repository, object_name: &'a str, seen:
 
     let commit = repo.object_read(object_name).unwrap();
     if let Some(StoredObject::Commit(commit)) = commit {
-        let message = commit.message.trim().replace("\\", "\\\\").replace("\"", "\\\"");
+        let message = commit
+            .message
+            .trim()
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"");
         let printable_message = message.split("\n").next().unwrap();
         let object_name_start: &str;
         if object_name.len() > 7 {
             object_name_start = &object_name[..8];
-        }
-        else {
+        } else {
             object_name_start = object_name;
         }
         println!("  c_{object_name} [label=\"{object_name_start}: {printable_message}\"]");

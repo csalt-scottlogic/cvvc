@@ -4,7 +4,10 @@ use indexmap::IndexMap;
 use ini::Ini;
 use sha1::{Digest, Sha1};
 use std::{
-    fs, io::{BufReader, Cursor, Read}, path::{Path, PathBuf}, u8
+    fs,
+    io::{BufReader, Cursor, Read},
+    path::{Path, PathBuf},
+    u8,
 };
 
 pub struct Repository {
@@ -149,9 +152,12 @@ impl Repository {
         let path = self.file(
             &["objects", &sha[..2], &sha[2..]]
                 .iter()
-                .collect::<PathBuf>(), false
+                .collect::<PathBuf>(),
+            false,
         )?;
-        let Some(path) = path else {return Ok(None);};
+        let Some(path) = path else {
+            return Ok(None);
+        };
         if !path.is_file() {
             return Ok(None);
         }
@@ -187,8 +193,12 @@ impl Repository {
         }
 
         match object_type {
-            b"blob" => Ok(Some(StoredObject::Blob(Blob::deserialise(&data[data_start_index..])))),
-            b"commit" => Ok(Some(StoredObject::Commit(Commit::deserialise(&data[data_start_index..])))),
+            b"blob" => Ok(Some(StoredObject::Blob(Blob::deserialise(
+                &data[data_start_index..],
+            )))),
+            b"commit" => Ok(Some(StoredObject::Commit(Commit::deserialise(
+                &data[data_start_index..],
+            )))),
             _ => Err(anyhow!(format!(
                 "Unrecognised object type {}",
                 std::str::from_utf8(object_type).unwrap_or("[mangled]")
@@ -316,19 +326,28 @@ impl GitObject for Commit {
     }
 
     fn deserialise(data: &[u8]) -> Self::Implementation
-        where
-            Self: Sized {
+    where
+        Self: Sized,
+    {
         let mut map = IndexMap::<String, Vec<String>>::new();
         let message = kvlm_parse(data, &mut map).expect("Failed to parse commit");
-        Commit { map: map, message: message }
+        Commit {
+            map: map,
+            message: message,
+        }
     }
 }
 
-pub fn kvlm_parse<'a>(raw_data: &'a [u8], map: &mut IndexMap<String, Vec<String>>) -> Result<String, anyhow::Error> {
+pub fn kvlm_parse<'a>(
+    raw_data: &'a [u8],
+    map: &mut IndexMap<String, Vec<String>>,
+) -> Result<String, anyhow::Error> {
     let space_index = raw_data.iter().position(|x| *x == 0x20);
     let nl_index = raw_data.iter().position(|x| *x == 0x0a);
 
-    if space_index.is_none() || nl_index.unwrap_or_else(|| usize::max_value()) < space_index.unwrap() {
+    if space_index.is_none()
+        || nl_index.unwrap_or_else(|| usize::max_value()) < space_index.unwrap()
+    {
         let message = String::from_utf8(raw_data[1..].to_vec())?;
         return Ok(message);
     }
@@ -338,18 +357,18 @@ pub fn kvlm_parse<'a>(raw_data: &'a [u8], map: &mut IndexMap<String, Vec<String>
     let end = find_without(&raw_data[(space_index + 1)..], 0x0a, 0x20);
     let data_slice = str::from_utf8(match end {
         Some(x) => &raw_data[(space_index + 1)..(space_index + 1 + x)],
-        None => &raw_data[(space_index + 1)..]
-    })?.replace("\n ", "\n");
-    
+        None => &raw_data[(space_index + 1)..],
+    })?
+    .replace("\n ", "\n");
+
     if map.contains_key(key) {
         map[key].push(data_slice);
-    }
-    else {
-        map.insert(key.to_string(), vec!(data_slice));
+    } else {
+        map.insert(key.to_string(), vec![data_slice]);
     }
 
     if let Some(end) = end {
-        return kvlm_parse(&raw_data[(end + space_index + 2)..], map)
+        return kvlm_parse(&raw_data[(end + space_index + 2)..], map);
     }
     Ok(String::new())
 }
@@ -364,7 +383,13 @@ pub fn kvlm_serialise(map: &IndexMap<String, Vec<String>>, message: &str, buf: &
         for v in val.iter() {
             buf.append(k.as_bytes().to_vec().as_mut());
             buf.push(0x20);
-            buf.append(v.replace("\n","\n ").trim_end().as_bytes().to_vec().as_mut());
+            buf.append(
+                v.replace("\n", "\n ")
+                    .trim_end()
+                    .as_bytes()
+                    .to_vec()
+                    .as_mut(),
+            );
             buf.push(0x0a);
         }
     }
