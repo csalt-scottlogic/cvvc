@@ -139,7 +139,7 @@ impl Repository {
     }
 
     pub fn dir(&self, path: &Path, mkdir: bool) -> Result<Option<PathBuf>, anyhow::Error> {
-         repo_dir(&self.git_dir, path, mkdir)
+        repo_dir(&self.git_dir, path, mkdir)
     }
 
     pub fn _dir_unchecked(&self, path: &Path) -> PathBuf {
@@ -149,8 +149,7 @@ impl Repository {
     fn strip_git_dir(&self, path: &Path) -> PathBuf {
         if path.starts_with(&self.git_dir) {
             path.strip_prefix(&self.git_dir).unwrap().to_path_buf()
-        }
-        else {
+        } else {
             path.to_path_buf()
         }
     }
@@ -232,7 +231,10 @@ impl Repository {
         Ok(Some(ref_conts.trim().to_string()))
     }
 
-    pub fn ref_list_dir(&self, path: Option<&Path>) -> Result<IndexMap<String, String>, anyhow::Error> {
+    pub fn ref_list_dir(
+        &self,
+        path: Option<&Path>,
+    ) -> Result<IndexMap<String, String>, anyhow::Error> {
         let path = match path {
             Some(p) => self.dir(p, false),
             None => self.dir(Path::new("refs"), true),
@@ -243,10 +245,20 @@ impl Repository {
         let Some(path) = path else {
             return Err(anyhow!("Ref path has disappeared"));
         };
-        let dir_entries = fs::read_dir(&path).context(format!("Trying to read path {}", &path.to_string_lossy()))?.collect::<Result<Vec<_>, std::io::Error>>()?;
-        let mut files = dir_entries.iter().filter(|e| e.metadata().is_ok_and(|f| f.is_file())).map(|e| e.path()).collect::<Vec<PathBuf>>();
+        let dir_entries = fs::read_dir(&path)
+            .context(format!("Trying to read path {}", &path.to_string_lossy()))?
+            .collect::<Result<Vec<_>, std::io::Error>>()?;
+        let mut files = dir_entries
+            .iter()
+            .filter(|e| e.metadata().is_ok_and(|f| f.is_file()))
+            .map(|e| e.path())
+            .collect::<Vec<PathBuf>>();
         files.sort();
-        let mut dirs = dir_entries.iter().filter(|e| e.metadata().is_ok_and(|f| f.is_dir())).map(|e| e.path()).collect::<Vec<PathBuf>>();
+        let mut dirs = dir_entries
+            .iter()
+            .filter(|e| e.metadata().is_ok_and(|f| f.is_dir()))
+            .map(|e| e.path())
+            .collect::<Vec<PathBuf>>();
         dirs.sort();
         let mut output = IndexMap::<String, String>::new();
         for f in files {
@@ -643,13 +655,16 @@ impl Tree {
                 StoredObject::Tree(tree) => {
                     fs::create_dir(&path)?;
                     tree.checkout(repo, &path)?;
-                },
+                }
                 StoredObject::Blob(blob) => {
                     fs::write(path, blob.data)?;
-                },
+                }
                 StoredObject::Commit(_) => {
-                    return Err(anyhow!("Submodules, like object {}, are not currently supported.", entry.object_name));
-                },
+                    return Err(anyhow!(
+                        "Submodules, like object {}, are not currently supported.",
+                        entry.object_name
+                    ));
+                }
             }
         }
         Ok(())

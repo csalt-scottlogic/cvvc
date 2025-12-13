@@ -1,6 +1,6 @@
-use crate::shared::{Repository, StoredObject, repo_find};
-use std::{fs, path::Path};
+use crate::shared::{repo_find, Repository, StoredObject};
 use anyhow::anyhow;
+use std::{fs, path::Path};
 
 pub fn checkout(obj_name: &str, dest: &str) -> Result<(), anyhow::Error> {
     let repo = repo_find(Path::new("."))?;
@@ -29,12 +29,18 @@ fn checkout_from_repo(repo: &Repository, obj_name: &str, dest: &str) -> Result<(
                 return Err(anyhow!("Commit {} points to a non-existent tree", obj_name));
             };
             let StoredObject::Tree(tree_obj) = tree_obj else {
-                return Err(anyhow!("Commit {} points to a non-tree object as its tree", obj_name));
+                return Err(anyhow!(
+                    "Commit {} points to a non-tree object as its tree",
+                    obj_name
+                ));
             };
             tree_obj
-        },
+        }
         _ => {
-            return Err(anyhow!("Object {} is not a commit-ish or tree-ish thing", obj_name));
+            return Err(anyhow!(
+                "Object {} is not a commit-ish or tree-ish thing",
+                obj_name
+            ));
         }
     };
     let path = Path::new(dest);
@@ -45,8 +51,7 @@ fn checkout_from_repo(repo: &Repository, obj_name: &str, dest: &str) -> Result<(
         if !is_dir_empty(&path)? {
             return Err(anyhow!("Path {} is not empty", dest));
         }
-    }
-    else {
+    } else {
         fs::create_dir_all(&path)?;
     }
 

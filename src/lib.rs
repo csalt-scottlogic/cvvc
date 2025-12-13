@@ -75,7 +75,7 @@ enum Commands {
     },
     /// List references
     #[command(name = "show-ref")]
-    ShowRef
+    ShowRef,
 }
 
 pub fn parse_dispatch() {
