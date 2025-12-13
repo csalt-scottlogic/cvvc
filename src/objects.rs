@@ -40,9 +40,7 @@ pub fn object_hash(write: bool, obj_type: &str, filename: &str) -> Result<(), an
     let mut file = fs::File::open(filename)?;
 
     let sha = object_hash_file(&mut file, obj_type, repo.as_ref())?;
-    if sha.is_some() {
-        println!("{}", sha.unwrap());
-    }
+    println!("{}", sha);
     Ok(())
 }
 
@@ -102,7 +100,7 @@ fn object_hash_file(
     file: &mut fs::File,
     obj_type: &str,
     repo: Option<&Repository>,
-) -> Result<Option<String>, anyhow::Error> {
+) -> Result<String, anyhow::Error> {
     match obj_type {
         "blob" => object_write(&Blob::new_from_read(file)?, repo),
         _ => Err(anyhow!("Unknown object type {obj_type}")),

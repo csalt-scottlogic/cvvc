@@ -5,8 +5,8 @@ use ini::Ini;
 use sha1::{Digest, Sha1};
 use std::{
     cmp::Ordering,
-    fs,
-    io::{BufReader, Cursor, Read},
+    fs::{self, File},
+    io::{BufReader, Cursor, Read, Write},
     path::{Path, PathBuf},
     str::FromStr,
     u8,
@@ -220,6 +220,7 @@ impl Repository {
     }
 
     pub fn ref_resolve(&self, git_ref: &str) -> Result<Option<String>, anyhow::Error> {
+        println!("Resolving {git_ref}");
         let path = self.file(&PathBuf::from_iter(git_ref.split("/")), false)?;
         let Some(path) = path else {
             return Ok(None);
@@ -235,10 +236,19 @@ impl Repository {
         &self,
         path: Option<&Path>,
     ) -> Result<IndexMap<String, String>, anyhow::Error> {
-        let path = match path {
-            Some(p) => self.dir(p, false),
-            None => self.dir(Path::new("refs"), true),
+        let (path, root_path) = match path {
+            Some(p) => (p, Some(&p.to_path_buf())),
+            None => (Path::new("refs"), None),
         };
+        self.ref_list_dir_internal(&path, root_path)
+    }
+
+    fn ref_list_dir_internal(
+        &self,
+        path: &Path,
+        root_path: Option<&PathBuf>,
+    ) -> Result<IndexMap<String, String>, anyhow::Error> {
+        let path = self.dir(path, true);
         let Ok(path) = path else {
             return Err(path.err().unwrap());
         };
@@ -262,17 +272,33 @@ impl Repository {
         dirs.sort();
         let mut output = IndexMap::<String, String>::new();
         for f in files {
-            let stripped_path = self.strip_git_dir(&f);
+            let mut stripped_path = self.strip_git_dir(&f);
             let ref_target = self.ref_resolve(&stripped_path.to_string_lossy())?;
+            if let Some(rp) = root_path {
+                stripped_path = stripped_path.strip_prefix(rp)?.to_path_buf();
+            }
             if let Some(ref_target) = ref_target {
                 output.insert(stripped_path.to_string_lossy().to_string(), ref_target);
             }
         }
         for d in dirs {
-            let mut rec_result = self.ref_list_dir(Some(&self.strip_git_dir(&d)))?;
+            let mut rec_result = self.ref_list_dir_internal(&self.strip_git_dir(&d), root_path)?;
             output.append(&mut rec_result);
         }
         Ok(output)
+    }
+
+    pub fn ref_create(&self, name: &str, target_name: &str) -> Result<(), anyhow::Error> {
+        println!("Creating {name} pointing to {target_name}");
+        let ref_file_path = self.file(&PathBuf::from_iter(["refs", name]), true)?;
+        let Some(ref_file_path) = ref_file_path else {
+            return Err(anyhow!("Failure to create ref path"));
+        };
+        println!("{}", ref_file_path.display());
+        let mut ref_file = File::create(&ref_file_path)?;
+        ref_file.write(target_name.as_bytes())?;
+        ref_file.write("\n".as_bytes())?;
+        Ok(())
     }
 }
 
@@ -304,7 +330,7 @@ impl StoredObject {
 pub fn object_write<'a>(
     obj: &impl GitObject,
     repo: Option<&Repository>,
-) -> Result<Option<String>, anyhow::Error> {
+) -> Result<String, anyhow::Error> {
     let mut data = Vec::<u8>::new();
     obj.serialise(&mut data);
     let mut content = obj.object_type_code().to_vec();
@@ -336,7 +362,7 @@ pub fn object_write<'a>(
         }
     }
 
-    Ok(Some(hash))
+    Ok(hash)
 }
 
 pub struct Blob {
@@ -403,6 +429,54 @@ impl GitObject for Commit {
         let mut map = IndexMap::<String, Vec<String>>::new();
         let message = kvlm_parse(data, &mut map).expect("Failed to parse commit");
         Commit {
+            map: map,
+            message: message,
+        }
+    }
+}
+
+pub struct Tag {
+    map: IndexMap<String, Vec<String>>,
+    pub message: String,
+}
+
+impl Tag {
+    pub fn _map(&self) -> &IndexMap<String, Vec<String>> {
+        &self.map
+    }
+
+    pub fn create(target: &str, name: &str) -> Self {
+        let message = String::from("A tag created by Cait's RYAG");
+        let mut map = IndexMap::<String, Vec<String>>::new();
+        map.insert(String::from("object"), vec![target.to_string()]);
+        map.insert(String::from("type"), vec![String::from("commit")]);
+        map.insert(String::from("name"), vec![String::from(name)]);
+        map.insert(
+            String::from("tagger"),
+            vec![String::from("Cait <cait@symbolicforest.com>")],
+        );
+        Tag { map, message }
+    }
+}
+
+impl GitObject for Tag {
+    type Implementation = Tag;
+
+    fn object_type_code(&self) -> &'static [u8] {
+        b"tag"
+    }
+
+    fn serialise(&self, buf: &mut Vec<u8>) {
+        kvlm_serialise(&self.map, &self.message, buf)
+    }
+
+    fn deserialise(data: &[u8]) -> Self::Implementation
+    where
+        Self: Sized,
+    {
+        let mut map = IndexMap::<String, Vec<String>>::new();
+        let message = kvlm_parse(data, &mut map).expect("Failed to parse tag");
+        Tag {
             map: map,
             message: message,
         }

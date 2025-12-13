@@ -76,6 +76,18 @@ enum Commands {
     /// List references
     #[command(name = "show-ref")]
     ShowRef,
+    /// List and create tags.  Without any options, lists tags
+    #[command()]
+    Tag {
+        /// Create a chunky tag
+        #[arg(short = 'a')]
+        chunky: bool,
+        /// The tag name
+        #[arg(value_name = "NAME")]
+        name: Option<String>,
+        #[arg(default_value = "HEAD", value_name = "OBJECT")]
+        target: String,
+    },
 }
 
 pub fn parse_dispatch() {
@@ -92,6 +104,14 @@ pub fn parse_dispatch() {
         Commands::ListTree { recursive, tree } => objects::list_tree(recursive, &tree),
         Commands::Log { commit } => Ok(log::cmd(&commit)),
         Commands::ShowRef => refs::show_refs(),
+        Commands::Tag {
+            chunky,
+            name,
+            target,
+        } => match name {
+            Some(tag_name) => refs::create_tag(&tag_name, &target, chunky),
+            None => refs::show_tags(),
+        },
     }
     .expect("Error!")
 }
