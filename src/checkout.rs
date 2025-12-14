@@ -11,7 +11,7 @@ pub fn checkout(obj_name: &str, dest: &str) -> Result<(), anyhow::Error> {
 }
 
 fn checkout_from_repo(repo: &Repository, obj_name: &str, dest: &str) -> Result<(), anyhow::Error> {
-    let obj = repo.object_read(repo.find_object(obj_name))?;
+    let obj = repo.object_read(&(repo.find_object(obj_name, None, true)?))?;
     let Some(obj) = obj else {
         return Err(anyhow!("Object {} not found", obj_name));
     };

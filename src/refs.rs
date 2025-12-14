@@ -23,11 +23,11 @@ pub fn show_tags() -> Result<(), anyhow::Error> {
 pub fn create_tag(name: &str, target: &str, chunky: bool) -> Result<(), anyhow::Error> {
     let repo = repo_find(Path::new("."))?;
     let Some(repo) = repo else { return Ok(()) };
-    let absolute_target = repo.find_object(target);
+    let absolute_target = repo.find_object(target, None, true)?;
     if chunky {
         create_chunky_tag(&repo, name, target)
     } else {
-        repo.ref_create(&format!("tags/{name}"), absolute_target)
+        repo.ref_create(&format!("tags/{name}"), &absolute_target)
     }
 }
 

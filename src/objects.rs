@@ -7,6 +7,15 @@ use std::{
 
 use crate::shared::{object_write, repo_find, Blob, Repository, StoredObject};
 
+pub fn rev_parse(obj_name: &str) -> Result<(), anyhow::Error> {
+    let repo = repo_find(Path::new("."))?;
+    let Some(repo) = repo else {
+        return Ok(())
+    };
+    println!("{}", &repo.find_object(obj_name, None, true)?);
+    Ok(())
+}
+
 pub fn cat_file(obj_type: &str, obj_name: &str) -> Result<(), anyhow::Error> {
     let repo = repo_find(Path::new("."))?;
     match repo {
@@ -20,7 +29,8 @@ fn cat_file_from_repo(
     _obj_type: &str,
     obj_name: &str,
 ) -> Result<(), anyhow::Error> {
-    let obj = repo.object_read(repo.find_object(obj_name))?;
+    let obj_hash = repo.find_object(obj_name, None, false)?;
+    let obj = repo.object_read(&obj_hash)?;
     if obj.is_some() {
         let mut buf = Vec::<u8>::new();
         obj.unwrap().serialise(&mut buf);

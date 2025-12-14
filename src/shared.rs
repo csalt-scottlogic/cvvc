@@ -12,6 +12,10 @@ use std::{
     u8,
 };
 
+use crate::shared::errors::{FindObjectError, InvalidObjectError};
+
+mod errors;
+
 pub struct Repository {
     worktree: PathBuf,
     git_dir: PathBuf,
@@ -154,8 +158,98 @@ impl Repository {
         }
     }
 
-    pub fn find_object<'a>(&'a self, name: &'a str) -> &'a str {
-        name
+    pub fn find_object(
+        &self,
+        name: &str,
+        kind: Option<ObjectKind>,
+        follow_tags: bool,
+    ) -> Result<String, anyhow::Error> {
+        let resolve_result = self.resolve_object(name)?;
+        if resolve_result.len() == 0 {
+            return Err(anyhow::Error::from(FindObjectError::none()));
+        }
+        if resolve_result.len() > 1 {
+            return Err(anyhow::Error::from(FindObjectError::some(&resolve_result)));
+        }
+        let Some(kind) = kind else {
+            return Ok(resolve_result[0].to_string());
+        };
+        let mut current_target = resolve_result[0].to_string();
+        loop {
+            let obj = self.object_read(&current_target)?;
+            let Some(obj) = obj else {
+                return Err(anyhow::Error::from(FindObjectError::none()));
+            };
+            if stored_object_matches_kind(&kind, &obj) {
+                return Ok(current_target);
+            }
+            if !follow_tags {
+                return Err(anyhow::Error::from(FindObjectError::none()));
+            }
+            match obj {
+                StoredObject::Tag(tag) => {
+                    current_target = tag.target().context("chunky tag has invalid target")?;
+                }
+                StoredObject::Commit(commit) => {
+                    if let ObjectKind::Tree = kind {
+                        current_target = commit.tree().context("commit has no tree")?;
+                    }
+                }
+                _ => {
+                    return Err(anyhow::Error::from(FindObjectError::none()));
+                }
+            }
+        }
+    }
+
+    fn resolve_object(&self, name: &str) -> Result<Vec<String>, anyhow::Error> {
+        let name = name.trim();
+        if name == "" {
+            return Ok(Vec::<String>::new());
+        }
+
+        if name == "HEAD" {
+            let head_ref = self.ref_resolve(name)?;
+            return match head_ref {
+                Some(hr) => Ok(vec![hr]),
+                None => Err(anyhow!("Error: missing HEAD")),
+            };
+        }
+
+        let mut collected = Vec::<String>::new();
+        if is_partial_object_name(name) {
+            let path = self.dir(&["objects", &name[..2]].iter().collect::<PathBuf>(), false)?;
+            if let Some(path) = path {
+                let dir_entries = fs::read_dir(&path)
+                    .context(format!("Trying to read path {}", &path.to_string_lossy()))?
+                    .collect::<Result<Vec<_>, std::io::Error>>()?;
+                for mut f in dir_entries
+                    .iter()
+                    .map(|e| e.file_name().into_string().unwrap_or("".to_owned()))
+                    .filter(|f| f.starts_with(&name[2..]) && is_object_file_name(f))
+                {
+                    f.insert_str(0, &name[..2]);
+                    collected.push(f);
+                }
+            }
+        }
+
+        let potential_tag = self.ref_resolve(&("refs/tags/".to_string() + name))?;
+        if let Some(potential_tag) = potential_tag {
+            collected.push(potential_tag);
+        }
+
+        let potential_branch = self.ref_resolve(&("refs/heads/".to_string() + name))?;
+        if let Some(potential_branch) = potential_branch {
+            collected.push(potential_branch);
+        }
+
+        let potential_remote_branch = self.ref_resolve(&("refs/remotes/".to_string() + name))?;
+        if let Some(potential_remote_branch) = potential_remote_branch {
+            collected.push(potential_remote_branch);
+        }
+
+        Ok(collected)
     }
 
     pub fn object_read(&self, sha: &str) -> Result<Option<StoredObject>, anyhow::Error> {
@@ -225,6 +319,9 @@ impl Repository {
         let Some(path) = path else {
             return Ok(None);
         };
+        if !path.exists() {
+            return Ok(None);
+        }
         let ref_conts = fs::read_to_string(path)?;
         if ref_conts.starts_with("ref: ") {
             return self.ref_resolve(&ref_conts[5..].trim());
@@ -302,8 +399,21 @@ impl Repository {
     }
 }
 
+fn is_partial_object_name(name: &str) -> bool {
+    name.len() >= 4
+        && name.len() <= 20
+        && name
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && c.is_lowercase())
+}
+
+fn is_object_file_name(name: &str) -> bool {
+    is_partial_object_name(name) && name.len() == 18
+}
+
 pub trait GitObject {
     type Implementation;
+    fn kind(&self) -> ObjectKind;
     fn object_type_code(&self) -> &'static [u8];
     fn serialise(&self, buf: &mut Vec<u8>);
     fn deserialise(data: &[u8]) -> Self::Implementation
@@ -311,10 +421,18 @@ pub trait GitObject {
         Self: Sized;
 }
 
+pub enum ObjectKind {
+    Blob,
+    Commit,
+    Tree,
+    Tag,
+}
+
 pub enum StoredObject {
     Blob(Blob),
     Commit(Commit),
     Tree(Tree),
+    Tag(Tag),
 }
 
 impl StoredObject {
@@ -323,6 +441,7 @@ impl StoredObject {
             StoredObject::Blob(x) => x.serialise(buf),
             StoredObject::Commit(x) => x.serialise(buf),
             StoredObject::Tree(x) => x.serialise(buf),
+            StoredObject::Tag(x) => x.serialise(buf),
         }
     }
 }
@@ -382,6 +501,10 @@ impl Blob {
 impl GitObject for Blob {
     type Implementation = Blob;
 
+    fn kind(&self) -> ObjectKind {
+        ObjectKind::Blob
+    }
+
     fn object_type_code(&self) -> &'static [u8] {
         b"blob"
     }
@@ -409,10 +532,26 @@ impl Commit {
     pub fn map(&self) -> &IndexMap<String, Vec<String>> {
         &self.map
     }
+
+    pub fn tree(&self) -> Result<String, InvalidObjectError> {
+        let target = self.map.get("tree");
+        let Some(target) = target else {
+            return Err(InvalidObjectError {});
+        };
+        let target = target.first();
+        let Some(target) = target else {
+            return Err(InvalidObjectError {});
+        };
+        Ok(target.to_string())
+    }
 }
 
 impl GitObject for Commit {
     type Implementation = Commit;
+
+    fn kind(&self) -> ObjectKind {
+        ObjectKind::Commit
+    }
 
     fn object_type_code(&self) -> &'static [u8] {
         b"commit"
@@ -441,7 +580,7 @@ pub struct Tag {
 }
 
 impl Tag {
-    pub fn _map(&self) -> &IndexMap<String, Vec<String>> {
+    pub fn map(&self) -> &IndexMap<String, Vec<String>> {
         &self.map
     }
 
@@ -457,10 +596,26 @@ impl Tag {
         );
         Tag { map, message }
     }
+
+    pub fn target(&self) -> Result<String, InvalidObjectError> {
+        let target = self.map.get("object");
+        let Some(target) = target else {
+            return Err(InvalidObjectError {});
+        };
+        let target = target.first();
+        let Some(target) = target else {
+            return Err(InvalidObjectError {});
+        };
+        Ok(target.to_string())
+    }
 }
 
 impl GitObject for Tag {
     type Implementation = Tag;
+
+    fn kind(&self) -> ObjectKind {
+        ObjectKind::Tag
+    }
 
     fn object_type_code(&self) -> &'static [u8] {
         b"tag"
@@ -733,6 +888,7 @@ impl Tree {
                 StoredObject::Blob(blob) => {
                     fs::write(path, blob.data)?;
                 }
+                StoredObject::Tag(_) => (),
                 StoredObject::Commit(_) => {
                     return Err(anyhow!(
                         "Submodules, like object {}, are not currently supported.",
@@ -747,6 +903,10 @@ impl Tree {
 
 impl GitObject for Tree {
     type Implementation = Tree;
+
+    fn kind(&self) -> ObjectKind {
+        ObjectKind::Tree
+    }
 
     fn object_type_code(&self) -> &'static [u8] {
         b"tree"
@@ -768,5 +928,38 @@ impl GitObject for Tree {
         Self: Sized,
     {
         Tree::from_bytes(data).unwrap()
+    }
+}
+
+fn stored_object_matches_kind(kind: &ObjectKind, obj: &StoredObject) -> bool {
+    match kind {
+        ObjectKind::Blob => {
+            if let StoredObject::Blob(_) = obj {
+                true
+            } else {
+                false
+            }
+        }
+        ObjectKind::Tree => {
+            if let StoredObject::Tree(_) = obj {
+                true
+            } else {
+                false
+            }
+        }
+        ObjectKind::Commit => {
+            if let StoredObject::Commit(_) = obj {
+                true
+            } else {
+                false
+            }
+        }
+        ObjectKind::Tag => {
+            if let StoredObject::Tag(_) = obj {
+                true
+            } else {
+                false
+            }
+        }
     }
 }

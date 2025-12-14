@@ -73,6 +73,12 @@ enum Commands {
         #[arg(default_value = "HEAD", value_name = "COMMIT")]
         commit: String,
     },
+    /// Parse revision and object identifiers
+    #[command(name = "rev-parse")]
+    RevParse {
+        #[arg(value_name = "NAME")]
+        name: String,
+    },
     /// List references
     #[command(name = "show-ref")]
     ShowRef,
@@ -103,6 +109,7 @@ pub fn parse_dispatch() {
         Commands::Init { pathname } => init::cmd(&pathname),
         Commands::ListTree { recursive, tree } => objects::list_tree(recursive, &tree),
         Commands::Log { commit } => Ok(log::cmd(&commit)),
+        Commands::RevParse { name } => objects::rev_parse(&name),
         Commands::ShowRef => refs::show_refs(),
         Commands::Tag {
             chunky,

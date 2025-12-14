@@ -10,10 +10,14 @@ pub fn cmd(commit: &str) {
 
 pub fn log_from_repo(repo: Repository, commit: &str) {
     let mut seen = HashSet::<String>::new();
+    let starting_node = repo.find_object(commit, Some(crate::shared::ObjectKind::Commit), true);
+    let Ok(starting_node) = starting_node else {
+        return;
+    };
 
     println!("digraph ryaglog{{");
     println!("  node[shape=rect]");
-    log_object_graphviz(&repo, repo.find_object(commit), &mut seen);
+    log_object_graphviz(&repo, &starting_node, &mut seen);
     println!("}}");
 }
 
