@@ -9,9 +9,7 @@ use crate::shared::{object_write, repo_find, Blob, Repository, StoredObject};
 
 pub fn rev_parse(obj_name: &str) -> Result<(), anyhow::Error> {
     let repo = repo_find(Path::new("."))?;
-    let Some(repo) = repo else {
-        return Ok(())
-    };
+    let Some(repo) = repo else { return Ok(()) };
     println!("{}", &repo.find_object(obj_name, None, true)?);
     Ok(())
 }
