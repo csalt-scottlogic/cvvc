@@ -6,6 +6,7 @@ mod log;
 mod objects;
 mod refs;
 mod shared;
+mod staging;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -55,6 +56,13 @@ enum Commands {
         /// Where to create the repository
         #[arg(default_value = ".", value_name = "PATH")]
         pathname: String,
+    },
+    /// List files in the index
+    #[command(name = "ls-files")]
+    ListFiles {
+        /// Show additional info
+        #[arg(short, long)]
+        verbose: bool,
     },
     /// Pretty-print a tree object
     #[command(name = "ls-tree")]
@@ -107,6 +115,7 @@ pub fn parse_dispatch() {
             filename,
         } => objects::object_hash(write, &obj_type, &filename),
         Commands::Init { pathname } => init::cmd(&pathname),
+        Commands::ListFiles { verbose } => staging::list_files(verbose),
         Commands::ListTree { recursive, tree } => objects::list_tree(recursive, &tree),
         Commands::Log { commit } => Ok(log::cmd(&commit)),
         Commands::RevParse { name } => objects::rev_parse(&name),

@@ -1,18 +1,14 @@
 use anyhow::{anyhow, Context};
+use chrono::{DateTime, Utc};
 use flate2::{bufread::ZlibEncoder, read::ZlibDecoder, Compression};
 use indexmap::IndexMap;
 use ini::Ini;
 use sha1::{Digest, Sha1};
 use std::{
-    cmp::Ordering,
-    fs::{self, File},
-    io::{BufReader, Cursor, Read, Write},
-    path::{Path, PathBuf},
-    str::FromStr,
-    u8,
+    cmp::Ordering, fs::{self, File}, io::{BufReader, Cursor, Read, Write}, path::{Path, PathBuf}, str::FromStr, time::Duration
 };
 
-use crate::shared::errors::{FindObjectError, InvalidObjectError};
+use crate::shared::errors::{FindObjectError, InvalidIndexEntryError, InvalidIndexError, InvalidObjectError};
 
 mod errors;
 
@@ -397,6 +393,19 @@ impl Repository {
         ref_file.write("\n".as_bytes())?;
         Ok(())
     }
+
+    pub fn index_read(&self) -> Result<Index, anyhow::Error> {
+        let file = self.file(&Path::new("index"), false)?;
+        let file = match file {
+            Some(f) => f,
+            None => {
+                return Ok(Index::new());
+            }
+        };
+        let data = std::fs::read(file).context("error loading index file")?;
+        let index = Index::from_bytes(&data).context("malformed index file")?;
+        Ok(index)
+    }
 }
 
 fn is_partial_object_name(name: &str) -> bool {
@@ -413,7 +422,7 @@ fn is_object_file_name(name: &str) -> bool {
 
 pub trait GitObject {
     type Implementation;
-    fn kind(&self) -> ObjectKind;
+    fn _kind(&self) -> ObjectKind;
     fn object_type_code(&self) -> &'static [u8];
     fn serialise(&self, buf: &mut Vec<u8>);
     fn deserialise(data: &[u8]) -> Self::Implementation
@@ -501,7 +510,7 @@ impl Blob {
 impl GitObject for Blob {
     type Implementation = Blob;
 
-    fn kind(&self) -> ObjectKind {
+    fn _kind(&self) -> ObjectKind {
         ObjectKind::Blob
     }
 
@@ -549,7 +558,7 @@ impl Commit {
 impl GitObject for Commit {
     type Implementation = Commit;
 
-    fn kind(&self) -> ObjectKind {
+    fn _kind(&self) -> ObjectKind {
         ObjectKind::Commit
     }
 
@@ -580,7 +589,7 @@ pub struct Tag {
 }
 
 impl Tag {
-    pub fn map(&self) -> &IndexMap<String, Vec<String>> {
+    pub fn _map(&self) -> &IndexMap<String, Vec<String>> {
         &self.map
     }
 
@@ -613,7 +622,7 @@ impl Tag {
 impl GitObject for Tag {
     type Implementation = Tag;
 
-    fn kind(&self) -> ObjectKind {
+    fn _kind(&self) -> ObjectKind {
         ObjectKind::Tag
     }
 
@@ -904,7 +913,7 @@ impl Tree {
 impl GitObject for Tree {
     type Implementation = Tree;
 
-    fn kind(&self) -> ObjectKind {
+    fn _kind(&self) -> ObjectKind {
         ObjectKind::Tree
     }
 
@@ -962,4 +971,149 @@ fn stored_object_matches_kind(kind: &ObjectKind, obj: &StoredObject) -> bool {
             }
         }
     }
+}
+
+pub struct IndexEntry {
+    pub ctime: DateTime<Utc>,
+    pub mtime: DateTime<Utc>,
+    pub dev: u32,
+    pub ino: u32,
+    pub mode_type: u16,
+    pub mode_perms: u16,
+    pub uid: u32,
+    pub gid: u32,
+    pub fsize: u32,
+    pub flag_assume_valid: bool,
+    pub flag_stage: u8,
+    pub object_id: String,
+    pub object_name: String,
+}
+
+impl IndexEntry {
+    pub fn byte_length(&self) -> usize {
+        // Round up to 8-byte boundary
+        let blocks = (self.object_name.as_bytes().len() + 63) / 8 + 1;
+        blocks * 8
+    }
+
+    pub fn from_bytes(data: &[u8]) -> Result<IndexEntry, InvalidIndexEntryError> {
+        // Shortest possible index entry length, for a single-character filename.
+        if data.len() < 64 {
+            return Err(InvalidIndexEntryError { error_kind: errors::InvalidIndexEntryKind::TooShort });
+        }
+        let ctime_s = u32_from_be_bytes_unchecked(data, 0);
+        let ctime_ns = u32_from_be_bytes_unchecked(data, 4);
+        let ctime = DateTime::<Utc>::from_timestamp(ctime_s.into(), ctime_ns);
+        let Some(ctime) = ctime else {
+            return Err(InvalidIndexEntryError { error_kind: errors::InvalidIndexEntryKind::UnparseableTimestamp(ctime_s, ctime_ns) });
+        };
+        let mtime_s = u32_from_be_bytes_unchecked(data, 8);
+        let mtime_ns = u32_from_be_bytes_unchecked(data, 12);
+        let mtime = DateTime::<Utc>::from_timestamp(mtime_s.into(), mtime_ns);
+        let Some(mtime) = mtime else {
+            return Err(InvalidIndexEntryError { error_kind: errors::InvalidIndexEntryKind::UnparseableTimestamp(mtime_s, mtime_ns) });
+        };
+        let dev = u32_from_be_bytes_unchecked(data, 16);
+        let ino = u32_from_be_bytes_unchecked(data, 20);
+        let mode = u16_from_be_bytes_unchecked(data, 26);
+        let mode_type = mode >> 12;
+        if mode_type != 0b1000 && mode_type != 0b1010 && mode_type != 0b1110 {
+            return Err(InvalidIndexEntryError { error_kind: errors::InvalidIndexEntryKind::UnexpectedMode(mode_type) });
+        }
+        let mode_perms = mode & 0x1FF;
+        if mode_perms != 0 && mode_perms != 0o755 && mode_perms != 0o644 {
+            return Err(InvalidIndexEntryError { error_kind:errors::InvalidIndexEntryKind::UnexpectedPermissions(mode_perms) });
+        }
+        let uid = u32_from_be_bytes_unchecked(data, 28);
+        let gid = u32_from_be_bytes_unchecked(data, 32);
+        let fsize = u32_from_be_bytes_unchecked(data, 36);
+        let object_id = hex::encode(&data[40..60]);
+        let flags = u16_from_be_bytes_unchecked(data, 60);
+        let assume_valid = flags & 0x8000 != 0;
+        let stage = u8::try_from((flags >> 12) & 3).unwrap();
+        let name_len: usize = (flags & 0xFFF).into();
+        let name;
+        if data.len() < name_len + 63 {
+            return Err(InvalidIndexEntryError { error_kind: errors::InvalidIndexEntryKind::TooShort });
+        }
+        if name_len < 0xFFF {
+            if data[name_len + 62] != 0 {
+                return Err(InvalidIndexEntryError { error_kind: errors::InvalidIndexEntryKind::NameNotNullTerminated });
+            }
+            name = String::from_utf8_lossy(&data[62..(name_len + 62)]);
+        }
+        else {
+            let real_name_len = data[62..].iter().position(|x| *x == 0);
+            let Some(real_name_len) = real_name_len else {
+                return Err(InvalidIndexEntryError { error_kind: errors::InvalidIndexEntryKind::NameNotNullTerminated });
+            };
+            name = String::from_utf8_lossy(&data[62..(real_name_len + 62)]);
+        }
+        Ok(IndexEntry {
+            ctime,
+            mtime,
+            dev,
+            ino,
+            mode_type,
+            mode_perms,
+            uid,
+            gid,
+            fsize,
+            flag_assume_valid: assume_valid,
+            flag_stage: stage,
+            object_id,
+            object_name: name.to_string(),
+        })
+    }
+}
+
+pub struct Index {
+    pub version: u32,
+    entries: Vec<IndexEntry>,
+}
+
+impl Index {
+    pub fn new() -> Self {
+        Index { version: 2, entries: Vec::<IndexEntry>::new() }
+    }
+
+    pub fn entries(&self) -> &[IndexEntry] {
+        &self.entries
+    }
+
+    pub fn from_bytes(data: &[u8]) -> Result<Index, InvalidIndexError> {
+        if data.len() < 12 {
+            return Err(InvalidIndexError { error_kind: errors::InvalidIndexKind::TooShort });
+        }
+        if data[..4] != *b"DIRC" {
+            return Err(InvalidIndexError { error_kind: errors::InvalidIndexKind::MissingMagic });
+        }
+        let version = u32_from_be_bytes_unchecked(data, 4);
+        if version != 2 {
+            return Err(InvalidIndexError { error_kind: errors::InvalidIndexKind::UnsupportedVersion(version) });
+        }
+        let count = usize::try_from(u32_from_be_bytes_unchecked(data, 8)).unwrap();
+        let mut entries = Vec::<IndexEntry>::with_capacity(count);
+        let mut idx = 12;
+        for _ in 0..count {
+            let entry = IndexEntry::from_bytes(&data[idx..]);
+            let entry = match entry {
+                Ok(e) => e,
+                Err(e) => {
+                    return Err(InvalidIndexError { error_kind: errors::InvalidIndexKind::InvalidEntry(e) })
+                }
+            };
+            idx += entry.byte_length();
+            entries.push(entry);
+        }
+        Ok(Index { version, entries })
+    }
+}
+
+fn u32_from_be_bytes_unchecked(data: &[u8], start_idx: usize) -> u32 {
+    u32::from_be_bytes(data[start_idx..(start_idx + 4)].try_into().unwrap())
+}
+
+fn u16_from_be_bytes_unchecked(data: &[u8], start_idx: usize) -> u16 {
+    u16::from_be_bytes(data[start_idx..(start_idx + 2)].try_into().unwrap())
 }
