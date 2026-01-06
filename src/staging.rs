@@ -8,7 +8,11 @@ pub fn list_files(verbose: bool) -> Result<(), anyhow::Error> {
     let Some(repo) = repo else { return Ok(()) };
     let index = repo.index_read()?;
     if verbose {
-        println!("Index file format v{}, containing {} entries", index.version, index.entries().len());
+        println!(
+            "Index file format v{}, containing {} entries",
+            index.version,
+            index.entries().len()
+        );
     }
     for entry in index.entries() {
         println!("{}", entry.object_name);
@@ -27,7 +31,22 @@ pub fn list_files(verbose: bool) -> Result<(), anyhow::Error> {
             println!("  created {}, modified {}", entry.ctime, entry.mtime);
             println!("  device {}, inode {}", entry.dev, entry.ino);
             println!("  user {}, group {}", entry.uid, entry.gid);
-            println!("  flags: stage={}, assume_valid={}", entry.flag_stage, entry.flag_assume_valid);
+            println!(
+                "  flags: stage={}, assume_valid={}",
+                entry.flag_stage, entry.flag_assume_valid
+            );
+        }
+    }
+    Ok(())
+}
+
+pub fn check_ignore(paths: &[String]) -> Result<(), anyhow::Error> {
+    let repo = repo_find(Path::new("."))?;
+    let Some(repo) = repo else { return Ok(()) };
+    let ignore_rules = repo.ignore_info_read()?;
+    for path in paths {
+        if ignore_rules.check(Path::new(path)) {
+            println!("{path}");
         }
     }
     Ok(())

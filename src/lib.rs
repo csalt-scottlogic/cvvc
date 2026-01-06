@@ -27,6 +27,12 @@ enum Commands {
         #[arg(value_name = "OBJECT")]
         obj_path: String,
     },
+    /// Check path(s) against the ignore rules
+    #[command(name = "check-ignore")]
+    CheckIgnore {
+        #[arg(value_name = "PATH")]
+        paths: Vec<String>,
+    },
     /// Checkout a commit
     #[command(arg_required_else_help = true)]
     Checkout {
@@ -108,6 +114,7 @@ pub fn parse_dispatch() {
     let args = Cli::parse();
     match args.command {
         Commands::CatFile { obj_type, obj_path } => objects::cat_file(&obj_type, &obj_path),
+        Commands::CheckIgnore { paths } => staging::check_ignore(&paths),
         Commands::Checkout { obj, path } => checkout::checkout(&obj, &path),
         Commands::HashObject {
             write,

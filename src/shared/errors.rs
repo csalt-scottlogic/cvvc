@@ -58,7 +58,7 @@ pub enum InvalidIndexEntryKind {
 
 #[derive(Debug)]
 pub struct InvalidIndexEntryError {
-    pub error_kind: InvalidIndexEntryKind
+    pub error_kind: InvalidIndexEntryKind,
 }
 
 impl Display for InvalidIndexEntryError {
@@ -66,9 +66,15 @@ impl Display for InvalidIndexEntryError {
         let msg = match self.error_kind {
             InvalidIndexEntryKind::TooShort => String::from("not enough data"),
             InvalidIndexEntryKind::UnexpectedMode(m) => format!("unexpected mode {m:#04b}"),
-            InvalidIndexEntryKind::UnexpectedPermissions(p) => format!("unexpected permissions {p:#04o}"),
-            InvalidIndexEntryKind::NameNotNullTerminated => String::from("name not null-terminated"),
-            InvalidIndexEntryKind::UnparseableTimestamp(s, ns) => format!("unparseable timestamp {s}.{ns}"),
+            InvalidIndexEntryKind::UnexpectedPermissions(p) => {
+                format!("unexpected permissions {p:#04o}")
+            }
+            InvalidIndexEntryKind::NameNotNullTerminated => {
+                String::from("name not null-terminated")
+            }
+            InvalidIndexEntryKind::UnparseableTimestamp(s, ns) => {
+                format!("unparseable timestamp {s}.{ns}")
+            }
         };
         write!(f, "invalid index entry: {msg}")
     }
@@ -81,12 +87,12 @@ pub enum InvalidIndexKind {
     TooShort,
     MissingMagic,
     UnsupportedVersion(u32),
-    InvalidEntry(InvalidIndexEntryError)
+    InvalidEntry(InvalidIndexEntryError),
 }
 
 #[derive(Debug)]
 pub struct InvalidIndexError {
-    pub error_kind: InvalidIndexKind
+    pub error_kind: InvalidIndexKind,
 }
 
 impl Display for InvalidIndexError {

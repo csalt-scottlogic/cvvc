@@ -5,12 +5,23 @@ use indexmap::IndexMap;
 use ini::Ini;
 use sha1::{Digest, Sha1};
 use std::{
-    cmp::Ordering, fs::{self, File}, io::{BufReader, Cursor, Read, Write}, path::{Path, PathBuf}, str::FromStr, time::Duration
+    cmp::Ordering,
+    collections::HashMap,
+    env,
+    fs::{self, File},
+    io::{BufReader, Cursor, Read, Write},
+    path::{Path, PathBuf},
+    str::FromStr,
 };
 
-use crate::shared::errors::{FindObjectError, InvalidIndexEntryError, InvalidIndexError, InvalidObjectError};
+use crate::shared::{
+    errors::{FindObjectError, InvalidIndexEntryError, InvalidIndexError, InvalidObjectError},
+    ignore::{IgnoreInfo, IgnorePattern},
+};
 
 mod errors;
+mod helpers;
+mod ignore;
 
 pub struct Repository {
     worktree: PathBuf,
@@ -302,6 +313,9 @@ impl Repository {
             b"tree" => Ok(Some(StoredObject::Tree(Tree::deserialise(
                 &data[data_start_index..],
             )))),
+            b"tag" => Ok(Some(StoredObject::Tag(Tag::deserialise(
+                &data[data_start_index..],
+            )))),
             _ => Err(anyhow!(format!(
                 "Unrecognised object type {}",
                 std::str::from_utf8(object_type).unwrap_or("[mangled]")
@@ -406,6 +420,73 @@ impl Repository {
         let index = Index::from_bytes(&data).context("malformed index file")?;
         Ok(index)
     }
+
+    pub fn ignore_info_read(&self) -> Result<IgnoreInfo, anyhow::Error> {
+        let mut absolute_ignores = Vec::<IgnorePattern>::new();
+        let mut repo_wide_file: PathBuf = self.git_dir.join("info");
+        repo_wide_file.push("exclude");
+        if repo_wide_file.exists() {
+            absolute_ignores.append(&mut ignore_file_read(&repo_wide_file)?);
+        }
+
+        let config_dir_var = env::var("XDG_CONFIG_HOME");
+        let config_dir = match config_dir_var {
+            Ok(var) => Some(PathBuf::from_str(&var).unwrap().join("git")),
+            Err(_) => env::home_dir().and_then(|hd| Some(hd.join(".config").join("git"))),
+        };
+        if let Some(config_dir) = config_dir {
+            let global_exclude_file = config_dir.join("ignore");
+            if global_exclude_file.exists() {
+                absolute_ignores.append(&mut ignore_file_read(&global_exclude_file)?);
+            }
+        }
+
+        let mut dir_ignores = HashMap::<String, Vec<IgnorePattern>>::new();
+        let index = self.index_read()?;
+        for entry in index
+            .entries()
+            .iter()
+            .filter(|e| e.object_name == ".gitignore" || e.object_name.ends_with("/.gitignore"))
+        {
+            let slash_idx = entry.object_name.rfind("/");
+            let entry_dir = match slash_idx {
+                Some(idx) => entry.object_name[..idx].to_string(),
+                None => String::new(),
+            };
+            let contents = self.object_read(&entry.object_id)?;
+            let Some(contents) = contents else {
+                return Err(anyhow!(
+                    "ignore file {} ({}) listed in index is not present in object store",
+                    entry.object_name,
+                    entry.object_id
+                ));
+            };
+            let StoredObject::Blob(blob) = contents else {
+                return Err(anyhow!(
+                    "ignore file {} ({}) listed in index is not a blob",
+                    entry.object_name,
+                    entry.object_id
+                ));
+            };
+            dir_ignores.insert(
+                entry_dir,
+                String::from_utf8_lossy(blob.data())
+                    .lines()
+                    .filter_map(|line| IgnorePattern::from_str(line))
+                    .collect(),
+            );
+        }
+
+        Ok(IgnoreInfo::new(absolute_ignores, dir_ignores))
+    }
+}
+
+fn ignore_file_read(path: &PathBuf) -> Result<Vec<IgnorePattern>, anyhow::Error> {
+    let file_contents = std::fs::read_to_string(path).context("error reading ignore file")?;
+    Ok(file_contents
+        .lines()
+        .filter_map(|line| IgnorePattern::from_str(line))
+        .collect())
 }
 
 fn is_partial_object_name(name: &str) -> bool {
@@ -504,6 +585,10 @@ impl Blob {
             .read_to_end(&mut buf)
             .context("Failed to read blob from source")?;
         Ok(Blob { data: buf })
+    }
+
+    pub fn data(&self) -> &[u8] {
+        &self.data
     }
 }
 
@@ -999,53 +1084,68 @@ impl IndexEntry {
     pub fn from_bytes(data: &[u8]) -> Result<IndexEntry, InvalidIndexEntryError> {
         // Shortest possible index entry length, for a single-character filename.
         if data.len() < 64 {
-            return Err(InvalidIndexEntryError { error_kind: errors::InvalidIndexEntryKind::TooShort });
+            return Err(InvalidIndexEntryError {
+                error_kind: errors::InvalidIndexEntryKind::TooShort,
+            });
         }
-        let ctime_s = u32_from_be_bytes_unchecked(data, 0);
-        let ctime_ns = u32_from_be_bytes_unchecked(data, 4);
+        let ctime_s = helpers::u32_from_be_bytes_unchecked(data, 0);
+        let ctime_ns = helpers::u32_from_be_bytes_unchecked(data, 4);
         let ctime = DateTime::<Utc>::from_timestamp(ctime_s.into(), ctime_ns);
         let Some(ctime) = ctime else {
-            return Err(InvalidIndexEntryError { error_kind: errors::InvalidIndexEntryKind::UnparseableTimestamp(ctime_s, ctime_ns) });
+            return Err(InvalidIndexEntryError {
+                error_kind: errors::InvalidIndexEntryKind::UnparseableTimestamp(ctime_s, ctime_ns),
+            });
         };
-        let mtime_s = u32_from_be_bytes_unchecked(data, 8);
-        let mtime_ns = u32_from_be_bytes_unchecked(data, 12);
+        let mtime_s = helpers::u32_from_be_bytes_unchecked(data, 8);
+        let mtime_ns = helpers::u32_from_be_bytes_unchecked(data, 12);
         let mtime = DateTime::<Utc>::from_timestamp(mtime_s.into(), mtime_ns);
         let Some(mtime) = mtime else {
-            return Err(InvalidIndexEntryError { error_kind: errors::InvalidIndexEntryKind::UnparseableTimestamp(mtime_s, mtime_ns) });
+            return Err(InvalidIndexEntryError {
+                error_kind: errors::InvalidIndexEntryKind::UnparseableTimestamp(mtime_s, mtime_ns),
+            });
         };
-        let dev = u32_from_be_bytes_unchecked(data, 16);
-        let ino = u32_from_be_bytes_unchecked(data, 20);
-        let mode = u16_from_be_bytes_unchecked(data, 26);
+        let dev = helpers::u32_from_be_bytes_unchecked(data, 16);
+        let ino = helpers::u32_from_be_bytes_unchecked(data, 20);
+        let mode = helpers::u16_from_be_bytes_unchecked(data, 26);
         let mode_type = mode >> 12;
         if mode_type != 0b1000 && mode_type != 0b1010 && mode_type != 0b1110 {
-            return Err(InvalidIndexEntryError { error_kind: errors::InvalidIndexEntryKind::UnexpectedMode(mode_type) });
+            return Err(InvalidIndexEntryError {
+                error_kind: errors::InvalidIndexEntryKind::UnexpectedMode(mode_type),
+            });
         }
         let mode_perms = mode & 0x1FF;
         if mode_perms != 0 && mode_perms != 0o755 && mode_perms != 0o644 {
-            return Err(InvalidIndexEntryError { error_kind:errors::InvalidIndexEntryKind::UnexpectedPermissions(mode_perms) });
+            return Err(InvalidIndexEntryError {
+                error_kind: errors::InvalidIndexEntryKind::UnexpectedPermissions(mode_perms),
+            });
         }
-        let uid = u32_from_be_bytes_unchecked(data, 28);
-        let gid = u32_from_be_bytes_unchecked(data, 32);
-        let fsize = u32_from_be_bytes_unchecked(data, 36);
+        let uid = helpers::u32_from_be_bytes_unchecked(data, 28);
+        let gid = helpers::u32_from_be_bytes_unchecked(data, 32);
+        let fsize = helpers::u32_from_be_bytes_unchecked(data, 36);
         let object_id = hex::encode(&data[40..60]);
-        let flags = u16_from_be_bytes_unchecked(data, 60);
+        let flags = helpers::u16_from_be_bytes_unchecked(data, 60);
         let assume_valid = flags & 0x8000 != 0;
         let stage = u8::try_from((flags >> 12) & 3).unwrap();
         let name_len: usize = (flags & 0xFFF).into();
         let name;
         if data.len() < name_len + 63 {
-            return Err(InvalidIndexEntryError { error_kind: errors::InvalidIndexEntryKind::TooShort });
+            return Err(InvalidIndexEntryError {
+                error_kind: errors::InvalidIndexEntryKind::TooShort,
+            });
         }
         if name_len < 0xFFF {
             if data[name_len + 62] != 0 {
-                return Err(InvalidIndexEntryError { error_kind: errors::InvalidIndexEntryKind::NameNotNullTerminated });
+                return Err(InvalidIndexEntryError {
+                    error_kind: errors::InvalidIndexEntryKind::NameNotNullTerminated,
+                });
             }
             name = String::from_utf8_lossy(&data[62..(name_len + 62)]);
-        }
-        else {
+        } else {
             let real_name_len = data[62..].iter().position(|x| *x == 0);
             let Some(real_name_len) = real_name_len else {
-                return Err(InvalidIndexEntryError { error_kind: errors::InvalidIndexEntryKind::NameNotNullTerminated });
+                return Err(InvalidIndexEntryError {
+                    error_kind: errors::InvalidIndexEntryKind::NameNotNullTerminated,
+                });
             };
             name = String::from_utf8_lossy(&data[62..(real_name_len + 62)]);
         }
@@ -1074,7 +1174,10 @@ pub struct Index {
 
 impl Index {
     pub fn new() -> Self {
-        Index { version: 2, entries: Vec::<IndexEntry>::new() }
+        Index {
+            version: 2,
+            entries: Vec::<IndexEntry>::new(),
+        }
     }
 
     pub fn entries(&self) -> &[IndexEntry] {
@@ -1083,16 +1186,22 @@ impl Index {
 
     pub fn from_bytes(data: &[u8]) -> Result<Index, InvalidIndexError> {
         if data.len() < 12 {
-            return Err(InvalidIndexError { error_kind: errors::InvalidIndexKind::TooShort });
+            return Err(InvalidIndexError {
+                error_kind: errors::InvalidIndexKind::TooShort,
+            });
         }
         if data[..4] != *b"DIRC" {
-            return Err(InvalidIndexError { error_kind: errors::InvalidIndexKind::MissingMagic });
+            return Err(InvalidIndexError {
+                error_kind: errors::InvalidIndexKind::MissingMagic,
+            });
         }
-        let version = u32_from_be_bytes_unchecked(data, 4);
+        let version = helpers::u32_from_be_bytes_unchecked(data, 4);
         if version != 2 {
-            return Err(InvalidIndexError { error_kind: errors::InvalidIndexKind::UnsupportedVersion(version) });
+            return Err(InvalidIndexError {
+                error_kind: errors::InvalidIndexKind::UnsupportedVersion(version),
+            });
         }
-        let count = usize::try_from(u32_from_be_bytes_unchecked(data, 8)).unwrap();
+        let count = usize::try_from(helpers::u32_from_be_bytes_unchecked(data, 8)).unwrap();
         let mut entries = Vec::<IndexEntry>::with_capacity(count);
         let mut idx = 12;
         for _ in 0..count {
@@ -1100,7 +1209,9 @@ impl Index {
             let entry = match entry {
                 Ok(e) => e,
                 Err(e) => {
-                    return Err(InvalidIndexError { error_kind: errors::InvalidIndexKind::InvalidEntry(e) })
+                    return Err(InvalidIndexError {
+                        error_kind: errors::InvalidIndexKind::InvalidEntry(e),
+                    })
                 }
             };
             idx += entry.byte_length();
@@ -1108,12 +1219,4 @@ impl Index {
         }
         Ok(Index { version, entries })
     }
-}
-
-fn u32_from_be_bytes_unchecked(data: &[u8], start_idx: usize) -> u32 {
-    u32::from_be_bytes(data[start_idx..(start_idx + 4)].try_into().unwrap())
-}
-
-fn u16_from_be_bytes_unchecked(data: &[u8], start_idx: usize) -> u16 {
-    u16::from_be_bytes(data[start_idx..(start_idx + 2)].try_into().unwrap())
 }
