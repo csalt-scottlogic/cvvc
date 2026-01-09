@@ -1,7 +1,11 @@
-use anyhow::anyhow;
-use std::path::Path;
+use anyhow::{anyhow, Context};
+use chrono::{DateTime, Utc};
+use std::{fs, path::Path};
 
-use crate::shared::repo_find;
+use crate::shared::{
+    helpers::{path_translate, path_translate_rev, walk_fs},
+    object_hash_file, repo_find, Repository,
+};
 
 pub fn list_files(verbose: bool) -> Result<(), anyhow::Error> {
     let repo = repo_find(Path::new("."))?;
@@ -47,6 +51,123 @@ pub fn check_ignore(paths: &[String]) -> Result<(), anyhow::Error> {
     for path in paths {
         if ignore_rules.check(Path::new(path)) {
             println!("{path}");
+        }
+    }
+    Ok(())
+}
+
+pub fn status() -> Result<(), anyhow::Error> {
+    let repo = repo_find(Path::new("."))?;
+    let Some(repo) = repo else { return Ok(()) };
+    status_branch(&repo)?;
+    status_index(&repo)?;
+    status_worktree(&repo)?;
+    Ok(())
+}
+
+fn status_branch(repo: &Repository) -> Result<(), anyhow::Error> {
+    let branch = repo.current_branch()?;
+    match branch {
+        Some(name) => {
+            println!("On branch {name}");
+        }
+        None => {
+            let head_commit = repo.ref_resolve("HEAD")?;
+            if let Some(head_commit) = head_commit {
+                println!("HEAD detached at {head_commit}");
+            } else {
+                return Err(anyhow!("missing head"));
+            }
+        }
+    };
+    println!("");
+    Ok(())
+}
+
+fn status_index(repo: &Repository) -> Result<(), anyhow::Error> {
+    let mut to_print = Vec::<String>::new();
+    let mut committed_tree = repo.flatten_head_tree()?;
+    let index = repo.index_read()?;
+    for entry in index.entries() {
+        if committed_tree.contains_key(&entry.object_name) {
+            if committed_tree[&entry.object_name] != entry.object_id {
+                to_print.push(format!("\tmodified:   {}", entry.object_name));
+            }
+            committed_tree.remove(&entry.object_name);
+        } else {
+            to_print.push(format!("\tadded:      {}", entry.object_name));
+        }
+    }
+    for entry in committed_tree.keys() {
+        to_print.push(format!("\tdeleted:    {}", entry));
+    }
+    if to_print.len() > 0 {
+        println!("Changes to be committed:");
+        for line in to_print {
+            println!("{line}");
+        }
+        println!("");
+    }
+    Ok(())
+}
+
+fn status_worktree(repo: &Repository) -> Result<(), anyhow::Error> {
+    let ignore_info = repo.ignore_info_read()?;
+    let mut files = Vec::<String>::new();
+    let mut to_print = Vec::<String>::new();
+    let index = repo.index_read()?;
+
+    for f in walk_fs(&repo.worktree)? {
+        let Ok(f) = f else {
+            return Err(f.context("error reading worktree").unwrap_err());
+        };
+        if !f.starts_with(&repo.git_dir) {
+            let rel_path = f
+                .strip_prefix(&repo.worktree)
+                .context("error converting worktree path to relative path")?;
+            if !ignore_info.check(rel_path) {
+                files.push(path_translate(rel_path));
+            }
+        }
+    }
+
+    for entry in index.entries() {
+        let entry_full_path = repo.worktree.join(path_translate_rev(&entry.object_name));
+        if !entry_full_path.exists() {
+            to_print.push(format!("\tdeleted: {}", entry.object_name));
+        } else {
+            let stat = fs::metadata(&entry_full_path).context("could not read file metadata")?;
+            // CTime is not available at present on WSL
+            let file_ctime: Option<DateTime<Utc>> = match stat.created() {
+                Ok(ct) => Some(ct.into()),
+                Err(_) => None,
+            };
+            let file_mtime: DateTime<Utc> = stat.modified()?.into();
+            let ctimes_differ = match file_ctime {
+                Some(ctime) => entry.ctime != ctime,
+                None => false,
+            };
+            if ctimes_differ || entry.mtime != file_mtime {
+                // Timestamps differ; check content.
+                let new_id = object_hash_file(&entry_full_path, "blob", Some(repo))?;
+                if new_id != entry.object_id {
+                    to_print.push(format!("\tmodified:   {}", entry.object_name));
+                }
+            }
+        }
+        files.retain(|f| *f != entry.object_name);
+    }
+    if to_print.len() > 0 {
+        println!("Changes not staged for commit:");
+        for line in to_print {
+            println!("{line}");
+        }
+        println!("");
+    }
+    if files.len() > 0 {
+        println!("Untracked files:");
+        for f in files {
+            println!("\t{f}");
         }
     }
     Ok(())

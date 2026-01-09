@@ -1,11 +1,10 @@
 use anyhow::anyhow;
 use std::{
-    fs,
     io::{stdout, Write},
     path::{Path, PathBuf},
 };
 
-use crate::shared::{object_write, repo_find, Blob, ObjectKind, Repository, StoredObject};
+use crate::shared::{object_hash_file, repo_find, ObjectKind, Repository, StoredObject};
 
 pub fn rev_parse(obj_name: &str) -> Result<(), anyhow::Error> {
     let repo = repo_find(Path::new("."))?;
@@ -54,9 +53,7 @@ pub fn object_hash(write: bool, obj_type: &str, filename: &str) -> Result<(), an
         repo = None
     }
 
-    let mut file = fs::File::open(filename)?;
-
-    let sha = object_hash_file(&mut file, obj_type, repo.as_ref())?;
+    let sha = object_hash_file(filename, obj_type, repo.as_ref())?;
     println!("{}", sha);
     Ok(())
 }
@@ -111,15 +108,4 @@ fn list_tree_recursive(
         }
     }
     Ok(())
-}
-
-fn object_hash_file(
-    file: &mut fs::File,
-    obj_type: &str,
-    repo: Option<&Repository>,
-) -> Result<String, anyhow::Error> {
-    match obj_type {
-        "blob" => object_write(&Blob::new_from_read(file)?, repo),
-        _ => Err(anyhow!("Unknown object type {obj_type}")),
-    }
 }

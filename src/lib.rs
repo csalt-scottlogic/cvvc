@@ -96,6 +96,9 @@ enum Commands {
     /// List references
     #[command(name = "show-ref")]
     ShowRef,
+    /// Display status of the working tree
+    #[command()]
+    Status,
     /// List and create tags.  Without any options, lists tags
     #[command()]
     Tag {
@@ -127,6 +130,7 @@ pub fn parse_dispatch() {
         Commands::Log { commit } => Ok(log::cmd(&commit)),
         Commands::RevParse { name } => objects::rev_parse(&name),
         Commands::ShowRef => refs::show_refs(),
+        Commands::Status => staging::status(),
         Commands::Tag {
             chunky,
             name,

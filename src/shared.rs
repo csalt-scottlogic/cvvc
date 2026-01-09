@@ -20,12 +20,12 @@ use crate::shared::{
 };
 
 mod errors;
-mod helpers;
+pub mod helpers;
 mod ignore;
 
 pub struct Repository {
-    worktree: PathBuf,
-    git_dir: PathBuf,
+    pub worktree: PathBuf,
+    pub git_dir: PathBuf,
     conf: Ini,
 }
 
@@ -324,7 +324,6 @@ impl Repository {
     }
 
     pub fn ref_resolve(&self, git_ref: &str) -> Result<Option<String>, anyhow::Error> {
-        println!("Resolving {git_ref}");
         let path = self.file(&PathBuf::from_iter(git_ref.split("/")), false)?;
         let Some(path) = path else {
             return Ok(None);
@@ -479,6 +478,58 @@ impl Repository {
 
         Ok(IgnoreInfo::new(absolute_ignores, dir_ignores))
     }
+
+    pub fn current_branch(&self) -> Result<Option<String>, anyhow::Error> {
+        let head = self
+            .file(Path::new("HEAD"), false)
+            .context("error finding HEAD")?;
+        let Some(head) = head else {
+            return Err(anyhow!("missing HEAD"));
+        };
+        let head_conts = std::fs::read_to_string(head).context("failed to read HEAD")?;
+        if head_conts.starts_with("ref: refs/heads/") {
+            Ok(Some(head_conts[16..].trim().to_string()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn flatten_head_tree(&self) -> Result<HashMap<String, String>, anyhow::Error> {
+        self.flatten_tree_recursive("HEAD", "")
+    }
+
+    fn flatten_tree_recursive(
+        &self,
+        tree_id: &str,
+        prefix: &str,
+    ) -> Result<HashMap<String, String>, anyhow::Error> {
+        let mut map = HashMap::<String, String>::new();
+        let tree_id = self
+            .find_object(tree_id, Some(ObjectKind::Tree), true)
+            .context("could not find tree")?;
+        let tree = self.object_read(&tree_id).context("error reading tree")?;
+        let Some(tree) = tree else {
+            return Err(anyhow!("tree has suddenly disappeared"));
+        };
+        let StoredObject::Tree(tree) = tree else {
+            return Err(anyhow!("tree is not actually a tree"));
+        };
+        for entry in tree.entries() {
+            let entry_path = entry.path.to_string_lossy();
+            let full_path = match prefix {
+                "" => entry_path.to_string(),
+                _ => format!("{prefix}/{entry_path}"),
+            };
+            if entry.mode < 0o100000 {
+                // Directory
+                let subresult = self.flatten_tree_recursive(&entry.object_name, &full_path)?;
+                map.extend(subresult.into_iter());
+            } else {
+                map.insert(full_path, entry.object_name.clone());
+            }
+        }
+        Ok(map)
+    }
 }
 
 fn ignore_file_read(path: &PathBuf) -> Result<Vec<IgnorePattern>, anyhow::Error> {
@@ -490,15 +541,15 @@ fn ignore_file_read(path: &PathBuf) -> Result<Vec<IgnorePattern>, anyhow::Error>
 }
 
 fn is_partial_object_name(name: &str) -> bool {
-    name.len() >= 4
-        && name.len() <= 20
-        && name
-            .chars()
-            .all(|c| c.is_ascii_hexdigit() && c.is_lowercase())
+    // IDs are 20 bytes, represented as 40 hex chars; we don't try to identify an ID that's less than 4 chars
+    name.len() >= 4 && name.len() <= 40 && name.chars().all(|c| c.is_ascii_hexdigit())
 }
 
+// Object file names have had the first two characters removed.
+// Because of that, they look like valid object IDs that are 38 chars long,
+// even though they're not, on their own, valid object IDs
 fn is_object_file_name(name: &str) -> bool {
-    is_partial_object_name(name) && name.len() == 18
+    is_partial_object_name(name) && name.len() == 38
 }
 
 pub trait GitObject {
@@ -1218,5 +1269,17 @@ impl Index {
             entries.push(entry);
         }
         Ok(Index { version, entries })
+    }
+}
+
+pub fn object_hash_file<P: AsRef<Path>>(
+    path: P,
+    obj_type: &str,
+    repo: Option<&Repository>,
+) -> Result<String, anyhow::Error> {
+    let mut file = std::fs::File::open(path).context("could not read file")?;
+    match obj_type {
+        "blob" => object_write(&Blob::new_from_read(&mut file)?, repo),
+        _ => Err(anyhow!("Unknown object type {obj_type}")),
     }
 }
