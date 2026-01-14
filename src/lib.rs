@@ -87,6 +87,16 @@ enum Commands {
         #[arg(default_value = "HEAD", value_name = "COMMIT")]
         commit: String,
     },
+    /// Remove files from the index and the working tree
+    #[command(name = "rm")]
+    Remove {
+        #[arg(long="cached")]
+        index_only: bool,
+        #[arg(long="ignore-unmatched")]
+        ignore_no_matches: bool,
+        #[arg(value_name = "PATH")]
+        paths: Vec<String>,
+    },
     /// Parse revision and object identifiers
     #[command(name = "rev-parse")]
     RevParse {
@@ -128,6 +138,7 @@ pub fn parse_dispatch() {
         Commands::ListFiles { verbose } => staging::list_files(verbose),
         Commands::ListTree { recursive, tree } => objects::list_tree(recursive, &tree),
         Commands::Log { commit } => Ok(log::cmd(&commit)),
+        Commands::Remove { index_only, ignore_no_matches, paths } => staging::remove_files(&paths, index_only, ignore_no_matches),
         Commands::RevParse { name } => objects::rev_parse(&name),
         Commands::ShowRef => refs::show_refs(),
         Commands::Status => staging::status(),

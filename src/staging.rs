@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use std::{fs, path::Path};
 
 use crate::shared::{
-    helpers::{path_translate, path_translate_rev, walk_fs},
+    helpers::{path_translate, path_translate_rev, walk_fs_pruned},
     object_hash_file, repo_find, Repository,
 };
 
@@ -52,6 +52,25 @@ pub fn check_ignore(paths: &[String]) -> Result<(), anyhow::Error> {
         if ignore_rules.check(Path::new(path)) {
             println!("{path}");
         }
+    }
+    Ok(())
+}
+
+pub fn remove_files(paths: &[String], index_only: bool, ignore_no_matches: bool) -> Result<(), anyhow::Error> {
+    let repo = repo_find(Path::new("."))?;
+    let Some(repo) = repo else { return Ok(()) };
+    let mut some_removed = false;
+    let mut index = repo.index_read()?;
+    for path in paths {
+        if repo.remove_path(path, &mut index, !index_only)? {
+            some_removed = true;
+            println!("{path}");
+        }
+    }
+    if some_removed {
+        repo.index_write(&index)?;
+    } else if !ignore_no_matches {
+        return Err(anyhow!("no files removed"));
     }
     Ok(())
 }
@@ -126,18 +145,20 @@ fn status_worktree(repo: &Repository) -> Result<bool, anyhow::Error> {
     let mut to_print = Vec::<String>::new();
     let index = repo.index_read()?;
 
-    for f in walk_fs(&repo.worktree)? {
+    for f in walk_fs_pruned(&repo.worktree, &|p| {
+        let rel_p = p.strip_prefix(&repo.worktree);
+        let Ok(rel_p) = rel_p else {
+            return true;
+        };
+        p.starts_with(&repo.git_dir) || ignore_info.check(rel_p)
+    })? {
         let Ok(f) = f else {
             return Err(f.context("error reading worktree").unwrap_err());
         };
-        if !f.starts_with(&repo.git_dir) {
-            let rel_path = f
-                .strip_prefix(&repo.worktree)
-                .context("error converting worktree path to relative path")?;
-            if !ignore_info.check(rel_path) {
-                files.push(path_translate(rel_path));
-            }
-        }
+        let rel_path = f
+            .strip_prefix(&repo.worktree)
+            .context("error converting worktree path to relative path")?;
+        files.push(path_translate(rel_path));
     }
 
     for entry in index.entries() {

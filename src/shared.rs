@@ -5,18 +5,11 @@ use indexmap::IndexMap;
 use ini::Ini;
 use sha1::{Digest, Sha1};
 use std::{
-    cmp::Ordering,
-    collections::HashMap,
-    env,
-    fs::{self, File},
-    io::{BufReader, Cursor, Read, Write},
-    path::{Path, PathBuf},
-    str::FromStr,
+    cmp::Ordering, collections::HashMap, env, fs::{self, File}, io::{BufReader, Cursor, Read, Write}, iter::repeat_n, path::{Path, PathBuf}, str::FromStr
 };
 
 use crate::shared::{
-    errors::{FindObjectError, InvalidIndexEntryError, InvalidIndexError, InvalidObjectError},
-    ignore::{IgnoreInfo, IgnorePattern},
+    errors::{FindObjectError, InvalidIndexEntryError, InvalidIndexError, InvalidObjectError}, helpers::{datetime_to_bytes, path_translate}, ignore::{IgnoreInfo, IgnorePattern}
 };
 
 mod errors;
@@ -137,7 +130,7 @@ impl Repository {
         Ok(repo)
     }
 
-    pub fn _path(&self, path: &Path) -> PathBuf {
+    pub fn path(&self, path: &Path) -> PathBuf {
         repo_path(&self.git_dir, path)
     }
 
@@ -420,6 +413,16 @@ impl Repository {
         Ok(index)
     }
 
+    pub fn index_write(&self, index: &Index) -> Result<(), anyhow::Error> {
+        let tmp_file = self.path(&Path::new("index.lck"));
+        let final_file = self.path(&Path::new("index"));
+        let mut data = Vec::<u8>::new();
+        index.serialise(&mut data);
+        fs::write(&tmp_file, &data).context("error writing temporary index")?;
+        fs::rename(&tmp_file, &final_file).context("failed to rename temporary index file")?;
+        Ok(())
+    }
+
     pub fn ignore_info_read(&self) -> Result<IgnoreInfo, anyhow::Error> {
         let mut absolute_ignores = Vec::<IgnorePattern>::new();
         let mut repo_wide_file: PathBuf = self.git_dir.join("info");
@@ -529,6 +532,21 @@ impl Repository {
             }
         }
         Ok(map)
+    }
+
+    pub fn remove_path(&self, path: &str, index: &mut Index, hard_delete: bool) -> Result<bool, anyhow::Error> {
+        let path = path_translate(Path::new(path));
+        if !index.contains_path(&path) {
+            return Ok(false);
+        }
+        index.remove(&path);
+        if hard_delete {
+            let abs_path = self.file(Path::new(&path), false).context(format!("could not find file {path}"))?;
+            if let Some(abs_path) = abs_path {
+                fs::remove_file(&abs_path).context(format!("could not delete file {}", abs_path.display()))?;
+            }
+        }
+        Ok(true)
     }
 }
 
@@ -1216,6 +1234,40 @@ impl IndexEntry {
             object_name: name.to_string(),
         })
     }
+
+    pub fn serialise(&self, buf: &mut Vec<u8>) {
+        buf.extend(datetime_to_bytes(&self.ctime));
+        buf.extend(datetime_to_bytes(&self.mtime));
+        buf.extend(self.dev.to_be_bytes());
+        buf.extend(self.ino.to_be_bytes());
+        let mode = (((self.mode_type) << 12) | self.mode_perms) as u32;
+        buf.extend(mode.to_be_bytes());
+        buf.extend(self.uid.to_be_bytes());
+        buf.extend(self.gid.to_be_bytes());
+        buf.extend(self.fsize.to_be_bytes());
+        let obj_id = hex::decode(&self.object_id);
+        if let Ok(obj_id) = obj_id {
+            buf.extend(obj_id.iter());
+        } else {
+            buf.extend(repeat_n(0 as u8, 20));
+        }
+        let mut flags: u16 = if self.flag_assume_valid {
+            0x8000
+        } else {
+            0
+        };
+        flags |= (self.flag_stage as u16) << 12;
+        let capped_len: u16 = if self.object_name.len() > 0xfff {
+            0xfff
+        } else {
+            self.object_name.len() as u16
+        };
+        flags |= capped_len;
+        buf.extend(flags.to_be_bytes());
+        buf.extend(self.object_name.bytes());
+        buf.push(0);
+        buf.extend(repeat_n(0, 8 - (buf.len() % 8)));
+    }
 }
 
 pub struct Index {
@@ -1269,6 +1321,30 @@ impl Index {
             entries.push(entry);
         }
         Ok(Index { version, entries })
+    }
+
+    pub fn serialise(&self, buf: &mut Vec<u8>) {
+        buf.extend(b"DIRC");
+        buf.extend(self.version.to_be_bytes());
+        let truncated_count = if self.entries.len() > (u32::MAX as usize) {
+            u32::MAX
+        } else {
+            self.entries.len() as u32
+        };
+        buf.extend(truncated_count.to_be_bytes());
+        for entry in &self.entries {
+            entry.serialise(buf);
+        }
+    }
+
+    pub fn contains_path(&self, path: &str) -> bool {
+        self.entries.iter().any(|e| e.object_name == path)
+    }
+
+    pub fn remove(&mut self, path: &str) -> bool {
+        let start_len = self.entries.len();
+        self.entries.retain(|e| e.object_name != path);
+        start_len > self.entries.len()
     }
 }
 
