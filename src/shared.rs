@@ -134,6 +134,10 @@ impl Repository {
         repo_path(&self.git_dir, path)
     }
 
+    pub fn worktree_path(&self, path: &Path) -> PathBuf {
+        repo_path(&self.worktree, path)
+    }
+
     pub fn file(&self, path: &Path, mkdir: bool) -> Result<Option<PathBuf>, anyhow::Error> {
         repo_file(&self.git_dir, path, mkdir)
     }
@@ -541,10 +545,8 @@ impl Repository {
         }
         index.remove(&path);
         if hard_delete {
-            let abs_path = self.file(Path::new(&path), false).context(format!("could not find file {path}"))?;
-            if let Some(abs_path) = abs_path {
-                fs::remove_file(&abs_path).context(format!("could not delete file {}", abs_path.display()))?;
-            }
+            let abs_path = self.worktree_path(Path::new(&path));
+            fs::remove_file(&abs_path).context(format!("could not delete file {}", abs_path.display()))?;
         }
         Ok(true)
     }
@@ -1266,7 +1268,8 @@ impl IndexEntry {
         buf.extend(flags.to_be_bytes());
         buf.extend(self.object_name.bytes());
         buf.push(0);
-        buf.extend(repeat_n(0, 8 - (buf.len() % 8)));
+        // The formula for computing the entry length only works on v2 indexes (that pesky hardcoded 63 I just perpetrated)
+        buf.extend(repeat_n(0, 8 - ((self.object_name.len() + 63) % 8)));
     }
 }
 
