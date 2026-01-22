@@ -9,6 +9,8 @@ use chrono::{DateTime, Utc};
 
 use crate::shared::{IndexEntryPermissions, IndexEntryType};
 
+pub mod errors;
+
 /// Take an OS-specific path and convert it into the Git index format (path separator is ASCII '/', no leading or trailing separator)
 pub fn path_translate(path: &Path) -> String {
     path.components()

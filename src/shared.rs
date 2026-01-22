@@ -20,7 +20,7 @@ use crate::shared::{
     errors::{FindObjectError, InvalidIndexEntryError, InvalidIndexError, InvalidObjectError},
     helpers::{
         datetime_to_bytes,
-        fs::{path_translate, FileMetadata},
+        fs::{FileMetadata, errors::{PathError, PathErrorKind}, path_translate},
     },
     ignore::{IgnoreInfo, IgnorePattern},
 };
@@ -37,8 +37,8 @@ pub struct Repository {
 
 impl Repository {
     pub fn new(worktree: &PathBuf, allow_invalid: bool) -> Result<Self, anyhow::Error> {
-        let my_worktree = worktree.clone();
-        let my_git_dir = worktree.join(Path::new(".git"));
+        let my_worktree = fs::canonicalize(worktree)?;
+        let my_git_dir = my_worktree.join(Path::new(".git"));
         if !(allow_invalid || my_git_dir.is_dir()) {
             return Err(anyhow!("Not a git directory"));
         }
@@ -147,8 +147,29 @@ impl Repository {
         repo_path(&self.git_dir, path)
     }
 
-    pub fn worktree_path(&self, path: &Path) -> PathBuf {
-        repo_path(&self.worktree, path)
+    pub fn worktree_path<T: AsRef<Path> + ToString>(&self, path: T) -> Result<PathBuf, PathError> {
+        let abs_path = match fs::canonicalize(&path) {
+            Ok(p) => p,
+            Err(_) => return Err(PathError::new(path, PathErrorKind::InvalidPath)),
+        };
+        if !abs_path.starts_with(&self.worktree) {
+            return Err(PathError::new(path, PathErrorKind::PathOutsideRepo));
+        }
+        match abs_path.strip_prefix(&self.worktree) {
+            Ok(p) => Ok(p.to_path_buf()),
+            Err(_) => return Err(PathError::new(path, PathErrorKind::PathOutsideRepo))
+        }
+    }
+
+    pub fn canon_path<T: AsRef<Path> + ToString>(&self, path: T) -> Result<PathBuf, PathError> {
+        let abs_path = match fs::canonicalize(&path) {
+            Ok(p) => p,
+            Err(_) => return Err(PathError::new(path, PathErrorKind::InvalidPath)),
+        };
+        if !abs_path.starts_with(&self.worktree) {
+            return Err(PathError::new(path, PathErrorKind::PathOutsideRepo));
+        }
+        Ok(abs_path)
     }
 
     pub fn file(&self, path: &Path, mkdir: bool) -> Result<Option<PathBuf>, anyhow::Error> {
@@ -557,13 +578,14 @@ impl Repository {
         index: &mut Index,
         hard_delete: bool,
     ) -> Result<bool, anyhow::Error> {
-        let path = path_translate(Path::new(path));
-        if !index.contains_path(&path) {
+        let worktree_path = self.worktree_path(path)?;
+        let index_path = path_translate(&worktree_path);
+        if !index.contains_path(&index_path) {
             return Ok(false);
         }
-        index.remove(&path);
+        index.remove(&index_path);
         if hard_delete {
-            let abs_path = self.worktree_path(Path::new(&path));
+            let abs_path = self.canon_path(&path).context("invalid path to remove")?;
             fs::remove_file(&abs_path)
                 .context(format!("could not delete file {}", abs_path.display()))?;
         }
