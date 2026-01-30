@@ -668,7 +668,6 @@ impl Repository {
         let mut trees = HashMap::<String, Vec<TreeNode>>::new();
         let mut final_tree = String::new();
         for dir in dirs {
-            println!("Storing {dir} as a tree");
             let dir_name = index_path_file(dir);
             let parent_dir = index_path_parent(dir);
             let subdirs = if trees.contains_key(dir) {

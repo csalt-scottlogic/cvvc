@@ -14,8 +14,6 @@ pub struct GlobalConfig {
 
 impl GlobalConfig {
     pub fn from_files<T: AsRef<Path> + Debug>(system_path: Option<T>, user_path: Option<T>) -> Self {
-        println!("System file: {system_path:?}");
-        println!("User file: {user_path:?}");
         GlobalConfig {
             system_config: load_ini_safe(system_path),
             user_config: load_ini_safe(user_path),
