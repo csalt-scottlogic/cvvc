@@ -1,7 +1,7 @@
 use std::{
     collections::VecDeque,
-    fs::{Metadata, ReadDir},
-    io,
+    fs::{Metadata, OpenOptions, ReadDir},
+    io::{self, Write},
     path::{Path, PathBuf},
 };
 
@@ -40,6 +40,13 @@ pub fn index_path_file(path: &str) -> &str {
         let end = path.rfind('/').unwrap() + 1;
         &path[end..]
     }
+}
+
+pub fn write_single_line<T: AsRef<Path>>(path: T, content: &str) -> Result<(), anyhow::Error> {
+    let mut file = OpenOptions::new().write(true).open(path)?;
+    writeln!(file, "{content}")?;
+    file.flush()?;
+    Ok(())
 }
 
 pub fn walk_fs_pruned<'a>(

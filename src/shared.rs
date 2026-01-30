@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Context};
+use chrono::{DateTime, TimeZone};
 use flate2::{bufread::ZlibEncoder, read::ZlibDecoder, Compression};
 use indexmap::IndexMap;
 use ini::Ini;
@@ -7,20 +8,33 @@ use std::{
     cmp::Ordering,
     collections::HashMap,
     env,
+    fmt::Display,
     fs::{self, File},
     io::{BufReader, Cursor, Read, Write},
     path::{Path, PathBuf},
-    str::FromStr, usize,
+    str::FromStr,
+    usize,
 };
 
 use crate::shared::{
-    errors::{FindObjectError, InvalidObjectError}, helpers::{add_parent_dirs_to_map_of_vecs, add_to_map_of_vecs, fs::{errors::{PathError, PathErrorKind}, index_path_file, index_path_parent, path_translate}}, ignore::{IgnoreInfo, IgnorePattern}, index::{Index, IndexEntry}
+    config::default_repo_config,
+    errors::{FindObjectError, InvalidObjectError},
+    helpers::{
+        add_parent_dirs_to_map_of_vecs, add_to_map_of_vecs,
+        fs::{
+            errors::{PathError, PathErrorKind},
+            index_path_file, index_path_parent, path_translate, write_single_line,
+        },
+    },
+    ignore::{IgnoreInfo, IgnorePattern},
+    index::{Index, IndexEntry},
 };
 
+pub mod config;
 mod errors;
 pub mod helpers;
-mod index;
 mod ignore;
+mod index;
 
 pub struct Repository {
     pub worktree: PathBuf,
@@ -51,7 +65,7 @@ impl Repository {
             return Err(anyhow!("Configuration file missing"));
         }
 
-        let config = wrapped_config.unwrap_or_else(|| default_config());
+        let config = wrapped_config.unwrap_or_else(|| default_repo_config());
 
         if !allow_invalid {
             let core_section = match config.section(Some("core")) {
@@ -150,7 +164,7 @@ impl Repository {
         }
         match abs_path.strip_prefix(&self.worktree) {
             Ok(p) => Ok(p.to_path_buf()),
-            Err(_) => return Err(PathError::new(path, PathErrorKind::PathOutsideRepo))
+            Err(_) => return Err(PathError::new(path, PathErrorKind::PathOutsideRepo)),
         }
     }
 
@@ -528,6 +542,15 @@ impl Repository {
         }
     }
 
+    pub fn update_branch(&self, branch_name: &str, commit_id: &str) -> Result<(), anyhow::Error> {
+        let ref_path = self.git_dir.join("refs").join("heads").join(branch_name);
+        write_single_line(ref_path, commit_id)
+    }
+
+    pub fn update_head(&self, commit_id: &str) -> Result<(), anyhow::Error> {
+        write_single_line(self.git_dir.join("HEAD") , commit_id)
+    }
+
     pub fn flatten_head_tree(&self) -> Result<HashMap<String, String>, anyhow::Error> {
         self.flatten_tree_recursive("HEAD", "")
     }
@@ -625,7 +648,7 @@ impl Repository {
 
     pub fn check_index(&self, index: &Index) -> Result<Option<String>, anyhow::Error> {
         for entry in index.entries() {
-            if self.resolve_object(&entry.object_id)?.len() != 1  {
+            if self.resolve_object(&entry.object_id)?.len() != 1 {
                 return Ok(Some(entry.object_id.to_string()));
             }
         }
@@ -648,7 +671,11 @@ impl Repository {
             println!("Storing {dir} as a tree");
             let dir_name = index_path_file(dir);
             let parent_dir = index_path_parent(dir);
-            let subdirs = if trees.contains_key(dir) { &trees[dir] } else { &Vec::new() };
+            let subdirs = if trees.contains_key(dir) {
+                &trees[dir]
+            } else {
+                &Vec::new()
+            };
             let dir_id = self.store_partial_index(&dir_contents[dir], subdirs)?;
             if dir == "" {
                 final_tree = dir_id;
@@ -660,9 +687,16 @@ impl Repository {
         Ok(final_tree)
     }
 
-    fn store_partial_index(&self, entries: &[&IndexEntry], subtrees: &[TreeNode]) -> Result<String, anyhow::Error> {
+    fn store_partial_index(
+        &self,
+        entries: &[&IndexEntry],
+        subtrees: &[TreeNode],
+    ) -> Result<String, anyhow::Error> {
         let mut tree = Tree::new();
-        let mut nodes = entries.iter().map(|ixe| TreeNode::from_index_entry(ixe)).collect::<Vec<TreeNode>>();
+        let mut nodes = entries
+            .iter()
+            .map(|ixe| TreeNode::from_index_entry(ixe))
+            .collect::<Vec<TreeNode>>();
         nodes.append(&mut subtrees.to_vec());
         tree.add_entries(&mut nodes);
         object_write(&tree, Some(self))
@@ -825,6 +859,35 @@ impl Commit {
             return Err(InvalidObjectError {});
         };
         Ok(target.to_string())
+    }
+
+    pub fn new<Tz>(
+        tree_id: &str,
+        parent_id: Option<&str>,
+        author: &str,
+        committer: &str,
+        timestamp: &DateTime<Tz>,
+        message: &str,
+    ) -> Self
+    where
+        Tz: TimeZone,
+        Tz::Offset: Display,
+    {
+        let mut map = IndexMap::<String, Vec<String>>::new();
+        map.insert(String::from("tree"), vec![String::from(tree_id)]);
+        if let Some(parent_id) = parent_id {
+            map.insert(String::from("parent"), vec![String::from(parent_id)]);
+        }
+        map.insert(
+            String::from("author"),
+            vec![format!("{} {}", author, timestamp.format("%s %z"))],
+        );
+        map.insert(
+            String::from("committer"),
+            vec![format!("{} {}", committer, timestamp.format("%s %z"))],
+        );
+        let message = message.trim().to_owned() + "\n";
+        Commit { map, message }
     }
 }
 
@@ -1019,15 +1082,6 @@ fn check_and_create_dir(path: PathBuf, mkdir: bool) -> Result<Option<PathBuf>, a
     Ok(None)
 }
 
-fn default_config() -> Ini {
-    let mut conf = Ini::new();
-    conf.with_section(Some("core"))
-        .set("repositoryformatversion", "0")
-        .set("filemode", "false")
-        .set("bare", "false");
-    conf
-}
-
 pub fn repo_find(path: &Path) -> Result<Option<Repository>, anyhow::Error> {
     let path_buf = path.to_path_buf().canonicalize()?;
     if path_buf.join(Path::new(".git")).is_dir() {
@@ -1103,7 +1157,7 @@ impl TreeNode {
         Self {
             mode: ixe.mode(),
             path: Path::new(&ixe.object_file_name()).to_path_buf(),
-            object_name: ixe.object_id.to_string()
+            object_name: ixe.object_id.to_string(),
         }
     }
 
@@ -1111,7 +1165,7 @@ impl TreeNode {
         Self {
             mode: 0o40000,
             path: Path::new(dir_name).to_path_buf(),
-            object_name: object_id.to_string()
+            object_name: object_id.to_string(),
         }
     }
 
@@ -1281,8 +1335,6 @@ fn stored_object_matches_kind(kind: &ObjectKind, obj: &StoredObject) -> bool {
         }
     }
 }
-
-
 
 pub fn object_hash_file<P: AsRef<Path>>(
     path: P,

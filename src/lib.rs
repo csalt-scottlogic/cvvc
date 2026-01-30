@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
 
+use crate::shared::config::GlobalConfig;
+
 mod checkout;
 mod init;
 mod log;
@@ -48,6 +50,25 @@ enum Commands {
         /// The directory to check out into
         #[arg(value_name = "DIR", default_value = ".")]
         path: String,
+    },
+    /// Create a new commit object
+    #[command(name = "commit-tree", arg_required_else_help = true)]
+    CommitTree {
+        /// An existing tree object ID
+        #[arg(value_name = "TREE")]
+        tree_id: String,
+        /// Each -p is the ID of a parent commit
+        #[arg(short)]
+        parents: Vec<String>,
+        /// The commit log message
+        #[arg(short, long)]
+        message: String,
+    },
+    /// Record changes to the repository
+    #[command()]
+    Commit {
+        #[arg(short, long)]
+        message: Option<String>,
     },
     /// Compute object ID and optionally create an object from a file
     #[command(name = "hash-object")]
@@ -137,11 +158,18 @@ enum Commands {
 
 pub fn parse_dispatch() {
     let args = Cli::parse();
+    let config = GlobalConfig::from_default_files();
     match args.command {
         Commands::Add { paths } => staging::add_files(&paths),
         Commands::CatFile { obj_type, obj_path } => objects::cat_file(&obj_type, &obj_path),
         Commands::CheckIgnore { paths } => staging::check_ignore(&paths),
         Commands::Checkout { obj, path } => checkout::checkout(&obj, &path),
+        Commands::Commit { message } => staging::full_commit(&config, message),
+        Commands::CommitTree {
+            tree_id,
+            parents,
+            message,
+        } => staging::create_commit_for_tree(&tree_id, &parents, &message, &config),
         Commands::HashObject {
             write,
             obj_type,

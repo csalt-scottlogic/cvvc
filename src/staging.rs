@@ -1,10 +1,11 @@
 use anyhow::{anyhow, Context};
 use chrono::{DateTime, Utc};
-use std::{fs, path::Path};
+use std::{fs, path::Path, time::SystemTime};
 
 use crate::shared::{
+    config::GlobalConfig,
     helpers::fs::{path_translate, path_translate_rev, walk_fs_pruned},
-    object_hash_file, repo_find, Repository,
+    object_hash_file, object_write, repo_find, Commit, Repository,
 };
 
 pub fn list_files(verbose: bool) -> Result<(), anyhow::Error> {
@@ -211,14 +212,73 @@ fn status_worktree(repo: &Repository) -> Result<bool, anyhow::Error> {
 pub fn write_index(no_checks: bool) -> Result<(), anyhow::Error> {
     let repo = repo_find(Path::new("."))?;
     let Some(repo) = repo else { return Ok(()) };
+    println!("{}", write_index_repo(&repo, no_checks)?);
+    Ok(())
+}
+
+fn write_index_repo(repo: &Repository, no_checks: bool) -> Result<String, anyhow::Error> {
     let index = repo.index_read()?;
     if !no_checks {
         if let Some(obj_id) = repo.check_index(&index)? {
-            eprintln!("Object {obj_id} is missing");
-            return Ok(());
+            return Err(anyhow!("Object {obj_id} is missing"));
         }
     }
-    let root_id = repo.store_index(&index)?;
-    println!("{root_id}");
+    repo.store_index(&index)
+}
+
+pub fn create_commit_for_tree(
+    tree_id: &str,
+    parents: &[String],
+    message: &str,
+    config: &GlobalConfig,
+) -> Result<(), anyhow::Error> {
+    let repo = repo_find(Path::new("."))?;
+    let Some(repo) = repo else { return Ok(()) };
+    let parent_id = if parents.len() > 0 {
+        Some(parents[0].as_str())
+    } else {
+        None
+    };
+    let commit = Commit::new(
+        tree_id,
+        parent_id,
+        &config.author(),
+        &config.committer(),
+        &DateTime::<Utc>::from(SystemTime::now()),
+        message,
+    );
+    let commit_id = object_write(&commit, Some(&repo))?;
+    println!("{commit_id}");
     Ok(())
+}
+
+fn create_commit_for_repo_tree(repo: &Repository, tree_id: &str,
+    parent: Option<&str>,
+    message: &str,
+    config: &GlobalConfig,
+) -> Result<String, anyhow::Error> {
+    let commit = Commit::new(
+        tree_id,
+        parent,
+        &config.author(),
+        &config.committer(),
+        &DateTime::<Utc>::from(SystemTime::now()),
+        message,
+    );
+    let commit_id = object_write(&commit, Some(&repo))?;
+    Ok(commit_id)
+}
+
+pub fn full_commit(config: &GlobalConfig, message: Option<String>) -> Result<(), anyhow::Error> {
+    let repo = repo_find(Path::new("."))?;
+    let Some(repo) = repo else { return Ok(()) };
+    let tree_id = write_index_repo(&repo, false)?;
+    let parent_id = repo.ref_resolve("HEAD")?;
+    let commit_id = create_commit_for_repo_tree(&repo, &tree_id, parent_id.as_deref(), message.as_deref().unwrap_or("User forgot to enter commit message"), config)?;
+    let current_branch = repo.current_branch()?;
+    if let Some(branch) = current_branch {
+        repo.update_branch(&branch, &commit_id)
+    } else {
+        repo.update_head(&commit_id)
+    }
 }
