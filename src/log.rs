@@ -1,37 +1,36 @@
 use crate::shared::{repo_find, Repository, StoredObject};
 use std::{collections::HashSet, path::Path};
 
-pub fn cmd(commit: &str) {
+pub fn cmd(commit: &str) -> Result<(), anyhow::Error> {
     let repo = repo_find(Path::new("."));
     if let Ok(Some(the_repo)) = repo {
-        log_from_repo(the_repo, commit)
+        log_from_repo(the_repo, commit)?;
     }
+    Ok(())
 }
 
-pub fn log_from_repo(repo: Repository, commit: &str) {
+pub fn log_from_repo(repo: Repository, commit: &str) -> Result<(), anyhow::Error> {
     let mut seen = HashSet::<String>::new();
-    let starting_node = repo.find_object(commit, Some(crate::shared::ObjectKind::Commit), true);
-    let Ok(starting_node) = starting_node else {
-        return;
-    };
+    let starting_node = repo.find_object(commit, Some(crate::shared::ObjectKind::Commit), true)?;
 
     println!("digraph ryaglog{{");
     println!("  node[shape=rect]");
-    log_object_graphviz(&repo, &starting_node, &mut seen);
+    log_object_graphviz(&repo, &starting_node, &mut seen)?;
     println!("}}");
+    Ok(())
 }
 
 pub fn log_object_graphviz<'a>(
     repo: &'a Repository,
     object_name: &'a str,
     seen: &mut HashSet<String>,
-) {
+) -> Result<(), anyhow::Error> {
     if seen.contains(object_name) {
-        return;
+        return Ok(());
     }
     seen.insert(String::from(object_name));
 
-    let commit = repo.object_read(object_name).unwrap();
+    let commit = repo.object_read(object_name)?;
     if let Some(StoredObject::Commit(commit)) = commit {
         let message = commit
             .message
@@ -39,19 +38,19 @@ pub fn log_object_graphviz<'a>(
             .replace("\\", "\\\\")
             .replace("\"", "\\\"");
         let printable_message = message.split("\n").next().unwrap();
-        let object_name_start: &str;
-        if object_name.len() > 7 {
-            object_name_start = &object_name[..8];
+        let object_name_start = if object_name.len() > 7 {
+            &object_name[..8]
         } else {
-            object_name_start = object_name;
-        }
+            object_name
+        };
         println!("  c_{object_name} [label=\"{object_name_start}: {printable_message}\"]");
 
         if commit.map().contains_key("parent") {
             for p in commit.map()["parent"].iter() {
                 println!("  c_{object_name} -> c_{p};");
-                log_object_graphviz(repo, &p, seen);
+                log_object_graphviz(repo, p, seen)?;
             }
         }
     }
+    Ok(())
 }

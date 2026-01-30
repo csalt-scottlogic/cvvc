@@ -25,7 +25,7 @@ fn checkout_from_repo(repo: &Repository, obj_name: &str, dest: &str) -> Result<(
             let Some(tree_entry) = tree_entry.first() else {
                 return Err(anyhow!("Commit {} has an empty tree entry", obj_name));
             };
-            let Some(tree_obj) = repo.object_read(&tree_entry)? else {
+            let Some(tree_obj) = repo.object_read(tree_entry)? else {
                 return Err(anyhow!("Commit {} points to a non-existent tree", obj_name));
             };
             let StoredObject::Tree(tree_obj) = tree_obj else {
@@ -48,14 +48,14 @@ fn checkout_from_repo(repo: &Repository, obj_name: &str, dest: &str) -> Result<(
         if !path.is_dir() {
             return Err(anyhow!("Path {} is not a directory", dest));
         }
-        if !is_dir_empty(&path)? {
+        if !is_dir_empty(path)? {
             return Err(anyhow!("Path {} is not empty", dest));
         }
     } else {
-        fs::create_dir_all(&path)?;
+        fs::create_dir_all(path)?;
     }
 
-    tree_obj.checkout(repo, &path.to_path_buf())
+    tree_obj.checkout(repo, path)
 }
 
 fn is_dir_empty(dir: &Path) -> Result<bool, anyhow::Error> {

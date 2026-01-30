@@ -21,8 +21,8 @@ where
     (dt.timestamp() as u32)
         .to_be_bytes()
         .iter()
-        .map(|b| *b)
-        .chain(dt.timestamp_subsec_nanos().to_be_bytes().iter().map(|b| *b))
+        .copied()
+        .chain(dt.timestamp_subsec_nanos().to_be_bytes().iter().copied())
         .collect::<Vec<u8>>()
         .into_iter()
 }
@@ -42,7 +42,7 @@ pub fn add_parent_dirs_to_map_of_vecs<T>(map: &mut HashMap<String, Vec<T>>, path
         if !map.contains_key(shrunk_path) {
             map.insert(shrunk_path.to_string(), Vec::new());
         }
-        if shrunk_path == "" {
+        if shrunk_path.is_empty() {
             break;
         }
         shrunk_path = index_path_parent(shrunk_path);

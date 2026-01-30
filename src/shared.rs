@@ -13,7 +13,6 @@ use std::{
     io::{BufReader, Cursor, Read, Write},
     path::{Path, PathBuf},
     str::FromStr,
-    usize,
 };
 
 use crate::shared::{
@@ -49,13 +48,13 @@ impl Repository {
         if !(allow_invalid || my_git_dir.is_dir()) {
             return Err(anyhow!("Not a git directory"));
         }
-        let config_path = repo_path(&my_git_dir, Path::new("config"));
+        let config_path = my_git_dir.join("config");
         let mut wrapped_config: Option<Ini> = None;
         if config_path.is_file() {
             let loaded_config = Ini::load_from_file(config_path);
-            if loaded_config.is_err() {
+            if let Err(lce) = loaded_config {
                 if !allow_invalid {
-                    return Err(anyhow::Error::from(loaded_config.unwrap_err())
+                    return Err(anyhow::Error::from(lce)
                         .context("Could not open configuration file"));
                 }
             } else {
@@ -65,7 +64,7 @@ impl Repository {
             return Err(anyhow!("Configuration file missing"));
         }
 
-        let config = wrapped_config.unwrap_or_else(|| default_repo_config());
+        let config = wrapped_config.unwrap_or_else(default_repo_config);
 
         if !allow_invalid {
             let core_section = match config.section(Some("core")) {
@@ -151,7 +150,7 @@ impl Repository {
     }
 
     pub fn path(&self, path: &Path) -> PathBuf {
-        repo_path(&self.git_dir, path)
+        self.git_dir.join(path)
     }
 
     pub fn worktree_path<T: AsRef<Path> + ToString>(&self, path: T) -> Result<PathBuf, PathError> {
@@ -164,7 +163,7 @@ impl Repository {
         }
         match abs_path.strip_prefix(&self.worktree) {
             Ok(p) => Ok(p.to_path_buf()),
-            Err(_) => return Err(PathError::new(path, PathErrorKind::PathOutsideRepo)),
+            Err(_) => Err(PathError::new(path, PathErrorKind::PathOutsideRepo)),
         }
     }
 
@@ -210,7 +209,7 @@ impl Repository {
         follow_tags: bool,
     ) -> Result<String, anyhow::Error> {
         let resolve_result = self.resolve_object(name)?;
-        if resolve_result.len() == 0 {
+        if resolve_result.is_empty() {
             return Err(anyhow::Error::from(FindObjectError::none()));
         }
         if resolve_result.len() > 1 {
@@ -249,7 +248,7 @@ impl Repository {
 
     fn resolve_object(&self, name: &str) -> Result<Vec<String>, anyhow::Error> {
         let name = name.trim();
-        if name == "" {
+        if name.is_empty() {
             return Ok(Vec::<String>::new());
         }
 
@@ -370,8 +369,8 @@ impl Repository {
             return Ok(None);
         }
         let ref_conts = fs::read_to_string(path)?;
-        if ref_conts.starts_with("ref: ") {
-            return self.ref_resolve(&ref_conts[5..].trim());
+        if let Some(ref_target) = ref_conts.strip_prefix("ref: ") {
+            return self.ref_resolve(ref_target.trim());
         }
         Ok(Some(ref_conts.trim().to_string()))
     }
@@ -384,7 +383,7 @@ impl Repository {
             Some(p) => (p, Some(&p.to_path_buf())),
             None => (Path::new("refs"), None),
         };
-        self.ref_list_dir_internal(&path, root_path)
+        self.ref_list_dir_internal(path, root_path)
     }
 
     fn ref_list_dir_internal(
@@ -440,13 +439,13 @@ impl Repository {
         };
         println!("{}", ref_file_path.display());
         let mut ref_file = File::create(&ref_file_path)?;
-        ref_file.write(target_name.as_bytes())?;
-        ref_file.write("\n".as_bytes())?;
+        ref_file.write_all(target_name.as_bytes())?;
+        ref_file.write_all("\n".as_bytes())?;
         Ok(())
     }
 
     pub fn index_read(&self) -> Result<Index, anyhow::Error> {
-        let file = self.file(&Path::new("index"), false)?;
+        let file = self.file(Path::new("index"), false)?;
         let file = match file {
             Some(f) => f,
             None => {
@@ -459,8 +458,8 @@ impl Repository {
     }
 
     pub fn index_write(&self, index: &Index) -> Result<(), anyhow::Error> {
-        let tmp_file = self.path(&Path::new("index.lck"));
-        let final_file = self.path(&Path::new("index"));
+        let tmp_file = self.path(Path::new("index.lck"));
+        let final_file = self.path(Path::new("index"));
         let mut data = Vec::<u8>::new();
         index.serialise(&mut data);
         fs::write(&tmp_file, &data).context("error writing temporary index")?;
@@ -479,7 +478,7 @@ impl Repository {
         let config_dir_var = env::var("XDG_CONFIG_HOME");
         let config_dir = match config_dir_var {
             Ok(var) => Some(PathBuf::from_str(&var).unwrap().join("git")),
-            Err(_) => env::home_dir().and_then(|hd| Some(hd.join(".config").join("git"))),
+            Err(_) => env::home_dir().map(|hd| hd.join(".config").join("git")),
         };
         if let Some(config_dir) = config_dir {
             let global_exclude_file = config_dir.join("ignore");
@@ -519,7 +518,7 @@ impl Repository {
                 entry_dir,
                 String::from_utf8_lossy(blob.data())
                     .lines()
-                    .filter_map(|line| IgnorePattern::from_str(line))
+                    .filter_map(IgnorePattern::from_str)
                     .collect(),
             );
         }
@@ -535,8 +534,8 @@ impl Repository {
             return Err(anyhow!("missing HEAD"));
         };
         let head_conts = std::fs::read_to_string(head).context("failed to read HEAD")?;
-        if head_conts.starts_with("ref: refs/heads/") {
-            Ok(Some(head_conts[16..].trim().to_string()))
+        if let Some(head_target) = head_conts.strip_prefix("ref: refs/heads/") {
+            Ok(Some(head_target.trim().to_string()))
         } else {
             Ok(None)
         }
@@ -548,7 +547,7 @@ impl Repository {
     }
 
     pub fn update_head(&self, commit_id: &str) -> Result<(), anyhow::Error> {
-        write_single_line(self.git_dir.join("HEAD") , commit_id)
+        write_single_line(self.git_dir.join("HEAD"), commit_id)
     }
 
     pub fn flatten_head_tree(&self) -> Result<HashMap<String, String>, anyhow::Error> {
@@ -601,7 +600,7 @@ impl Repository {
         }
         index.remove(&index_path);
         if hard_delete {
-            let abs_path = self.canon_path(&path).context("invalid path to remove")?;
+            let abs_path = self.canon_path(path).context("invalid path to remove")?;
             fs::remove_file(&abs_path)
                 .context(format!("could not delete file {}", abs_path.display()))?;
         }
@@ -664,7 +663,7 @@ impl Repository {
         }
         let mut dirs = dir_contents.keys().collect::<Vec<&String>>();
         // reverse sort by length
-        dirs.sort_by(|a, b| b.len().cmp(&a.len()));
+        dirs.sort_by_key(|a| std::cmp::Reverse(a.len()));
         let mut trees = HashMap::<String, Vec<TreeNode>>::new();
         let mut final_tree = String::new();
         for dir in dirs {
@@ -676,7 +675,7 @@ impl Repository {
                 &Vec::new()
             };
             let dir_id = self.store_partial_index(&dir_contents[dir], subdirs)?;
-            if dir == "" {
+            if dir.is_empty() {
                 final_tree = dir_id;
             } else {
                 let dir_node = TreeNode::from_subtree(dir_name, &dir_id);
@@ -706,7 +705,7 @@ fn ignore_file_read(path: &PathBuf) -> Result<Vec<IgnorePattern>, anyhow::Error>
     let file_contents = std::fs::read_to_string(path).context("error reading ignore file")?;
     Ok(file_contents
         .lines()
-        .filter_map(|line| IgnorePattern::from_str(line))
+        .filter_map(IgnorePattern::from_str)
         .collect())
 }
 
@@ -757,7 +756,7 @@ impl StoredObject {
     }
 }
 
-pub fn object_write<'a>(
+pub fn object_write(
     obj: &impl GitObject,
     repo: Option<&Repository>,
 ) -> Result<String, anyhow::Error> {
@@ -773,18 +772,16 @@ pub fn object_write<'a>(
     hasher.update(&content);
     let hash = hex::encode(hasher.finalize());
 
-    if repo.is_some() {
-        let the_repo = repo.unwrap();
-        let path = the_repo.file(
+    if let Some(repo) = repo {
+        let path = repo.file(
             &["objects", &hash[0..2], &hash[2..]]
                 .iter()
                 .collect::<PathBuf>(),
             true,
         )?;
-        if path.is_some() {
-            let the_path = path.unwrap();
-            if !the_path.exists() {
-                let mut file = fs::File::create(the_path)?;
+        if let Some(path) = path {
+            if !path.exists() {
+                let mut file = fs::File::create(path)?;
                 let mut compressor =
                     ZlibEncoder::new(BufReader::new(Cursor::new(content)), Compression::best());
                 std::io::copy(&mut compressor, &mut file)?;
@@ -911,10 +908,7 @@ impl GitObject for Commit {
     {
         let mut map = IndexMap::<String, Vec<String>>::new();
         let message = kvlm_parse(data, &mut map).expect("Failed to parse commit");
-        Commit {
-            map: map,
-            message: message,
-        }
+        Commit { map, message }
     }
 }
 
@@ -975,22 +969,19 @@ impl GitObject for Tag {
     {
         let mut map = IndexMap::<String, Vec<String>>::new();
         let message = kvlm_parse(data, &mut map).expect("Failed to parse tag");
-        Tag {
-            map: map,
-            message: message,
-        }
+        Tag { map, message }
     }
 }
 
-pub fn kvlm_parse<'a>(
-    raw_data: &'a [u8],
+pub fn kvlm_parse(
+    raw_data: &[u8],
     map: &mut IndexMap<String, Vec<String>>,
 ) -> Result<String, anyhow::Error> {
     let space_index = raw_data.iter().position(|x| *x == 0x20);
     let nl_index = raw_data.iter().position(|x| *x == 0x0a);
 
     if space_index.is_none()
-        || nl_index.unwrap_or_else(|| usize::max_value()) < space_index.unwrap()
+        || nl_index.unwrap_or(usize::MAX) < space_index.unwrap()
     {
         let message = String::from_utf8(raw_data[1..].to_vec())?;
         return Ok(message);
@@ -1020,7 +1011,7 @@ pub fn kvlm_parse<'a>(
 pub fn kvlm_serialise(map: &IndexMap<String, Vec<String>>, message: &str, buf: &mut Vec<u8>) {
     buf.clear();
     for k in map.keys() {
-        if *k == "" {
+        if k.is_empty() {
             continue;
         }
         let val = &map[k];
@@ -1041,12 +1032,8 @@ pub fn kvlm_serialise(map: &IndexMap<String, Vec<String>>, message: &str, buf: &
     buf.append(message.as_bytes().to_vec().as_mut());
 }
 
-fn repo_path(git_dir: &PathBuf, path: &Path) -> PathBuf {
-    git_dir.join(path)
-}
-
 fn repo_file(
-    git_dir: &PathBuf,
+    git_dir: &Path,
     path: &Path,
     mkdir: bool,
 ) -> Result<Option<PathBuf>, anyhow::Error> {
@@ -1056,14 +1043,11 @@ fn repo_file(
     }
     let base_path = path.parent().unwrap_or(Path::new(""));
     let dir_path = repo_dir(git_dir, base_path, mkdir)?;
-    Ok(match dir_path {
-        Some(the_path) => Some(the_path.join(file_name.unwrap())),
-        None => None,
-    })
+    Ok(dir_path.map(|p| p.join(file_name.unwrap())))
 }
 
-fn repo_dir(git_dir: &PathBuf, path: &Path, mkdir: bool) -> Result<Option<PathBuf>, anyhow::Error> {
-    let path = repo_path(git_dir, path);
+fn repo_dir(git_dir: &Path, path: &Path, mkdir: bool) -> Result<Option<PathBuf>, anyhow::Error> {
+    let path = git_dir.join(path);
     check_and_create_dir(path, mkdir)
 }
 
@@ -1145,9 +1129,9 @@ impl TreeNode {
         Ok(TreeNodeParsingResult {
             consumed: space_pos + null_pos + 22,
             node: TreeNode {
-                mode: mode,
+                mode,
                 path: path_buf,
-                object_name: object_name,
+                object_name,
             },
         })
     }
@@ -1191,10 +1175,7 @@ impl PartialOrd for TreeNode {
 
 impl PartialEq for TreeNode {
     fn eq(&self, rhs: &Self) -> bool {
-        match self.cmp(rhs) {
-            Ordering::Equal => true,
-            _ => false,
-        }
+        matches!(self.cmp(rhs), Ordering::Equal)
     }
 }
 
@@ -1241,10 +1222,10 @@ impl Tree {
     }
 
     fn sort(&mut self) {
-        self.entries.sort_by(|a, b| a.cmp(b));
+        self.entries.sort();
     }
 
-    pub fn checkout(&self, repo: &Repository, path: &PathBuf) -> Result<(), anyhow::Error> {
+    pub fn checkout(&self, repo: &Repository, path: &Path) -> Result<(), anyhow::Error> {
         for entry in &self.entries {
             let obj = repo.object_read(&entry.object_name)?;
             let Some(obj) = obj else {
@@ -1305,32 +1286,16 @@ impl GitObject for Tree {
 fn stored_object_matches_kind(kind: &ObjectKind, obj: &StoredObject) -> bool {
     match kind {
         ObjectKind::Blob => {
-            if let StoredObject::Blob(_) = obj {
-                true
-            } else {
-                false
-            }
+            matches!(obj, StoredObject::Blob(_))
         }
         ObjectKind::Tree => {
-            if let StoredObject::Tree(_) = obj {
-                true
-            } else {
-                false
-            }
+            matches!(obj, StoredObject::Tree(_))
         }
         ObjectKind::Commit => {
-            if let StoredObject::Commit(_) = obj {
-                true
-            } else {
-                false
-            }
+            matches!(obj, StoredObject::Commit(_))
         }
         ObjectKind::Tag => {
-            if let StoredObject::Tag(_) = obj {
-                true
-            } else {
-                false
-            }
+            matches!(obj, StoredObject::Tag(_))
         }
     }
 }

@@ -9,18 +9,16 @@ pub struct IgnorePattern {
 impl IgnorePattern {
     pub fn from_str(text: &str) -> Option<Self> {
         let text = text.trim();
-        if text.len() == 0 {
+        if text.is_empty() || text.starts_with("#") {
             None
-        } else if text.starts_with("#") {
-            None
-        } else if text.starts_with("!/") {
-            Self::patternify(&text[2..], false, true)
-        } else if text.starts_with("!") {
-            Self::patternify(&text[1..], false, false)
-        } else if text.starts_with("/") {
-            Self::patternify(&text[1..], true, true)
-        } else if text.starts_with("\\") {
-            Self::patternify(&text[1..], true, false)
+        } else if let Some(t) = text.strip_prefix("!/") {
+            Self::patternify(t, false, true)
+        } else if let Some(t) = text.strip_prefix("!") {
+            Self::patternify(t, false, false)
+        } else if let Some(t) = text.strip_prefix("/") {
+            Self::patternify(t, true, true)
+        } else if let Some(t) = text.strip_prefix("\\") {
+            Self::patternify(t, true, false)
         } else {
             Self::patternify(text, true, false)
         }
@@ -39,7 +37,7 @@ impl IgnorePattern {
         let mut result: Option<bool> = None;
         for pattern in rules {
             let match_result = pattern.matches(text);
-            if let Some(_) = match_result {
+            if match_result.is_some() {
                 result = match_result;
             }
         }
@@ -50,8 +48,8 @@ impl IgnorePattern {
         let relative = match relative {
             true => true,
             false => {
-                if text.ends_with("/") {
-                    text[..(text.len() - 1)].contains("/")
+                if let Some(t) = text.strip_suffix("/") {
+                    t.contains("/")
                 } else {
                     text.contains("/")
                 }
@@ -104,7 +102,7 @@ impl IgnoreInfo {
             None => String::new(),
             Some(scp) => {
                 let str_scp = scp.to_string_lossy();
-                if str_scp == "" {
+                if str_scp.is_empty() {
                     String::new()
                 } else {
                     str_scp.to_string()
@@ -115,11 +113,11 @@ impl IgnoreInfo {
         if self.scoped.contains_key(&str_scope) {
             //println!("Checking at this level");
             let result = IgnorePattern::matches_set(&self.scoped[&str_scope], &str_path);
-            if let Some(_) = result {
+            if result.is_some() {
                 return result;
             }
         }
-        if str_scope != "" {
+        if !str_scope.is_empty() {
             self.check_scoped_recursive(path, scope.unwrap().parent())
         } else {
             None

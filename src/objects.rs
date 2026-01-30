@@ -37,21 +37,20 @@ fn cat_file_from_repo(
     };
     let obj_hash = repo.find_object(obj_name, kind, false)?;
     let obj = repo.object_read(&obj_hash)?;
-    if obj.is_some() {
+    if let Some(obj) = obj {
         let mut buf = Vec::<u8>::new();
-        obj.unwrap().serialise(&mut buf);
+        obj.serialise(&mut buf);
         stdout().write_all(&buf)?;
     }
     Ok(())
 }
 
 pub fn object_hash(write: bool, obj_type: &str, filename: &str) -> Result<(), anyhow::Error> {
-    let repo: Option<Repository>;
-    if write {
-        repo = repo_find(Path::new("."))?;
+    let repo = if write {
+        repo_find(Path::new("."))?
     } else {
-        repo = None
-    }
+        None
+    };
 
     let sha = object_hash_file(filename, obj_type, repo.as_ref())?;
     println!("{}", sha);

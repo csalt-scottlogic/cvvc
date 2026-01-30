@@ -92,7 +92,7 @@ pub fn status() -> Result<(), anyhow::Error> {
     } else if !staged_changes {
         println!("nothing to commit, working tree clean");
     }
-    println!("");
+    println!();
     Ok(())
 }
 
@@ -111,7 +111,7 @@ fn status_branch(repo: &Repository) -> Result<(), anyhow::Error> {
             }
         }
     };
-    println!("");
+    println!();
     Ok(())
 }
 
@@ -132,13 +132,13 @@ fn status_index(repo: &Repository) -> Result<bool, anyhow::Error> {
     for entry in committed_tree.keys() {
         to_print.push(format!("\tdeleted:    {}", entry));
     }
-    let printable = to_print.len() > 0;
+    let printable = !to_print.is_empty();
     if printable {
         println!("Changes to be committed:");
         for line in to_print {
             println!("{line}");
         }
-        println!("");
+        println!();
     }
     Ok(printable)
 }
@@ -191,15 +191,15 @@ fn status_worktree(repo: &Repository) -> Result<bool, anyhow::Error> {
         }
         files.retain(|f| *f != entry.object_name);
     }
-    let mut printable = to_print.len() > 0;
+    let mut printable = !to_print.is_empty();
     if printable {
         println!("Changes not staged for commit:");
         for line in to_print {
             println!("{line}");
         }
-        println!("");
+        println!();
     }
-    if files.len() > 0 {
+    if !files.is_empty() {
         printable = true;
         println!("Untracked files:");
         for f in files {
@@ -234,7 +234,7 @@ pub fn create_commit_for_tree(
 ) -> Result<(), anyhow::Error> {
     let repo = repo_find(Path::new("."))?;
     let Some(repo) = repo else { return Ok(()) };
-    let parent_id = if parents.len() > 0 {
+    let parent_id = if !parents.is_empty() {
         Some(parents[0].as_str())
     } else {
         None
@@ -252,7 +252,9 @@ pub fn create_commit_for_tree(
     Ok(())
 }
 
-fn create_commit_for_repo_tree(repo: &Repository, tree_id: &str,
+fn create_commit_for_repo_tree(
+    repo: &Repository,
+    tree_id: &str,
     parent: Option<&str>,
     message: &str,
     config: &GlobalConfig,
@@ -265,7 +267,7 @@ fn create_commit_for_repo_tree(repo: &Repository, tree_id: &str,
         &DateTime::<Utc>::from(SystemTime::now()),
         message,
     );
-    let commit_id = object_write(&commit, Some(&repo))?;
+    let commit_id = object_write(&commit, Some(repo))?;
     Ok(commit_id)
 }
 
@@ -274,7 +276,15 @@ pub fn full_commit(config: &GlobalConfig, message: Option<String>) -> Result<(),
     let Some(repo) = repo else { return Ok(()) };
     let tree_id = write_index_repo(&repo, false)?;
     let parent_id = repo.ref_resolve("HEAD")?;
-    let commit_id = create_commit_for_repo_tree(&repo, &tree_id, parent_id.as_deref(), message.as_deref().unwrap_or("User forgot to enter commit message"), config)?;
+    let commit_id = create_commit_for_repo_tree(
+        &repo,
+        &tree_id,
+        parent_id.as_deref(),
+        message
+            .as_deref()
+            .unwrap_or("User forgot to enter commit message"),
+        config,
+    )?;
     let current_branch = repo.current_branch()?;
     if let Some(branch) = current_branch {
         repo.update_branch(&branch, &commit_id)

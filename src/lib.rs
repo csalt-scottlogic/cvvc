@@ -178,7 +178,7 @@ pub fn parse_dispatch() {
         Commands::Init { pathname } => init::cmd(&pathname),
         Commands::ListFiles { verbose } => staging::list_files(verbose),
         Commands::ListTree { recursive, tree } => objects::list_tree(recursive, &tree),
-        Commands::Log { commit } => Ok(log::cmd(&commit)),
+        Commands::Log { commit } => log::cmd(&commit),
         Commands::Remove {
             index_only,
             ignore_no_matches,

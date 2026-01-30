@@ -33,7 +33,7 @@ pub fn create_tag(name: &str, target: &str, chunky: bool) -> Result<(), anyhow::
 
 fn create_chunky_tag(repo: &Repository, name: &str, target: &str) -> Result<(), anyhow::Error> {
     let tag = Tag::create(target, name);
-    let tag_id = object_write(&tag, Some(&repo))?;
+    let tag_id = object_write(&tag, Some(repo))?;
     let name = format!("tags/{name}");
     repo.ref_create(&name, &tag_id)
 }

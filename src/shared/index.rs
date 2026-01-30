@@ -102,7 +102,7 @@ pub struct IndexEntry {
 impl IndexEntry {
     pub fn byte_length(&self) -> usize {
         // Round up to 8-byte boundary
-        let blocks = (self.object_name.as_bytes().len() + 63) / 8 + 1;
+        let blocks = (self.object_name.len() + 63) / 8 + 1;
         blocks * 8
     }
 
@@ -153,19 +153,18 @@ impl IndexEntry {
         let assume_valid = flags & 0x8000 != 0;
         let stage = u8::try_from((flags >> 12) & 3).unwrap();
         let name_len: usize = (flags & 0xFFF).into();
-        let name;
         if data.len() < name_len + 63 {
             return Err(InvalidIndexEntryError {
                 error_kind: errors::InvalidIndexEntryKind::TooShort,
             });
         }
-        if name_len < 0xFFF {
+        let name = if name_len < 0xFFF {
             if data[name_len + 62] != 0 {
                 return Err(InvalidIndexEntryError {
                     error_kind: errors::InvalidIndexEntryKind::NameNotNullTerminated,
                 });
             }
-            name = String::from_utf8_lossy(&data[62..(name_len + 62)]);
+            String::from_utf8_lossy(&data[62..(name_len + 62)])
         } else {
             let real_name_len = data[62..].iter().position(|x| *x == 0);
             let Some(real_name_len) = real_name_len else {
@@ -173,8 +172,8 @@ impl IndexEntry {
                     error_kind: errors::InvalidIndexEntryKind::NameNotNullTerminated,
                 });
             };
-            name = String::from_utf8_lossy(&data[62..(real_name_len + 62)]);
-        }
+            String::from_utf8_lossy(&data[62..(real_name_len + 62)])
+        };
         Ok(IndexEntry {
             ctime,
             mtime,
@@ -230,7 +229,7 @@ impl IndexEntry {
         if let Ok(obj_id) = obj_id {
             buf.extend(obj_id.iter());
         } else {
-            buf.extend(repeat_n(0 as u8, 20));
+            buf.extend(repeat_n(0_u8, 20));
         }
         let mut flags: u16 = if self.flag_assume_valid { 0x8000 } else { 0 };
         flags |= (self.flag_stage as u16) << 12;
@@ -288,10 +287,7 @@ impl PartialOrd for IndexEntry {
 
 impl PartialEq for IndexEntry {
     fn eq(&self, rhs: &Self) -> bool {
-        match self.cmp(rhs) {
-            Ordering::Equal => true,
-            _ => false,
-        }
+        matches!(self.cmp(rhs), Ordering::Equal)
     }
 }
 
