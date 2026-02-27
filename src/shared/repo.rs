@@ -1,12 +1,13 @@
 use anyhow::{anyhow, Context};
-use flate2::{bufread::ZlibEncoder, read::ZlibDecoder, Compression};
+use chrono::{DateTime, TimeZone};
 use indexmap::IndexMap;
 use ini::Ini;
 use std::{
     collections::HashMap,
     env,
+    fmt::Display,
     fs::{self, File},
-    io::{BufReader, Cursor, Read, Write},
+    io::Write,
     path::{Path, PathBuf},
     str::FromStr,
 };
@@ -21,6 +22,7 @@ use crate::shared::{
             errors::{PathError, PathErrorKind},
             index_path_file, index_path_parent, path_translate, write_single_line,
         },
+        timestamped_name,
     },
     ignore::IgnoreInfo,
     index::{Index, IndexEntry},
@@ -28,11 +30,15 @@ use crate::shared::{
         stored_object_matches_kind, Blob, Commit, GitObject, ObjectKind, RawObject, StoredObject,
         Tag, Tree, TreeNode,
     },
+    ref_log::{RefLog, RefLogEntry},
+    stores::{file_store::LooseObjectStore, ObjectStore},
 };
 
 pub struct Repository {
     pub worktree: PathBuf,
     pub git_dir: PathBuf,
+    loose_object_store: LooseObjectStore,
+    ref_log_store: RefLog,
     config: Ini,
 }
 
@@ -102,9 +108,15 @@ impl Repository {
             }
         }
 
+        let loose_store_path = git_dir.join("objects");
+        let loose_object_store = LooseObjectStore::new(&loose_store_path)?;
+        let ref_log_store = RefLog::new(git_dir.join("logs"));
+
         Ok(Repository {
             worktree,
             git_dir,
+            loose_object_store,
+            ref_log_store,
             config,
         })
     }
@@ -138,7 +150,8 @@ impl Repository {
         }
 
         repo.dir(Path::new("branches"), true)?;
-        repo.dir(Path::new("objects"), true)?;
+        repo.loose_object_store.create()?;
+        repo.ref_log_store.create()?;
         repo.dir(&["refs", "tags"].iter().collect::<PathBuf>(), true)?;
         repo.dir(&["refs", "heads"].iter().collect::<PathBuf>(), true)?;
 
@@ -272,26 +285,14 @@ impl Repository {
             let head_ref = self.resolve_ref(name)?;
             return match head_ref {
                 Some(hr) => Ok(vec![hr]),
-                None => Err(anyhow!("Error: missing HEAD")),
+                None => Ok(vec![]),
             };
         }
 
         let mut collected = Vec::<String>::new();
         if is_partial_object_id(name) {
-            let path = self.dir(&["objects", &name[..2]].iter().collect::<PathBuf>(), false)?;
-            if let Some(path) = path {
-                let dir_entries = fs::read_dir(&path)
-                    .context(format!("Trying to read path {}", &path.to_string_lossy()))?
-                    .collect::<Result<Vec<_>, std::io::Error>>()?;
-                for mut f in dir_entries
-                    .iter()
-                    .map(|e| e.file_name().into_string().unwrap_or("".to_owned()))
-                    .filter(|f| f.starts_with(&name[2..]) && is_object_file_name(f))
-                {
-                    f.insert_str(0, &name[..2]);
-                    collected.push(f);
-                }
-            }
+            let mut loose_objects = self.loose_object_store.search_objects(&name)?;
+            collected.append(&mut loose_objects);
         }
 
         let potential_tag = self.resolve_ref(&("refs/tags/".to_string() + name))?;
@@ -313,22 +314,14 @@ impl Repository {
     }
 
     pub fn read_object(&self, sha: &str) -> Result<Option<StoredObject>, anyhow::Error> {
-        let path = self.file(
-            &["objects", &sha[..2], &sha[2..]]
-                .iter()
-                .collect::<PathBuf>(),
-            false,
-        )?;
-        let Some(path) = path else {
-            return Ok(None);
-        };
-        if !path.is_file() {
+        if !self.loose_object_store.has_object(sha)? {
             return Ok(None);
         }
-        let file = fs::File::open(path)?;
-        let mut decompressor = ZlibDecoder::new(file);
-        let mut data: Vec<u8> = vec![];
-        decompressor.read_to_end(&mut data)?;
+        let data = self.loose_object_store.read_object(sha)?;
+        let Some(data) = data else {
+            return Ok(None);
+        };
+        let data = data.content();
         let type_end_index = data.iter().position(|&x| x == 0x20).ok_or(anyhow!(
             "Malformed object {sha}: end of object type code not found"
         ))?;
@@ -377,27 +370,11 @@ impl Repository {
     }
 
     pub fn write_raw_object(&self, obj: &RawObject) -> Result<String, anyhow::Error> {
-        let path = self.file(
-            &["objects", obj.hash_prefix(), obj.hash_tail()]
-                .iter()
-                .collect::<PathBuf>(),
-            true,
-        )?;
-        if let Some(path) = path {
-            if !path.exists() {
-                let mut file = fs::File::create(path)?;
-                let mut compressor = ZlibEncoder::new(
-                    BufReader::new(Cursor::new(obj.content())),
-                    Compression::best(),
-                );
-                std::io::copy(&mut compressor, &mut file)?;
-            }
-        }
-        Ok(obj.hash().to_string())
+        self.loose_object_store.write_raw_object(obj)
     }
 
     pub fn write_object(&self, obj: &impl GitObject) -> Result<String, anyhow::Error> {
-        self.write_raw_object(&RawObject::from_git_object(obj))
+        self.loose_object_store.write_object(obj)
     }
 
     pub fn resolve_ref(&self, git_ref: &str) -> Result<Option<String>, anyhow::Error> {
@@ -580,6 +557,10 @@ impl Repository {
         }
     }
 
+    pub fn current_commit(&self) -> Result<Option<String>, anyhow::Error> {
+        self.resolve_ref("HEAD")
+    }
+
     pub fn branches(&self) -> Result<Vec<String>, anyhow::Error> {
         let mut branches = Vec::<String>::new();
         let Some(branches_dir) = self.dir(&PathBuf::from_iter(["refs", "heads"]), true)? else {
@@ -606,7 +587,11 @@ impl Repository {
         Ok(ref_path.try_exists()? && ref_path.is_file())
     }
 
-    pub fn update_branch<P: AsRef<Path>>(&self, branch_name: P, commit_id: &str) -> Result<(), anyhow::Error> {
+    pub fn update_branch<P: AsRef<Path>>(
+        &self,
+        branch_name: P,
+        commit_id: &str,
+    ) -> Result<(), anyhow::Error> {
         let ref_path = self.branch_path(branch_name);
         write_single_line(ref_path, commit_id)
     }
@@ -775,16 +760,33 @@ impl Repository {
         tree.add_entries(&mut nodes);
         self.write_object(&tree)
     }
+
+    pub fn write_ref_log<Tz>(
+        &self,
+        old_object_id: Option<&str>,
+        new_object_id: &str,
+        committer_name: &str,
+        timestamp: &DateTime<Tz>,
+        message: &str,
+        branch_name: Option<&str>,
+    ) -> Result<(), anyhow::Error>
+    where
+        Tz: TimeZone,
+        Tz::Offset: Display,
+    {
+        self.ref_log_store.write(
+            &RefLogEntry::new(
+                old_object_id,
+                new_object_id,
+                &timestamped_name(committer_name, timestamp),
+                message,
+            ),
+            branch_name,
+        )
+    }
 }
 
 pub fn is_partial_object_id(id: &str) -> bool {
     // IDs are 20 bytes, represented as 40 hex chars; we don't try to identify an ID that's less than 4 chars
     id.len() >= 4 && id.len() <= 40 && id.chars().all(|c| c.is_ascii_hexdigit())
-}
-
-// Object file names have had the first two characters removed.
-// Because of that, they look like valid object IDs that are 38 chars long,
-// even though they're not, on their own, valid object IDs
-fn is_object_file_name(name: &str) -> bool {
-    is_partial_object_id(name) && name.len() == 38
 }

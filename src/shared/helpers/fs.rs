@@ -44,7 +44,11 @@ pub fn index_path_file(path: &str) -> &str {
 }
 
 pub fn write_single_line<T: AsRef<Path>>(path: T, content: &str) -> Result<(), anyhow::Error> {
-    let mut file = OpenOptions::new().create(true).truncate(true).write(true).open(path)?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(path)?;
     writeln!(file, "{content}")?;
     file.flush()?;
     Ok(())

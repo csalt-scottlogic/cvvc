@@ -1,5 +1,7 @@
 use crate::shared::{
-    helpers::find_repo_cwd, objects::{ObjectKind, StoredObject}, repo::Repository
+    helpers::find_repo_cwd,
+    objects::{ObjectKind, StoredObject},
+    repo::Repository,
 };
 use std::collections::HashSet;
 

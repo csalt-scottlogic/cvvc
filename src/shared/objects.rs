@@ -10,7 +10,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::shared::{errors::InvalidObjectError, index::IndexEntry, repo::Repository};
+use crate::shared::{
+    errors::InvalidObjectError, helpers::timestamped_name, index::IndexEntry, repo::Repository,
+};
 
 pub struct RawObject {
     data: Vec<u8>,
@@ -18,6 +20,13 @@ pub struct RawObject {
 }
 
 impl RawObject {
+    pub fn new(data: Vec<u8>, hash: &str) -> Self {
+        RawObject {
+            data,
+            hash: hash.to_string(),
+        }
+    }
+
     pub fn from_git_object(obj: &impl GitObject) -> Self {
         let mut data = Vec::<u8>::new();
         obj.serialise(&mut data);
@@ -42,14 +51,6 @@ impl RawObject {
 
     pub fn hash(&self) -> &str {
         &self.hash
-    }
-
-    pub fn hash_prefix(&self) -> &str {
-        &self.hash[..2]
-    }
-
-    pub fn hash_tail(&self) -> &str {
-        &self.hash[2..]
     }
 }
 
@@ -178,11 +179,11 @@ impl Commit {
         }
         map.insert(
             String::from("author"),
-            vec![format!("{} {}", author, timestamp.format("%s %z"))],
+            vec![timestamped_name(author, timestamp)],
         );
         map.insert(
             String::from("committer"),
-            vec![format!("{} {}", committer, timestamp.format("%s %z"))],
+            vec![timestamped_name(committer, timestamp)],
         );
         let message = message.trim().to_owned() + "\n";
         Commit { map, message }
@@ -312,8 +313,7 @@ impl TreeNode {
         let path = str::from_utf8(&data[(space_pos + 1)..(space_pos + null_pos + 1)])
             .context("Could not parse path field of tree entry as valid UTF8")?;
         let path_buf = PathBuf::from(path);
-        let object_id =
-            hex::encode(&data[(space_pos + null_pos + 2)..(space_pos + null_pos + 22)]);
+        let object_id = hex::encode(&data[(space_pos + null_pos + 2)..(space_pos + null_pos + 22)]);
         Ok(TreeNodeParsingResult {
             consumed: space_pos + null_pos + 22,
             node: TreeNode {

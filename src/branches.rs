@@ -21,17 +21,17 @@ fn list_branches_in_repo(repo: &Repository) -> Result<(), anyhow::Error> {
     let branches = repo.branches()?;
     let cb = repo.current_branch()?.unwrap_or_else(String::new);
     for branch in branches {
-        let cb_flag = if cb == branch {
-            "*"
-        } else {
-            " "
-        };
+        let cb_flag = if cb == branch { "*" } else { " " };
         println!("{cb_flag} {branch}");
     }
     Ok(())
 }
 
-fn new_branch_in_repo(repo: &Repository, branch_name: &str, checkout: bool) -> Result<(), anyhow::Error> {
+fn new_branch_in_repo(
+    repo: &Repository,
+    branch_name: &str,
+    checkout: bool,
+) -> Result<(), anyhow::Error> {
     if repo.is_branch_name(branch_name)? {
         return Err(anyhow!("Branch {branch_name} exists"));
     }
@@ -44,10 +44,13 @@ fn new_branch_in_repo(repo: &Repository, branch_name: &str, checkout: bool) -> R
     } else {
         Ok(())
     }
-
 }
 
-fn checkout_from_repo(repo: &Repository, target_name: &str, dest: &str) -> Result<(), anyhow::Error> {
+fn checkout_from_repo(
+    repo: &Repository,
+    target_name: &str,
+    dest: &str,
+) -> Result<(), anyhow::Error> {
     let target_id = repo.find_object(target_name, None, true)?;
     let obj = repo.read_object(&target_id)?;
     let Some(obj) = obj else {
@@ -64,7 +67,10 @@ fn checkout_from_repo(repo: &Repository, target_name: &str, dest: &str) -> Resul
                 return Err(anyhow!("Commit {} has an empty tree entry", target_id));
             };
             let Some(tree_obj) = repo.read_object(tree_entry)? else {
-                return Err(anyhow!("Commit {} points to a non-existent tree", target_id));
+                return Err(anyhow!(
+                    "Commit {} points to a non-existent tree",
+                    target_id
+                ));
             };
             let StoredObject::Tree(tree_obj) = tree_obj else {
                 return Err(anyhow!(

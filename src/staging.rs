@@ -1,10 +1,13 @@
 use anyhow::{anyhow, Context};
-use chrono::{DateTime, Utc};
-use std::{fs, path::Path, time::SystemTime};
+use chrono::{DateTime, TimeZone, Utc};
+use std::{fmt::Display, fs, path::Path, time::SystemTime};
 
 use crate::shared::{
     config::GlobalConfig,
-    helpers::{find_repo_cwd, fs::{path_translate, path_translate_rev, walk_fs_pruned}},
+    helpers::{
+        find_repo_cwd,
+        fs::{path_translate, path_translate_rev, walk_fs_pruned},
+    },
     objects::{Blob, Commit, RawObject},
     repo::Repository,
 };
@@ -125,23 +128,40 @@ pub fn create_commit_for_tree(
 
 pub fn full_commit(config: &GlobalConfig, message: Option<String>) -> Result<(), anyhow::Error> {
     let repo = find_repo_cwd()?;
+    let start_commit = repo.current_commit()?;
     let tree_id = store_index_as_tree_repo(&repo, false)?;
     let parent_id = repo.resolve_ref("HEAD")?;
+    let timestamp = DateTime::<Utc>::from(SystemTime::now());
+    let message = message
+        .as_deref()
+        .unwrap_or("User forgot to enter commit message");
     let commit_id = create_commit_for_repo_tree(
         &repo,
         &tree_id,
         parent_id.as_deref(),
-        message
-            .as_deref()
-            .unwrap_or("User forgot to enter commit message"),
+        message,
+        &timestamp,
         config,
     )?;
     let current_branch = repo.current_branch()?;
-    if let Some(branch) = current_branch {
-        repo.update_branch(&branch, &commit_id)
+    if let Some(ref branch) = current_branch {
+        repo.update_branch(branch, &commit_id)?
     } else {
-        repo.update_head_detached(&commit_id)
+        repo.update_head_detached(&commit_id)?
     }
+    let message_start = match message.lines().next() {
+        Some(m) => m.trim(),
+        None => "",
+    };
+    let ref_log_message = format!("commit: {message_start}"); 
+    repo.write_ref_log(
+        start_commit.as_deref(),
+        &commit_id,
+        &config.committer(),
+        &timestamp,
+        &ref_log_message,
+        current_branch.as_deref(),
+    )
 }
 
 fn status_branch(repo: &Repository) -> Result<(), anyhow::Error> {
@@ -267,23 +287,26 @@ fn store_index_as_tree_repo(repo: &Repository, no_checks: bool) -> Result<String
     repo.store_index(&index)
 }
 
-fn create_commit_for_repo_tree(
+fn create_commit_for_repo_tree<Tz>(
     repo: &Repository,
     tree_id: &str,
     parent: Option<&str>,
     message: &str,
+    timestamp: &DateTime<Tz>,
     config: &GlobalConfig,
-) -> Result<String, anyhow::Error> {
+) -> Result<String, anyhow::Error>
+where
+    Tz: TimeZone,
+    Tz::Offset: Display,
+{
     let commit = Commit::new(
         tree_id,
         parent,
         &config.author(),
         &config.committer(),
-        &DateTime::<Utc>::from(SystemTime::now()),
+        timestamp,
         message,
     );
     let commit_id = repo.write_object(&commit)?;
     Ok(commit_id)
 }
-
-

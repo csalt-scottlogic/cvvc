@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 
 use chrono::{DateTime, TimeZone};
 
@@ -54,6 +54,14 @@ pub fn find_repo_cwd() -> Result<Repository, anyhow::Error> {
     let repo = Repository::find_cwd()?;
     match repo {
         Some(r) => Ok(r),
-        None => Err(anyhow!("Not in a repository"))
+        None => Err(anyhow!("Not in a repository")),
     }
+}
+
+pub fn timestamped_name<Tz>(name: &str, timestamp: &DateTime<Tz>) -> String
+where
+    Tz: TimeZone,
+    Tz::Offset: Display,
+{
+    format!("{} {}", name, timestamp.format("%s %z"))
 }

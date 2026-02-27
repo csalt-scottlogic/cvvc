@@ -5,7 +5,9 @@ use std::{
 };
 
 use crate::shared::{
-    helpers::find_repo_cwd, objects::{Blob, ObjectKind, RawObject, StoredObject}, repo::Repository
+    helpers::find_repo_cwd,
+    objects::{Blob, ObjectKind, RawObject, StoredObject},
+    repo::Repository,
 };
 
 pub fn rev_parse(obj_name: &str) -> Result<(), anyhow::Error> {

@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 use crate::shared::config::GlobalConfig;
 
@@ -125,6 +125,9 @@ enum Commands {
         #[arg(default_value = "HEAD", value_name = "COMMIT")]
         commit: String,
     },
+    /// Examine or edit the reference log
+    #[command(name = "reflog")]
+    RefLog(RefLogArgs),
     /// Remove files from the index and the working tree
     #[command(name = "rm")]
     Remove {
@@ -167,6 +170,21 @@ enum Commands {
     },
 }
 
+#[derive(Args)]
+#[command()]
+struct RefLogArgs {
+    #[command(subcommand)]
+    command: RefLogCommands,
+}
+
+#[derive(Subcommand)]
+enum RefLogCommands {
+    #[command()]
+    Exists,
+    #[command()]
+    List,
+}
+
 pub fn parse_dispatch() {
     let args = Cli::parse();
     let config = GlobalConfig::from_default_files();
@@ -180,16 +198,20 @@ pub fn parse_dispatch() {
             } else {
                 branches::list_branches()
             }
-        },
+        }
         Commands::CatFile { obj_type, obj_path } => objects::cat_file(&obj_type, &obj_path),
         Commands::CheckIgnore { paths } => staging::check_ignore(&paths),
-        Commands::Checkout { new_branch, target, path } => {
+        Commands::Checkout {
+            new_branch,
+            target,
+            path,
+        } => {
             if new_branch {
                 branches::new_branch(&target, true)
             } else {
                 branches::checkout(&target, &path)
             }
-        },
+        }
         Commands::Commit { message } => staging::full_commit(&config, message),
         Commands::CommitTree {
             tree_id,
@@ -205,6 +227,7 @@ pub fn parse_dispatch() {
         Commands::ListFiles { verbose } => staging::list_files(verbose),
         Commands::ListTree { recursive, tree } => objects::list_tree(recursive, &tree),
         Commands::Log { commit } => log::cmd(&commit),
+        Commands::RefLog(_) => Ok(()),
         Commands::Remove {
             index_only,
             ignore_no_matches,
