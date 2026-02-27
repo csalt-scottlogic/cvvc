@@ -209,7 +209,7 @@ pub fn parse_dispatch() {
             if new_branch {
                 branches::new_branch(&target, true)
             } else {
-                branches::checkout(&target, &path)
+                branches::checkout(&target, &path, &config)
             }
         }
         Commands::Commit { message } => staging::full_commit(&config, message),

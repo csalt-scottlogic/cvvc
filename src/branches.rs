@@ -1,10 +1,11 @@
-use crate::shared::{helpers::find_repo_cwd, objects::StoredObject, repo::Repository};
+use crate::shared::{config::GlobalConfig, helpers::{find_repo_cwd, shorten_message}, objects::StoredObject, repo::Repository};
 use anyhow::anyhow;
-use std::{fs, path::Path};
+use chrono::{DateTime, Utc};
+use std::{fs, path::Path, time::SystemTime};
 
-pub fn checkout(target_name: &str, dest: &str) -> Result<(), anyhow::Error> {
+pub fn checkout(target_name: &str, dest: &str, config: &GlobalConfig) -> Result<(), anyhow::Error> {
     let repo = find_repo_cwd()?;
-    checkout_from_repo(&repo, target_name, dest)
+    checkout_from_repo(&repo, target_name, dest, config)
 }
 
 pub fn new_branch(branch_name: &str, checkout: bool) -> Result<(), anyhow::Error> {
@@ -50,15 +51,18 @@ fn checkout_from_repo(
     repo: &Repository,
     target_name: &str,
     dest: &str,
+    config: &GlobalConfig
 ) -> Result<(), anyhow::Error> {
+    let prev_commit_id = repo.current_commit()?;
     let target_id = repo.find_object(target_name, None, true)?;
     let obj = repo.read_object(&target_id)?;
     let Some(obj) = obj else {
         return Err(anyhow!("Object {} not found", target_name));
     };
-    let tree_obj = match obj {
-        StoredObject::Tree(tree) => tree,
-        StoredObject::Commit(commit) => {
+    let StoredObject::Commit(commit) = obj else {
+        return Err(anyhow!("Cannot checkout object {target_id} (not a commit)"))
+    };
+
             let tree_entry = commit.map().get("tree");
             let Some(tree_entry) = tree_entry else {
                 return Err(anyhow!("Commit {} is missing a tree", target_id));
@@ -78,15 +82,7 @@ fn checkout_from_repo(
                     target_id
                 ));
             };
-            tree_obj
-        }
-        _ => {
-            return Err(anyhow!(
-                "Object {} is not a commit-ish or tree-ish thing",
-                target_id
-            ));
-        }
-    };
+
     let path = Path::new(dest);
     if path.exists() {
         if !path.is_dir() {
@@ -105,12 +101,12 @@ fn checkout_from_repo(
     repo.write_index(&index)?;
 
     if repo.is_branch_name(target_name)? {
-        repo.update_head(target_name)
+        repo.update_head(target_name)?;
     } else {
         repo.update_head_detached(&target_id)?;
         println!("HEAD is detached at {target_id}");
-        Ok(())
     }
+    repo.write_ref_log(prev_commit_id.as_deref(), &target_id, &config.committer(), &DateTime::<Utc>::from(SystemTime::now()), &shorten_message("checkout", &commit.message), None)
 }
 
 fn is_dir_empty(dir: &Path) -> Result<bool, anyhow::Error> {

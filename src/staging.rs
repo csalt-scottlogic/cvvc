@@ -6,7 +6,7 @@ use crate::shared::{
     config::GlobalConfig,
     helpers::{
         find_repo_cwd,
-        fs::{path_translate, path_translate_rev, walk_fs_pruned},
+        fs::{path_translate, path_translate_rev, walk_fs_pruned}, shorten_message,
     },
     objects::{Blob, Commit, RawObject},
     repo::Repository,
@@ -149,17 +149,12 @@ pub fn full_commit(config: &GlobalConfig, message: Option<String>) -> Result<(),
     } else {
         repo.update_head_detached(&commit_id)?
     }
-    let message_start = match message.lines().next() {
-        Some(m) => m.trim(),
-        None => "",
-    };
-    let ref_log_message = format!("commit: {message_start}"); 
     repo.write_ref_log(
         start_commit.as_deref(),
         &commit_id,
         &config.committer(),
         &timestamp,
-        &ref_log_message,
+        &shorten_message("commit", &message),
         current_branch.as_deref(),
     )
 }

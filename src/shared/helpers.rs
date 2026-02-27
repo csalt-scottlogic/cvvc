@@ -65,3 +65,11 @@ where
 {
     format!("{} {}", name, timestamp.format("%s %z"))
 }
+
+pub fn shorten_message(prefix: &str, message: &str) -> String {
+    let message_start = match message.lines().next() {
+        Some(m) => m.trim(),
+        None => ""
+    };
+    format!("{prefix}: {message_start}")
+}
