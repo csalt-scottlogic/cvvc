@@ -69,7 +69,7 @@ where
 pub fn shorten_message(prefix: &str, message: &str) -> String {
     let message_start = match message.lines().next() {
         Some(m) => m.trim(),
-        None => ""
+        None => "",
     };
     format!("{prefix}: {message_start}")
 }

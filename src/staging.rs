@@ -6,7 +6,8 @@ use crate::shared::{
     config::GlobalConfig,
     helpers::{
         find_repo_cwd,
-        fs::{path_translate, path_translate_rev, walk_fs_pruned}, shorten_message,
+        fs::{path_translate, path_translate_rev, walk_fs_pruned},
+        shorten_message,
     },
     objects::{Blob, Commit, RawObject},
     repo::Repository,

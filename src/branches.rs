@@ -1,4 +1,9 @@
-use crate::shared::{config::GlobalConfig, helpers::{find_repo_cwd, shorten_message}, objects::StoredObject, repo::Repository};
+use crate::shared::{
+    config::GlobalConfig,
+    helpers::{find_repo_cwd, shorten_message},
+    objects::StoredObject,
+    repo::Repository,
+};
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use std::{fs, path::Path, time::SystemTime};
@@ -51,8 +56,9 @@ fn checkout_from_repo(
     repo: &Repository,
     target_name: &str,
     dest: &str,
-    config: &GlobalConfig
+    config: &GlobalConfig,
 ) -> Result<(), anyhow::Error> {
+    let prev_branch = repo.current_branch()?;
     let prev_commit_id = repo.current_commit()?;
     let target_id = repo.find_object(target_name, None, true)?;
     let obj = repo.read_object(&target_id)?;
@@ -60,28 +66,28 @@ fn checkout_from_repo(
         return Err(anyhow!("Object {} not found", target_name));
     };
     let StoredObject::Commit(commit) = obj else {
-        return Err(anyhow!("Cannot checkout object {target_id} (not a commit)"))
+        return Err(anyhow!("Cannot checkout object {target_id} (not a commit)"));
     };
 
-            let tree_entry = commit.map().get("tree");
-            let Some(tree_entry) = tree_entry else {
-                return Err(anyhow!("Commit {} is missing a tree", target_id));
-            };
-            let Some(tree_entry) = tree_entry.first() else {
-                return Err(anyhow!("Commit {} has an empty tree entry", target_id));
-            };
-            let Some(tree_obj) = repo.read_object(tree_entry)? else {
-                return Err(anyhow!(
-                    "Commit {} points to a non-existent tree",
-                    target_id
-                ));
-            };
-            let StoredObject::Tree(tree_obj) = tree_obj else {
-                return Err(anyhow!(
-                    "Commit {} points to a non-tree object as its tree",
-                    target_id
-                ));
-            };
+    let tree_entry = commit.map().get("tree");
+    let Some(tree_entry) = tree_entry else {
+        return Err(anyhow!("Commit {} is missing a tree", target_id));
+    };
+    let Some(tree_entry) = tree_entry.first() else {
+        return Err(anyhow!("Commit {} has an empty tree entry", target_id));
+    };
+    let Some(tree_obj) = repo.read_object(tree_entry)? else {
+        return Err(anyhow!(
+            "Commit {} points to a non-existent tree",
+            target_id
+        ));
+    };
+    let StoredObject::Tree(tree_obj) = tree_obj else {
+        return Err(anyhow!(
+            "Commit {} points to a non-tree object as its tree",
+            target_id
+        ));
+    };
 
     let path = Path::new(dest);
     if path.exists() {
@@ -106,7 +112,16 @@ fn checkout_from_repo(
         repo.update_head_detached(&target_id)?;
         println!("HEAD is detached at {target_id}");
     }
-    repo.write_ref_log(prev_commit_id.as_deref(), &target_id, &config.committer(), &DateTime::<Utc>::from(SystemTime::now()), &shorten_message("checkout", &commit.message), None)
+    let ref_log_source = prev_branch.or_else(|| prev_commit_id.clone()).unwrap_or_else(|| "00000000000000000000".to_string());
+    let ref_log_message = format!("checkout: moving from {ref_log_source} to {target_id}");
+    repo.write_ref_log(
+        prev_commit_id.as_deref(),
+        &target_id,
+        &config.committer(),
+        &DateTime::<Utc>::from(SystemTime::now()),
+        &ref_log_message,
+        None,
+    )
 }
 
 fn is_dir_empty(dir: &Path) -> Result<bool, anyhow::Error> {

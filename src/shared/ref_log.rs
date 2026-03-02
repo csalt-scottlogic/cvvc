@@ -50,11 +50,11 @@ impl FromStr for RefLogEntry {
                 Some(value[..20].to_string())
             };
             let msg_sep = value.find("\t");
-            let committer = (match msg_sep {
+            let committer = match msg_sep {
                 None => &value[42..],
                 Some(i) => &value[42..i],
             }
-            .to_string());
+            .to_string();
             let message = match msg_sep {
                 None => String::new(),
                 Some(i) => value[(i + 1)..].to_string(),
