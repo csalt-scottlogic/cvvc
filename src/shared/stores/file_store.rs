@@ -107,6 +107,12 @@ impl ObjectStore for LooseObjectStore {
         let path = self.object_file(&obj.hash());
 
         if !path.exists() {
+            let obj_parent_dir = path.parent();
+            if let Some(obj_parent_dir) = obj_parent_dir {
+                if !obj_parent_dir.exists() {
+                    fs::create_dir_all(obj_parent_dir)?;
+                }
+            }
             let mut file = fs::File::create(path)?;
             let mut compressor = ZlibEncoder::new(
                 BufReader::new(Cursor::new(obj.content())),

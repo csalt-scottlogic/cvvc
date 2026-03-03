@@ -9,6 +9,7 @@ use std::{
 
 use crate::shared::repo::is_partial_object_id;
 
+#[derive(Debug)]
 pub struct RefLogEntry {
     pub old_object_id: Option<String>,
     pub new_object_id: String,
@@ -107,6 +108,7 @@ impl RefLog {
         entry: &RefLogEntry,
         branch_name: Option<&str>,
     ) -> Result<(), anyhow::Error> {
+        println!("Writing ref log entry {entry:?}");
         let file_path = self.ref_log_file_path(branch_name);
         let mut file = OpenOptions::new()
             .create(true)
