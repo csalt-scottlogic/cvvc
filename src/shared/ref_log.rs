@@ -110,10 +110,18 @@ impl RefLog {
     ) -> Result<(), anyhow::Error> {
         println!("Writing ref log entry {entry:?}");
         let file_path = self.ref_log_file_path(branch_name);
+        self.write_to_file(entry, &file_path)?;
+        if branch_name.is_some() {
+            self.write_to_file(entry, self.ref_log_file_path(None))?;
+        }
+        Ok(())
+    }
+
+    fn write_to_file<P: AsRef<Path>>(&self, entry: &RefLogEntry, path: P) -> Result<(), anyhow::Error> {
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(file_path)
+            .open(path)
             .context("failed to open reflog file")?;
         writeln!(file, "{}", entry).context("failed to write to reflog file")?;
         Ok(())
