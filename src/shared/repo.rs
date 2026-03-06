@@ -27,10 +27,15 @@ use crate::shared::{
     ignore::IgnoreInfo,
     index::{Index, IndexEntry},
     objects::{
-        Blob, Commit, GitObject, ObjectKind, RawObject, StoredObject, Tag, Tree, TreeNode, stored_object_matches_kind
+        stored_object_matches_kind, Blob, Commit, GitObject, ObjectKind, RawObject, StoredObject,
+        Tag, Tree, TreeNode,
     },
     ref_log::{RefLog, RefLogEntry},
-    stores::{ObjectStore, file_store::LooseObjectStore, pack_store::{PackStore, PackedObjectType}},
+    stores::{
+        file_store::LooseObjectStore,
+        pack_store::{PackStore, PackedObjectType},
+        ObjectStore,
+    },
 };
 
 pub struct Repository {
@@ -371,7 +376,8 @@ impl Repository {
             return Err(anyhow!("packed store did not set packed object metadata"));
         };
         match metadata.kind {
-            PackedObjectType::Blob => Ok(Some(StoredObject::Blob(Blob::deserialise(raw_object.content()
+            PackedObjectType::Blob => Ok(Some(StoredObject::Blob(Blob::deserialise(
+                raw_object.content(),
             )))),
             PackedObjectType::Commit => Ok(Some(StoredObject::Commit(Commit::deserialise(
                 raw_object.content(),
@@ -382,16 +388,15 @@ impl Repository {
             PackedObjectType::Tag => Ok(Some(StoredObject::Tag(Tag::deserialise(
                 raw_object.content(),
             )))),
-            _ => Err(anyhow!(format!(
-                "Packed object type not supported")
-            )),
+            _ => Err(anyhow!(format!("Packed object type not supported"))),
         }
     }
 
     fn parse_loose_object(raw_object: RawObject) -> Result<Option<StoredObject>, anyhow::Error> {
         let data = raw_object.content();
         let type_end_index = data.iter().position(|&x| x == 0x20).ok_or(anyhow!(
-            "Malformed object {}: end of object type code not found", raw_object.hash()
+            "Malformed object {}: end of object type code not found",
+            raw_object.hash()
         ))?;
         let len_start_index = type_end_index + 1;
         let len_end_index = data
@@ -399,7 +404,8 @@ impl Repository {
             .skip(len_start_index)
             .position(|&x| x == 0)
             .ok_or(anyhow!(
-                "Malformed object {}: end of object length not found", raw_object.hash()
+                "Malformed object {}: end of object length not found",
+                raw_object.hash()
             ))?
             + len_start_index;
         let data_start_index = len_end_index + 1;
@@ -413,7 +419,8 @@ impl Repository {
         let actual_len = data.len() - data_start_index;
         if object_len != actual_len {
             return Err(anyhow!(
-                "Malformed object {}: expected length {object_len}, actual length {actual_len}", raw_object.hash()
+                "Malformed object {}: expected length {object_len}, actual length {actual_len}",
+                raw_object.hash()
             ));
         }
 

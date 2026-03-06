@@ -11,7 +11,11 @@ use std::{
 };
 
 use crate::shared::{
-    errors::InvalidObjectError, helpers::timestamped_name, index::IndexEntry, repo::Repository, stores::pack_store::{PackStore, PackedObjectMetadata},
+    errors::InvalidObjectError,
+    helpers::timestamped_name,
+    index::IndexEntry,
+    repo::Repository,
+    stores::pack_store::{PackStore, PackedObjectMetadata},
 };
 
 pub struct RawObject {

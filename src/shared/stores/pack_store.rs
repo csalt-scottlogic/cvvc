@@ -1,10 +1,11 @@
 use anyhow::anyhow;
-use flate2::{Decompress, read::ZlibDecoder};
+use flate2::bufread::ZlibDecoder;
 use std::{
     cmp::Ordering,
     collections::HashSet,
     fs::{self, File, OpenOptions},
     io::{BufReader, Read, Seek, SeekFrom},
+    ops::Deref,
     path::{Path, PathBuf},
 };
 
@@ -391,6 +392,27 @@ impl PackStore {
                 break;
             }
         }
+
+        let base_object = if let PackedObjectTypeOnly::NamedDelta = packed_object_type {
+            let val = Some(hex::encode(&buf[bytes_read..(bytes_read + 20)]));
+            bytes_read += 20;
+            val
+        } else {
+            None
+        };
+        let delta_offset = if let PackedObjectTypeOnly::OffsetDelta = packed_object_type {
+            let mut offset = 0u64;
+            while buf[bytes_read] >= 0x80 {
+                offset |= ((buf[bytes_read] & 0x7f) + 1) as u64;
+                offset <<= 7;
+                bytes_read += 1;
+            }
+            offset |= (buf[bytes_read] & 0x7f) as u64;
+            bytes_read += 1;
+            Some(offset)
+        } else {
+            None
+        };
         let data_start_address = address + (bytes_read as u64);
         println!("Object size is {object_size}");
         println!("Data starts at {data_start_address}");
@@ -398,9 +420,34 @@ impl PackStore {
             packed_object_type,
             object_size,
             data_start_address,
-            None,
-            None,
+            delta_offset,
+            base_object,
         )
+    }
+
+    fn read_at_address<R>(
+        &self,
+        pack_file: &mut BufReader<R>,
+        address: u64,
+    ) -> Result<(PackedObjectMetadata, Vec<u8>), anyhow::Error>
+    where
+        R: Read,
+        R: Seek,
+    {
+        let meta = self.get_packed_object_metadata(pack_file, address)?;
+        pack_file.seek(SeekFrom::Start(meta.data_start_address))?;
+        let mut decompressor = ZlibDecoder::new(pack_file);
+        let mut data = Vec::<u8>::with_capacity(meta.size as usize);
+        decompressor.read_to_end(&mut data)?;
+        let reusable_file = decompressor.into_inner();
+        if meta.is_base_object() {
+            Ok((meta, data))
+        } else if let PackedObjectType::OffsetDelta(offset) = meta.kind {
+            let (base_meta, base_data) = self.read_at_address(reusable_file, address - offset)?;
+            Ok((meta.combine(&base_meta), combine_data(&base_data, &data)))
+        } else {
+            Err(anyhow!("can't do this yet"))
+        }
     }
 }
 
@@ -461,13 +508,21 @@ impl ObjectStore for PackStore {
         if !self.check_pack_version(&mut pack_file)? {
             return Err(anyhow!("pack file format not recognised"));
         }
-        let meta = self.get_packed_object_metadata(&mut pack_file, object_address)?;
-        pack_file.seek(SeekFrom::Start(meta.data_start_address))?;
-        let mut decompressor = ZlibDecoder::new(pack_file);
-        let mut data = Vec::<u8>::with_capacity(meta.size as usize);
-        decompressor.read_to_end(&mut data)?;
+        let (meta, data) = self.read_at_address(&mut pack_file, object_address)?;
         println!("{data:?}");
-        Ok(Some(RawObject::new(data, object_id, Some(meta))))
+        if meta.is_base_object() {
+            Ok(Some(RawObject::new(data, object_id, Some(meta))))
+        } else if let PackedObjectType::OffsetDelta(offset) = meta.kind {
+            let (base_meta, base_data) =
+                self.read_at_address(&mut pack_file, object_address - offset)?;
+            Ok(Some(RawObject::new(
+                combine_data(&base_data, &data),
+                object_id,
+                Some(meta.combine(&base_meta)),
+            )))
+        } else {
+            Ok(None)
+        }
     }
 
     fn write_raw_object(&self, _obj: &RawObject) -> Result<String, anyhow::Error> {
@@ -500,6 +555,7 @@ struct PackIndexObject {
     idx: u32,
 }
 
+#[derive(Clone)]
 pub enum PackedObjectType {
     Commit,
     Tree,
@@ -507,6 +563,16 @@ pub enum PackedObjectType {
     Tag,
     OffsetDelta(u64),
     NamedDelta(String),
+}
+
+impl PackedObjectType {
+    fn is_base_object(&self) -> bool {
+        match self {
+            PackedObjectType::OffsetDelta(_) => false,
+            PackedObjectType::NamedDelta(_) => false,
+            _ => true,
+        }
+    }
 }
 
 enum PackedObjectTypeOnly {
@@ -548,21 +614,137 @@ impl PackedObjectMetadata {
         size: u64,
         data_start_address: u64,
         delta_offset: Option<u64>,
-        base_object: Option<&str>,
+        base_object: Option<String>,
     ) -> Result<Self, anyhow::Error> {
         let kind = match kind {
             PackedObjectTypeOnly::Commit => PackedObjectType::Commit,
             PackedObjectTypeOnly::Tree => PackedObjectType::Tree,
             PackedObjectTypeOnly::Blob => PackedObjectType::Blob,
             PackedObjectTypeOnly::Tag => PackedObjectType::Tag,
-            _ => {
-                return Err(anyhow!("not supported!"));
-            }
+            PackedObjectTypeOnly::NamedDelta => match base_object {
+                Some(base) => PackedObjectType::NamedDelta(base),
+                None => return Err(anyhow!("base object name not provided")),
+            },
+            PackedObjectTypeOnly::OffsetDelta => match delta_offset {
+                Some(offset) => PackedObjectType::OffsetDelta(offset),
+                None => return Err(anyhow!("delta offset not provided")),
+            },
         };
         Ok(PackedObjectMetadata {
             size,
             data_start_address,
             kind,
         })
+    }
+
+    fn is_base_object(&self) -> bool {
+        self.kind.is_base_object()
+    }
+
+    fn combine(&self, other: &Self) -> Self {
+        Self {
+            size: self.size,
+            data_start_address: self.data_start_address,
+            kind: other.kind.clone(),
+        }
+    }
+}
+
+fn combine_data(base_data: &[u8], apply_commands: &[u8]) -> Vec<u8> {
+    let mut result = Vec::<u8>::new();
+    let mut idx = 0;
+    println!("Data combining time");
+    println!(
+        "Base data {}, commands {}",
+        base_data.len(),
+        apply_commands.len()
+    );
+    println!("Command data starts {:?}", &apply_commands[..20]);
+
+    // The commands start with two sizes, the size of the base and the size of the output.
+    // We could read these for verification, if I was a Good Girl, but that can be a job for later.
+    // Instead, we need to find the byte following the second byte less than 128 and start working from there.
+    let mut non_continuation = 0;
+    while non_continuation < 2 {
+        if apply_commands[idx] < 0x80 {
+            non_continuation += 1;
+        }
+        idx += 1;
+    }
+    println!("Commands start with {:?}", &apply_commands[idx..20]);
+    while idx < apply_commands.len() {
+        let command = DeltaCommand::from_bytes(&apply_commands[idx..]);
+        match command.kind {
+            DeltaCommandType::Add(sz) => {
+                result.extend_from_slice(&apply_commands[(idx + 1)..(idx + 1 + sz as usize)])
+            }
+            DeltaCommandType::Copy { offset, size } => {
+                result.extend_from_slice(&base_data[offset..(offset + size)])
+            }
+        }
+        idx += command.len;
+    }
+    result
+}
+
+enum DeltaCommandType {
+    Copy { offset: usize, size: usize },
+    Add(usize),
+}
+
+struct DeltaCommand {
+    len: usize,
+    kind: DeltaCommandType,
+}
+
+impl DeltaCommand {
+    fn from_bytes(data: &[u8]) -> Self {
+        if data[0] < 0x80 {
+            println!("Hmm, moving raw data");
+            let size = data[0] & 0x7f;
+            Self {
+                len: size as usize + 1,
+                kind: DeltaCommandType::Add(size as usize),
+            }
+        } else {
+            println!("Oooh, doing a base copy!");
+            //println!("{:?}", &data[..8]);
+            let bits = data[0] & 0x7f;
+            if bits == 0 {
+                Self {
+                    len: 1,
+                    kind: DeltaCommandType::Copy {
+                        offset: 0,
+                        size: 0x10000,
+                    },
+                }
+            } else {
+                let mut offset = 0usize;
+                let mut size = 0usize;
+                let mut bit = 1u8;
+                let mut idx = 1;
+                for i in 0..4 {
+                    if bits & bit != 0 {
+                        offset |= (data[idx] as usize) << (i * 8);
+                        idx += 1;
+                    }
+                    bit <<= 1;
+                }
+                for i in 4..7 {
+                    if bits & bit != 0 {
+                        size |= (data[idx] as usize) << ((i - 4) * 8);
+                        idx += 1;
+                    }
+                    bit <<= 1;
+                }
+                if size == 0 {
+                    size = 0x10000;
+                }
+                Self {
+                    len: bits.count_ones() as usize + 1,
+                    kind: DeltaCommandType::Copy { offset, size },
+                }
+            }
+        }
     }
 }
