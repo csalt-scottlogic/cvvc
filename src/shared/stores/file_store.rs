@@ -1,7 +1,6 @@
 use anyhow::{anyhow, Context};
 use flate2::{bufread::ZlibEncoder, read::ZlibDecoder, Compression};
 use std::{
-    collections::HashMap,
     fs,
     io::{BufReader, Cursor, Read},
     path::{Path, PathBuf},
@@ -38,14 +37,6 @@ impl LooseObjectStore {
 }
 
 impl ObjectStore for LooseObjectStore {
-    fn _new_with_config(config: &HashMap<String, String>) -> Result<Self, anyhow::Error> {
-        if !config.contains_key("base_path") {
-            Err(anyhow!("base_path not set"))
-        } else {
-            LooseObjectStore::new(&config["base_path"])
-        }
-    }
-
     fn create(&self) -> Result<(), anyhow::Error> {
         if !self.base_path.exists() {
             fs::create_dir_all(&self.base_path).context("Failed to create loose objects dir")
@@ -87,7 +78,7 @@ impl ObjectStore for LooseObjectStore {
 
     fn read_object(
         &self,
-        object_id: &str,
+        object_id: &str
     ) -> Result<Option<crate::shared::objects::RawObject>, anyhow::Error> {
         let path = self.object_file(object_id);
         if !path.is_file() {

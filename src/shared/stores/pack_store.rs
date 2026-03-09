@@ -11,8 +11,7 @@ use std::{
 use crate::shared::{objects::{ObjectKind, ObjectMetadata, RawObject}, stores::ObjectStore};
 
 pub struct PackStore {
-    base_path: PathBuf,
-    pack_name: String,
+    _pack_name: String,
     primary_file: PathBuf,
     index_file: PathBuf,
     item_count: u32,
@@ -37,8 +36,7 @@ impl PackStore {
         let item_count = Self::get_pack_item_count(&mut index)?;
         let primary_file_len = Self::get_path_len(&primary_file)?;
         Ok(PackStore {
-            base_path: base_path.to_path_buf(),
-            pack_name: pack_name.to_string(),
+            _pack_name: pack_name.to_string(),
             primary_file,
             index_file,
             item_count,
@@ -46,7 +44,7 @@ impl PackStore {
         })
     }
 
-    pub fn find_packs<P: AsRef<Path>>(base_path: P) -> Result<Vec<Self>, anyhow::Error> {
+    pub fn find_packs<'a, P: AsRef<Path>>(base_path: P) -> Result<Vec<Self>, anyhow::Error> {
         let base_path = base_path.as_ref();
         if !base_path.is_dir() {
             return Err(anyhow!("base path is not a directory"));
@@ -437,27 +435,15 @@ impl PackStore {
         } else if let PackedObjectType::OffsetDelta(offset) = meta.kind {
             let (base_meta, base_data) = self.read_at_address(reusable_file, address - offset)?;
             Ok((meta.combine(&base_meta), combine_data(&base_data, &data)))
+        } else if let PackedObjectType::NamedDelta(oid) = meta.kind {
+            Err(anyhow!("cannot load named delta offset: relies on object {oid}"))
         } else {
-            Err(anyhow!("can't do this yet"))
+            Err(anyhow!("unsupported packed object type"))
         }
     }
 }
 
 impl ObjectStore for PackStore {
-    fn _new_with_config(
-        config: &std::collections::HashMap<String, String>,
-    ) -> Result<Self, anyhow::Error>
-    where
-        Self: Sized,
-    {
-        if !config.contains_key("base_path") {
-            Err(anyhow!("base_path not set"))
-        } else if !config.contains_key("pack_name") {
-            Err(anyhow!("pack_name not set"))
-        } else {
-            PackStore::new(&config["base_path"], &config["pack_name"])
-        }
-    }
 
     fn create(&self) -> Result<(), anyhow::Error> {
         Err(anyhow!("pack creation not yet supported"))

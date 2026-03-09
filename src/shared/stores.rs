@@ -1,14 +1,9 @@
-use std::collections::HashMap;
-
 use crate::shared::objects::{GitObject, RawObject};
 
 pub mod file_store;
 pub mod pack_store;
 
 pub trait ObjectStore {
-    fn _new_with_config(config: &HashMap<String, String>) -> Result<Self, anyhow::Error>
-    where
-        Self: Sized;
     fn create(&self) -> Result<(), anyhow::Error>;
     fn _is_writeable(&self) -> bool;
     fn search_objects(&self, partial_object_id: &str) -> Result<Vec<String>, anyhow::Error>;

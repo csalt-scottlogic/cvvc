@@ -3,13 +3,7 @@ use chrono::{DateTime, TimeZone};
 use indexmap::IndexMap;
 use ini::Ini;
 use std::{
-    collections::{HashMap, HashSet},
-    env,
-    fmt::Display,
-    fs::{self, File},
-    io::Write,
-    path::{Path, PathBuf},
-    str::FromStr,
+    collections::{HashMap, HashSet}, env, fmt::Display, fs::{self, File}, io::Write, path::{Path, PathBuf}, str::FromStr
 };
 
 use crate::shared::{
@@ -130,7 +124,7 @@ impl Repository {
             git_dir,
             loose_object_store,
             ref_log_store,
-            packfile_base: pack_dir,
+            packfile_base: pack_dir.clone(),
             packs,
             config,
         })
@@ -352,16 +346,22 @@ impl Repository {
         Ok(None)
     }
 
-    pub fn read_object(&self, sha: &str) -> Result<Option<StoredObject>, anyhow::Error> {
-        let source = self.find_store_for_object(sha)?;
+    pub fn read_raw_object(&self, object_id: &str) -> Result<Option<RawObject>, anyhow::Error> {
+        let source = self.find_store_for_object(object_id)?;
         let Some(source) = source else {
             return Ok(None);
         };
 
         let raw_object = match source {
-            ObjectSource::LooseObjectStore => self.loose_object_store.read_object(sha)?,
-            ObjectSource::Pack(i) => self.packs[i].read_object(sha)?,
+            ObjectSource::LooseObjectStore => self.loose_object_store.read_object(object_id)?,
+            ObjectSource::Pack(i) => self.packs[i].read_object(object_id)?,
         };
+
+        Ok(raw_object)        
+    }
+
+    pub fn read_object(&self, object_id: &str) -> Result<Option<StoredObject>, anyhow::Error> {
+        let raw_object = self.read_raw_object(object_id)?;
         let Some(raw_object) = raw_object else {
             return Ok(None);
         };
