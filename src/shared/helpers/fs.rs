@@ -82,6 +82,10 @@ pub fn walk_fs_pruned<'a>(
     })
 }
 
+pub fn walk_fs<'a, P: AsRef<Path>>(path: P) -> io::Result<FsWalker<'a>> {
+    walk_fs_pruned(path.as_ref(), &|_| false)
+}
+
 pub struct FsWalker<'a> {
     dirs: VecDeque<PathBuf>,
     dir_reader: ReadDir,

@@ -22,10 +22,10 @@ pub fn list_branches() -> Result<(), anyhow::Error> {
 
 fn list_branches_in_repo(repo: &Repository) -> Result<(), anyhow::Error> {
     let branches = repo.branches()?;
-    let cb = repo.current_branch()?.unwrap_or_else(String::new);
+    let cb = repo.current_branch()?;
     for branch in branches {
-        let cb_flag = if cb == branch { "*" } else { " " };
-        println!("{cb_flag} {branch}");
+        let cb_flag = if cb.as_ref().map(|b| &b.name) == Some(&branch.name) { "*" } else { " " };
+        println!("{cb_flag} {}", branch.name);
     }
     Ok(())
 }
@@ -38,7 +38,7 @@ fn new_branch_in_repo(
     if repo.is_branch_name(branch_name)? {
         return Err(anyhow!("Branch {branch_name} exists"));
     }
-    let current_commit = repo.resolve_ref("HEAD")?;
+    let current_commit = repo.current_commit()?;
     if let Some(current_commit) = current_commit {
         repo.update_branch(branch_name, &current_commit)?;
     }
@@ -109,7 +109,7 @@ fn checkout_from_repo(
         repo.update_head_detached(&target_id)?;
         println!("HEAD is detached at {target_id}");
     }
-    let ref_log_source = prev_branch
+    let ref_log_source = prev_branch.map(|b| b.name)
         .or_else(|| prev_commit_id.clone())
         .unwrap_or_else(|| "00000000000000000000".to_string());
     let ref_log_message = format!("checkout: moving from {ref_log_source} to {target_id}");

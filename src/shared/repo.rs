@@ -27,11 +27,10 @@ use crate::shared::{
     ignore::IgnoreInfo,
     index::{Index, IndexEntry},
     objects::{
-        stored_object_matches_kind, Blob, Commit, GitObject, ObjectKind, RawObject, StoredObject,
-        Tag, Tree, TreeNode,
+        Blob, Commit, GitObject, ObjectKind, RawObject, StoredObject, Tag, Tree, TreeNode, stored_object_matches_kind
     },
     ref_log::{RefLog, RefLogEntry},
-    stores::{file_store::LooseObjectStore, pack_store::PackStore, ObjectStore},
+    stores::{BranchKind, BranchSpec, BranchStore, ObjectStore, branch_file_store::BranchFileStore, file_store::LooseObjectStore, pack_store::PackStore},
 };
 
 pub struct Repository {
@@ -40,6 +39,7 @@ pub struct Repository {
     loose_object_store: LooseObjectStore,
     packfile_base: PathBuf,
     packs: Vec<PackStore>,
+    branch_store: BranchFileStore,
     ref_log_store: RefLog,
     config: Ini,
 }
@@ -112,6 +112,7 @@ impl Repository {
 
         let loose_store_path = git_dir.join("objects");
         let loose_object_store = LooseObjectStore::new(&loose_store_path)?;
+        let branch_store = BranchFileStore::new(&git_dir);
         let ref_log_store = RefLog::new(git_dir.join("logs"));
 
         let pack_dir = git_dir.join("objects").join("pack");
@@ -125,6 +126,7 @@ impl Repository {
             worktree,
             git_dir,
             loose_object_store,
+            branch_store,
             ref_log_store,
             packfile_base: pack_dir.clone(),
             packs,
@@ -165,7 +167,7 @@ impl Repository {
         fs::create_dir_all(&repo.packfile_base)?;
         repo.ref_log_store.create()?;
         repo.dir(&["refs", "tags"].iter().collect::<PathBuf>(), true)?;
-        repo.dir(&["refs", "heads"].iter().collect::<PathBuf>(), true)?;
+        repo.branch_store.create()?;
 
         fs::write(
             repo.file_unchecked(Path::new("description")),
@@ -294,7 +296,7 @@ impl Repository {
         }
 
         if name == "HEAD" {
-            let head_ref = self.resolve_ref(name)?;
+            let head_ref = self._resolve_ref(name)?;
             return match head_ref {
                 Some(hr) => Ok(vec![hr]),
                 None => Ok(vec![]),
@@ -315,19 +317,21 @@ impl Repository {
             collected.append(&mut all_objects.into_iter().collect());
         }
 
-        let potential_tag = self.resolve_ref(&("refs/tags/".to_string() + name))?;
+        let potential_tag = self._resolve_ref(&("refs/tags/".to_string() + name))?;
         if let Some(potential_tag) = potential_tag {
             collected.push(potential_tag);
         }
 
-        let potential_branch = self.resolve_ref(&("refs/heads/".to_string() + name))?;
+        let potential_branch = self.branch_store.resolve_branch_target(&BranchSpec::new(name, BranchKind::Local))?;
         if let Some(potential_branch) = potential_branch {
-            collected.push(potential_branch);
+            collected.push(potential_branch); 
         }
 
-        let potential_remote_branch = self.resolve_ref(&("refs/remotes/".to_string() + name))?;
-        if let Some(potential_remote_branch) = potential_remote_branch {
-            collected.push(potential_remote_branch);
+        let potential_remote_branches = self.branch_store.search_remotes_for_branch(name)?;
+        for remote_branch in potential_remote_branches {
+            if let Some(remote_branch_target) = self.branch_store.resolve_branch_target(&remote_branch)? {
+                collected.push(remote_branch_target);
+            }
         }
 
         Ok(collected)
@@ -391,7 +395,7 @@ impl Repository {
         self.loose_object_store.write_object(obj)
     }
 
-    pub fn resolve_ref(&self, git_ref: &str) -> Result<Option<String>, anyhow::Error> {
+    pub fn _resolve_ref(&self, git_ref: &str) -> Result<Option<String>, anyhow::Error> {
         let path = self.file(&PathBuf::from_iter(git_ref.split("/")), false)?;
         let Some(path) = path else {
             return Ok(None);
@@ -401,7 +405,7 @@ impl Repository {
         }
         let ref_conts = fs::read_to_string(path)?;
         if let Some(ref_target) = ref_conts.strip_prefix("ref: ") {
-            return self.resolve_ref(ref_target.trim());
+            return self._resolve_ref(ref_target.trim());
         }
         Ok(Some(ref_conts.trim().to_string()))
     }
@@ -447,7 +451,7 @@ impl Repository {
         let mut output = IndexMap::<String, String>::new();
         for f in files {
             let mut stripped_path = self.strip_git_dir(&f);
-            let ref_target = self.resolve_ref(&stripped_path.to_string_lossy())?;
+            let ref_target = self._resolve_ref(&stripped_path.to_string_lossy())?;
             if let Some(rp) = root_path {
                 stripped_path = stripped_path.strip_prefix(rp)?.to_path_buf();
             }
@@ -554,7 +558,7 @@ impl Repository {
         IgnoreInfo::from_files(global_file, repo_file, scoped_files)
     }
 
-    pub fn current_branch(&self) -> Result<Option<String>, anyhow::Error> {
+    pub fn current_branch(&self) -> Result<Option<BranchSpec>, anyhow::Error> {
         let head = self
             .file(Path::new("HEAD"), false)
             .context("error finding HEAD")?;
@@ -562,29 +566,23 @@ impl Repository {
             return Err(anyhow!("missing HEAD"));
         };
         let head_conts = std::fs::read_to_string(head).context("failed to read HEAD")?;
-        if let Some(head_target) = head_conts.strip_prefix("ref: refs/heads/") {
-            Ok(Some(head_target.trim().to_string()))
+        if let Some(head_target) = head_conts.strip_prefix("ref: ") {
+            Ok(Some(BranchSpec::from_str(head_target.trim())?))
         } else {
             Ok(None)
         }
     }
 
     pub fn current_commit(&self) -> Result<Option<String>, anyhow::Error> {
-        self.resolve_ref("HEAD")
+        if let Some(current_branch) = self.current_branch()? {
+            self.branch_store.resolve_branch_target(&current_branch)
+        } else {
+            self._resolve_ref("HEAD")
+        }
     }
 
-    pub fn branches(&self) -> Result<Vec<String>, anyhow::Error> {
-        let mut branches = Vec::<String>::new();
-        let Some(branches_dir) = self.dir(&PathBuf::from_iter(["refs", "heads"]), true)? else {
-            return Err(anyhow!(".git/refs/heads does not exist, was not created, but no error occured to explain why"));
-        };
-        for branch_entry in fs::read_dir(branches_dir)? {
-            let branch_entry = branch_entry?;
-            let file_type = branch_entry.file_type()?;
-            if file_type.is_file() {
-                branches.push(branch_entry.file_name().to_string_lossy().to_string());
-            }
-        }
+    pub fn branches(&self) -> Result<Vec<BranchSpec>, anyhow::Error> {
+        let mut branches = self.branch_store.local_branches()?;
         if let Some(cb) = self.current_branch()? {
             if !branches.contains(&cb) {
                 branches.push(cb);
@@ -594,21 +592,19 @@ impl Repository {
         Ok(branches)
     }
 
-    pub fn is_branch_name<P: AsRef<Path>>(&self, query_name: P) -> Result<bool, anyhow::Error> {
-        let ref_path = self.branch_path(query_name);
-        Ok(ref_path.try_exists()? && ref_path.is_file())
+    pub fn is_branch_name(&self, query_name: &str) -> Result<bool, anyhow::Error> {
+        self.branch_store.is_valid(&BranchSpec::new(query_name, BranchKind::Local))
     }
 
-    pub fn update_branch<P: AsRef<Path>>(
+    pub fn update_branch(
         &self,
-        branch_name: P,
+        branch_name: &str,
         commit_id: &str,
     ) -> Result<(), anyhow::Error> {
-        let ref_path = self.branch_path(branch_name);
-        write_single_line(ref_path, commit_id)
+        self.branch_store.update_branch(&BranchSpec::new(branch_name, BranchKind::Local), commit_id)
     }
 
-    fn branch_path<P: AsRef<Path>>(&self, branch_name: P) -> PathBuf {
+    fn _branch_path<P: AsRef<Path>>(&self, branch_name: P) -> PathBuf {
         self.git_dir.join("refs").join("heads").join(branch_name)
     }
 

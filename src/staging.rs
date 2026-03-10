@@ -131,7 +131,7 @@ pub fn full_commit(config: &GlobalConfig, message: Option<String>) -> Result<(),
     let repo = find_repo_cwd()?;
     let start_commit = repo.current_commit()?;
     let tree_id = store_index_as_tree_repo(&repo, false)?;
-    let parent_id = repo.resolve_ref("HEAD")?;
+    let parent_id = repo.current_commit()?;
     let timestamp = DateTime::<Utc>::from(SystemTime::now());
     let message = message
         .as_deref()
@@ -146,17 +146,18 @@ pub fn full_commit(config: &GlobalConfig, message: Option<String>) -> Result<(),
     )?;
     let current_branch = repo.current_branch()?;
     if let Some(ref branch) = current_branch {
-        repo.update_branch(branch, &commit_id)?
+        repo.update_branch(&branch.name, &commit_id)?
     } else {
         repo.update_head_detached(&commit_id)?
     }
+    let current_branch_name = current_branch.map(|b| b.name.to_string());
     repo.write_ref_log(
         start_commit.as_deref(),
         &commit_id,
         &config.committer(),
         &timestamp,
         &shorten_message("commit", message),
-        current_branch.as_deref(),
+        current_branch_name.as_deref(),
     )
 }
 
@@ -167,7 +168,7 @@ fn status_branch(repo: &Repository) -> Result<(), anyhow::Error> {
             println!("On branch {name}");
         }
         None => {
-            let head_commit = repo.resolve_ref("HEAD")?;
+            let head_commit = repo.current_commit()?;
             if let Some(head_commit) = head_commit {
                 println!("HEAD detached at {head_commit}");
             } else {
