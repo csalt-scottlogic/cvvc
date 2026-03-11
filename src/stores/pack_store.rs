@@ -8,7 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::shared::{
+use crate::{
     objects::{ObjectKind, ObjectMetadata, RawObject},
     stores::ObjectStore,
 };

@@ -2,7 +2,7 @@ use anyhow::{anyhow, Context};
 use chrono::{DateTime, TimeZone, Utc};
 use std::{fmt::Display, fs, path::Path, time::SystemTime};
 
-use crate::shared::{
+use crate::{
     config::GlobalConfig,
     helpers::{
         find_repo_cwd,

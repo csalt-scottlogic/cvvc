@@ -12,7 +12,7 @@ use std::{
     str::FromStr,
 };
 
-use crate::shared::{
+use crate::{
     config::default_repo_config,
     errors::FindObjectError,
     helpers::{

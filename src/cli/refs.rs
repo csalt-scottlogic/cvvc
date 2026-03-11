@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use indexmap::IndexMap;
 
-use crate::shared::{helpers::find_repo_cwd, objects::Tag, repo::Repository};
+use crate::{helpers::find_repo_cwd, objects::Tag, repo::Repository};
 
 pub fn show_refs() -> Result<(), anyhow::Error> {
     let repo = find_repo_cwd()?;

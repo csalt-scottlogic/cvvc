@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use std::{fmt::Display, str::FromStr};
 
-use crate::shared::objects::{GitObject, RawObject};
+use crate::objects::{GitObject, RawObject};
 
 pub mod branch_file_store;
 pub mod file_store;
@@ -63,8 +63,13 @@ impl FromStr for BranchKind {
     }
 }
 
+
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 pub struct BranchSpec {
+    // Correct behaviour of the branch-list command depends on the 
+    // ordering of members of this struct, so that the derived
+    // Ord and PartialOrd implementations give the expected result
+
     pub kind: BranchKind,
     pub name: String,
 }

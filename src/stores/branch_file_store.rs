@@ -1,6 +1,6 @@
 use std::{fs, path::{Path, PathBuf}};
 
-use crate::shared::{helpers::fs::{check_and_create_dir, path_translate, path_translate_rev, walk_fs, write_single_line}, stores::{BranchKind, BranchSpec, BranchStore}};
+use crate::{helpers::fs::{check_and_create_dir, path_translate, path_translate_rev, walk_fs, write_single_line}, stores::{BranchKind, BranchSpec, BranchStore}};
 
 pub struct BranchFileStore {
     base_path: PathBuf,

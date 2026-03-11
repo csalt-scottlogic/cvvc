@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use std::{cmp::Ordering, fmt::Display, iter::repeat_n, path::Path};
 
 use self::errors::{InvalidIndexEntryError, InvalidIndexError};
-use crate::shared::helpers::{
+use crate::helpers::{
     self, datetime_to_bytes,
     fs::{index_path_file, index_path_parent, FileMetadata},
 };

@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::shared::{objects::RawObject, repo::is_partial_object_id, stores::ObjectStore};
+use crate::{objects::RawObject, repo::is_partial_object_id, stores::ObjectStore};
 
 pub struct LooseObjectStore {
     base_path: PathBuf,
@@ -79,7 +79,7 @@ impl ObjectStore for LooseObjectStore {
     fn read_object(
         &self,
         object_id: &str,
-    ) -> Result<Option<crate::shared::objects::RawObject>, anyhow::Error> {
+    ) -> Result<Option<RawObject>, anyhow::Error> {
         let path = self.object_file(object_id);
         if !path.is_file() {
             return Ok(None);
@@ -93,7 +93,7 @@ impl ObjectStore for LooseObjectStore {
 
     fn write_raw_object(
         &self,
-        obj: &crate::shared::objects::RawObject,
+        obj: &RawObject,
     ) -> Result<String, anyhow::Error> {
         let path = self.object_file(obj.object_id());
 

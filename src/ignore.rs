@@ -2,7 +2,7 @@ use anyhow::Context;
 use glob::Pattern;
 use std::{collections::HashMap, path::Path};
 
-use crate::shared::objects::Blob;
+use crate::objects::Blob;
 
 pub struct IgnorePattern {
     patterns: Vec<Pattern>,

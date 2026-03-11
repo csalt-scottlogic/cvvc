@@ -1,4 +1,4 @@
-use crate::shared::{
+use crate::{
     helpers::find_repo_cwd,
     objects::{ObjectKind, StoredObject},
     repo::Repository,

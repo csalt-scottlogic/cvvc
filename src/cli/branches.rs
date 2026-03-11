@@ -1,4 +1,4 @@
-use crate::shared::{
+use crate::{
     config::GlobalConfig, helpers::find_repo_cwd, objects::StoredObject, repo::Repository,
 };
 use anyhow::anyhow;

@@ -8,7 +8,7 @@ use std::{
 
 use chrono::{DateTime, Utc};
 
-use crate::shared::index::{IndexEntryPermissions, IndexEntryType};
+use crate::index::{IndexEntryPermissions, IndexEntryType};
 
 pub mod errors;
 

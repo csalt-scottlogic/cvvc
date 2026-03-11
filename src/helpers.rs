@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt::Display};
 
 use chrono::{DateTime, TimeZone};
 
-use crate::shared::{helpers::fs::index_path_parent, repo::Repository};
+use crate::{helpers::fs::index_path_parent, repo::Repository};
 
 pub mod fs;
 
