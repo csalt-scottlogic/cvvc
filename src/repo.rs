@@ -26,8 +26,8 @@ use crate::{
     ignore::IgnoreInfo,
     index::{Index, IndexEntry},
     objects::{
-        errors::FindObjectError, stored_object_matches_kind, Blob, Commit, GitObject, ObjectKind,
-        RawObject, StoredObject, Tag, Tree, TreeNode,
+        errors::FindObjectError, Blob, GitObject, ObjectKind,
+        RawObject, StoredObject, Tree, TreeNode,
     },
     ref_log::{RefLog, RefLogEntry},
     stores::{
@@ -266,10 +266,16 @@ impl Repository {
     ///
     /// If the path's tip is not inside this repository, it returns [`PathErrorKind::PathOutsideRepo`]
     pub fn worktree_path<T: AsRef<Path> + ToString>(&self, path: T) -> Result<PathBuf, PathError> {
-        let abs_path = match fs::canonicalize(&path) {
+        let mut abs_path = match std::path::absolute(&path) {
             Ok(p) => p,
             Err(_) => return Err(PathError::new(path, PathErrorKind::InvalidPath)),
         };
+        if abs_path.exists() {
+            abs_path = match fs::canonicalize(&abs_path) {
+                Ok(p) => p,
+                Err(_) => return Err(PathError::new(path, PathErrorKind::InvalidPath)),
+            };
+        }
         match abs_path.strip_prefix(&self.worktree) {
             Ok(p) => Ok(p.to_path_buf()),
             Err(_) => Err(PathError::new(path, PathErrorKind::PathOutsideRepo)),
@@ -281,24 +287,40 @@ impl Repository {
     ///
     /// Returns an error if the path is not valid or is outside the repository.
     pub fn canon_path<T: AsRef<Path> + ToString>(&self, path: T) -> Result<PathBuf, PathError> {
-        let abs_path = match fs::canonicalize(&path) {
+        let abs_path = match std::path::absolute(&path) {
             Ok(p) => p,
             Err(_) => return Err(PathError::new(path, PathErrorKind::InvalidPath)),
         };
         if !abs_path.starts_with(&self.worktree) {
             return Err(PathError::new(path, PathErrorKind::PathOutsideRepo));
         }
-        Ok(abs_path)
+        if abs_path.exists() {
+            let abs_path = match fs::canonicalize(abs_path) {
+                Ok(p) => p,
+                Err(_) => return Err(PathError::new(path, PathErrorKind::InvalidPath)),
+            };
+            if !abs_path.starts_with(&self.worktree) {
+                return Err(PathError::new(path, PathErrorKind::PathOutsideRepo));
+            }
+            Ok(abs_path)
+        } else {
+            Ok(abs_path)
+        }
     }
 
     /// Converts a file path relative to the .git directory, to an absolute path.
-    fn file<P: AsRef<Path>>(&self, path: P) -> Result<PathBuf, anyhow::Error> {
-        let abs_path = fs::canonicalize(self.path(path))?;
+    fn file<P: AsRef<Path> + std::fmt::Debug>(&self, path: P) -> Result<PathBuf, anyhow::Error> {
+        println!("File time! {path:?}");
+        let abs_path = std::path::absolute(self.path(path))?;
         if !abs_path.starts_with(&self.git_dir) {
             return Err(anyhow!("Path is outside repository"));
         }
 
         if abs_path.exists() {
+            let abs_path = fs::canonicalize(abs_path)?;
+            if !abs_path.starts_with(&self.git_dir) {
+                return Err(anyhow!("Path is outside repository"));
+            }
             if abs_path.is_file() {
                 Ok(abs_path)
             } else {
@@ -379,16 +401,17 @@ impl Repository {
         };
         let mut current_target = resolve_result[0].to_string();
         loop {
-            let obj = self.read_object(&current_target)?;
+            let obj = self.read_raw_object(&current_target)?;
             let Some(obj) = obj else {
                 return Err(anyhow::Error::from(FindObjectError::none()));
             };
-            if stored_object_matches_kind(&kind, &obj) {
-                return Ok(current_target);
+            if obj.metadata().kind == kind {
+                return Ok(current_target)
             }
             if !follow_tags {
                 return Err(anyhow::Error::from(FindObjectError::none()));
             }
+            let obj = obj.to_stored_object()?;
             match obj {
                 StoredObject::Tag(tag) => {
                     current_target = tag.target().context("chunky tag has invalid target")?;
@@ -508,20 +531,7 @@ impl Repository {
         let Some(raw_object) = raw_object else {
             return Ok(None);
         };
-        match raw_object.metadata().kind {
-            ObjectKind::Blob => Ok(Some(StoredObject::Blob(Blob::deserialise(
-                raw_object.content_headerless(),
-            )?))),
-            ObjectKind::Commit => Ok(Some(StoredObject::Commit(Commit::deserialise(
-                raw_object.content_headerless(),
-            )?))),
-            ObjectKind::Tree => Ok(Some(StoredObject::Tree(Tree::deserialise(
-                raw_object.content_headerless(),
-            )?))),
-            ObjectKind::Tag => Ok(Some(StoredObject::Tag(Tag::deserialise(
-                raw_object.content_headerless(),
-            )?))),
-        }
+        Ok(Some(raw_object.to_stored_object()?))
     }
 
     /// Write a [`RawObject`] to the loose object store.

@@ -195,9 +195,27 @@ impl RawObject {
     pub fn metadata(&self) -> &ObjectMetadata {
         &self.metadata
     }
+
+    pub fn to_stored_object(&self) -> Result<StoredObject, anyhow::Error> {
+        match self.metadata().kind {
+            ObjectKind::Blob => Ok(StoredObject::Blob(Blob::deserialise(
+                self.content_headerless(),
+            )?)),
+            ObjectKind::Commit => Ok(StoredObject::Commit(Commit::deserialise(
+                self.content_headerless(),
+            )?)),
+            ObjectKind::Tree => Ok(StoredObject::Tree(Tree::deserialise(
+                self.content_headerless(),
+            )?)),
+            ObjectKind::Tag => Ok(StoredObject::Tag(Tag::deserialise(
+                self.content_headerless(),
+            )?)),
+        }
+    }
 }
 
 /// The legal types of repository object.
+#[derive(PartialEq)]
 pub enum ObjectKind {
     Blob,
     Commit,
@@ -746,24 +764,6 @@ impl GitObject for Tree {
         let mut tree = Self::new();
         tree.add_entries(&mut entries);
         Ok(tree)
-    }
-}
-
-/// Check whether or not a [`StoredObject`] value matches the equivalent [`ObjectKind`] value
-pub fn stored_object_matches_kind(kind: &ObjectKind, obj: &StoredObject) -> bool {
-    match kind {
-        ObjectKind::Blob => {
-            matches!(obj, StoredObject::Blob(_))
-        }
-        ObjectKind::Tree => {
-            matches!(obj, StoredObject::Tree(_))
-        }
-        ObjectKind::Commit => {
-            matches!(obj, StoredObject::Commit(_))
-        }
-        ObjectKind::Tag => {
-            matches!(obj, StoredObject::Tag(_))
-        }
     }
 }
 
