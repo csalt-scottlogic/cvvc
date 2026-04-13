@@ -982,13 +982,14 @@ impl Repository {
         paths: &[T],
     ) -> Result<(), anyhow::Error> {
         let mut index = self.read_index()?;
+        let mut new_entries: Vec<IndexEntry> = vec![];
         for path in paths {
             let new_entry = self.add_path_partial(path, &mut index)?;
             if let Some(new_entry) = new_entry {
-                index.add_unsorted(new_entry);
+                new_entries.push(new_entry);
             }
         }
-        index.sort();
+        index.add_range(&mut new_entries);
         self.write_index(&index)?;
         Ok(())
     }
