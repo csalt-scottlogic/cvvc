@@ -1,6 +1,5 @@
 use anyhow::{anyhow, Context};
 use chrono::{DateTime, TimeZone};
-use flate2::write;
 use indexmap::IndexMap;
 use ini::Ini;
 use std::{
@@ -435,14 +434,14 @@ impl Repository {
         }
 
         if name == "HEAD" {
-            let head_ref = self._resolve_ref(name)?;
+            let head_ref = self.resolve_ref(name)?;
             return match head_ref {
                 Some(hr) => Ok(vec![hr]),
                 None => Ok(vec![]),
             };
         }
 
-        let mut collected = Vec::<String>::new();
+        let mut collected = HashSet::<String>::new();
         if is_partial_object_id(name) {
             let mut all_objects = HashSet::<String>::new();
             for loose_object in self.loose_object_store.search_objects(name)? {
@@ -453,31 +452,33 @@ impl Repository {
                     all_objects.insert(packed_object);
                 }
             }
-            collected.append(&mut all_objects.into_iter().collect());
+            for item in all_objects {
+                collected.insert(item);
+            }
         }
 
-        let potential_tag = self._resolve_ref(&("refs/tags/".to_string() + name))?;
+        let potential_tag = self.resolve_ref(&("refs/tags/".to_string() + name))?;
         if let Some(potential_tag) = potential_tag {
-            collected.push(potential_tag);
+            collected.insert(potential_tag);
         }
 
         let potential_branch = self
             .branch_store
             .resolve_branch_target(&BranchSpec::new(name, BranchKind::Local))?;
         if let Some(potential_branch) = potential_branch {
-            collected.push(potential_branch);
+            collected.insert(potential_branch);
         } else {
             let potential_remote_branches = self.branch_store.search_remotes_for_branch(name)?;
             for remote_branch in potential_remote_branches {
                 if let Some(remote_branch_target) =
                     self.branch_store.resolve_branch_target(&remote_branch)?
                 {
-                    collected.push(remote_branch_target);
+                    collected.insert(remote_branch_target);
                 }
             }
         }
 
-        Ok(collected)
+        Ok(collected.into_iter().collect::<Vec<String>>())
     }
 
     fn find_store_for_object(
@@ -568,14 +569,14 @@ impl Repository {
     /// # Errors
     ///
     /// Returns an error if it encounters any errors reading from the filesystem.
-    pub fn _resolve_ref(&self, git_ref: &str) -> Result<Option<String>, anyhow::Error> {
+    fn resolve_ref(&self, git_ref: &str) -> Result<Option<String>, anyhow::Error> {
         let path = self.file(&PathBuf::from_iter(git_ref.split("/")))?;
         if !path.exists() {
             return Ok(None);
         }
         let ref_conts = fs::read_to_string(path)?;
         if let Some(ref_target) = ref_conts.strip_prefix("ref: ") {
-            return self._resolve_ref(ref_target.trim());
+            return self.resolve_ref(ref_target.trim());
         }
         Ok(Some(ref_conts.trim().to_string()))
     }
@@ -624,7 +625,7 @@ impl Repository {
         let mut output = IndexMap::<String, String>::new();
         for f in files {
             let mut stripped_path = self.strip_git_dir(&f);
-            let ref_target = self._resolve_ref(&stripped_path.to_string_lossy())?;
+            let ref_target = self.resolve_ref(&stripped_path.to_string_lossy())?;
             if let Some(rp) = root_path {
                 stripped_path = stripped_path.strip_prefix(rp)?.to_path_buf();
             }
@@ -803,7 +804,7 @@ impl Repository {
         if let Some(current_branch) = self.current_branch()? {
             self.branch_store.resolve_branch_target(&current_branch)
         } else {
-            self._resolve_ref("HEAD")
+            self.resolve_ref("HEAD")
         }
     }
 
