@@ -146,9 +146,13 @@ pub fn check_and_create_dir<P: AsRef<Path>>(path: P) -> Result<PathBuf, anyhow::
 /// # Examples
 ///
 /// ```
+/// use std::path::Path;
+/// use cvvc::helpers::fs::walk_fs_pruned;
+/// 
 /// // Print all files and directories, excluding any temporary directories.
-/// for path in walk_fs_pruned("base/dir", |p| p.file_name() != "tmp")? {
-///     println!("{}", path.display());
+/// let paths = walk_fs_pruned(&std::env::current_dir().unwrap(), &|p: &Path| p.file_name().is_some_and(|x| x != "tmp")).unwrap();
+/// for path in paths {
+///     println!("{}", path.unwrap().display());
 /// }
 /// ```
 pub fn walk_fs_pruned<'a>(
