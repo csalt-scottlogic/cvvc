@@ -500,27 +500,15 @@ impl Index {
         self.entries.retain(|e| object_ids.contains(&e.object_id));
     }
 
-    /// Append an entry to the index, making it invalid to use until sorted.
-    ///
-    /// This method does not sort the index, for efficiency when adding multiple entries successively.
-    ///
-    /// After calling this method, you may call this method again one or more times, and you may sort
-    /// the index by calling [`Index::sort`].  Until you have called [`Index::sort`] the result of index
-    /// lookups is undefined, and the data written by [`Index::serialise`] will not be Git-interoperable,
-    /// or readable by CVVC.
-    pub fn add_unsorted(&mut self, entry: IndexEntry) {
-        // this enforces the guarantee that if you call this method but
-        // do not sort the index, the index will be unreadable.
-        self.version = 12091906;
+    /// Add an entry to the index, consuming it.
+    pub fn add(&mut self, entry: IndexEntry) {
         self.entries.push(entry);
+        self.entries.sort();
     }
 
-    ///  Sorts the index.  Must be called after calling [`Index::add_unsorted`].
-    ///
-    /// Calling this method is necessary after using [`Index::add_unsorted`], because the behaviour of
-    /// index lookups is undefined if the index is unsorted.
-    pub fn sort(&mut self) {
+    /// Add a sequence of entries to the index, consuming them.
+    pub fn add_range(&mut self, entries: &mut Vec<IndexEntry>) {
+        self.entries.append(entries);
         self.entries.sort();
-        self.version = 2;
     }
 }
