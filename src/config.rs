@@ -209,16 +209,34 @@ impl GlobalConfig {
 
     /// Try to find the likely path of the user configuration file.
     ///
-    /// If the environment variable `XDG_CONFIG_HOME` is set, this function returns `$XDG_AUTHOR_NAME/git/config`.
-    /// If not, it returns `.config/git/config` relative to the user's home directory.
+    /// If the environment variable `XDG_CONFIG_HOME` is set, this function returns the first of 
+    /// `$XDG_CONFIG_HOME/.gitconfig` or `$XDG_CONFIG_HOME/git/config` that exists.
+    /// If that environment variable is not set, it looks for those files in the user's home directory.
     ///
     /// This function does not guarantee that either file exists.
     pub fn find_user_file() -> Option<PathBuf> {
-        env::var("XDG_CONFIG_HOME")
+        let home_dir = env::var("XDG_CONFIG_HOME")
             .ok()
             .and_then(|d| PathBuf::from_str(&d).ok())
-            .map(|d| d.join("git").join("config"))
-            .or_else(|| env::home_dir().map(|hd| hd.join(".config").join("git").join("config")))
+            .or_else(|| env::home_dir());
+        if home_dir.is_none() {
+            return None;
+        }
+        let home_dir = home_dir.unwrap();
+        Self::find_user_file_in_dir(&home_dir)
+    }
+
+    fn find_user_file_in_dir<P: AsRef<Path>>(dir: P) -> Option<PathBuf> {
+        let gitconfig = dir.as_ref().join(".gitconfig");
+        if gitconfig.exists() {
+            return Some(gitconfig);
+        }
+        let gitconfig = dir.as_ref().join(".config").join("git").join("config");
+        if gitconfig.exists() {
+            Some(gitconfig)
+        } else {
+            None
+        }
     }
 
     /// Try to find the likely path of the system configuration file.
