@@ -309,7 +309,6 @@ impl Repository {
 
     /// Converts a file path relative to the .git directory, to an absolute path.
     fn file<P: AsRef<Path> + std::fmt::Debug>(&self, path: P) -> Result<PathBuf, anyhow::Error> {
-        println!("File time! {path:?}");
         let abs_path = std::path::absolute(self.path(path))?;
         if !abs_path.starts_with(&self.git_dir) {
             return Err(anyhow!("Path is outside repository"));
