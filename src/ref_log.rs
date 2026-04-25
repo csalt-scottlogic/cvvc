@@ -7,7 +7,7 @@ use std::{
     str::FromStr,
 };
 
-use crate::repo::is_partial_object_id;
+use crate::{helpers, repo::is_partial_object_id};
 
 /// An entry in a ref log.
 #[derive(Debug)]
@@ -219,20 +219,13 @@ impl RefLog {
     /// This method returns an error if it encounters any errors reading from the filesystem.
     pub fn list_ref_logs(&self) -> Result<Vec<String>, anyhow::Error> {
         let mut output = Vec::<String>::new();
-        if self.base_path.join("HEAD").exists() {
-            output.push("HEAD".to_string());
-        }
-        let branch_ref_log_dir = self.base_path.join("refs").join("heads");
-        for ref_log_entry in fs::read_dir(branch_ref_log_dir)? {
+        for ref_log_entry in helpers::fs::walk_fs(&self.base_path)? {
             let ref_log_entry = ref_log_entry?;
-            let file_type = ref_log_entry.file_type()?;
-            if file_type.is_file() {
-                output.push(format!(
-                    "refs/heads/{}",
-                    ref_log_entry.file_name().to_string_lossy()
-                ));
+            if ref_log_entry.is_file() {
+                output.push(helpers::fs::path_translate(ref_log_entry.strip_prefix(&self.base_path)?))
             }
         }
+        output.sort();
         Ok(output)
     }
 
