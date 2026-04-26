@@ -5,7 +5,9 @@ use std::{fmt::Display, fs, path::Path, time::SystemTime};
 use crate::{
     config::GlobalConfig,
     helpers::{
-        self, find_repo_cwd, fs::{path_translate, path_translate_rev, walk_fs_pruned}, shorten_and_prefix_message
+        self, find_repo_cwd,
+        fs::{path_translate, path_translate_rev, walk_fs_pruned},
+        shorten_and_prefix_message,
     },
     objects::{Blob, Commit, RawObject},
     repo::Repository,

@@ -5,7 +5,9 @@ use sha1::{Digest, Sha1};
 use std::{cmp::Ordering, fmt::Display, fs, io::Read, path::Path};
 
 use crate::{
-    helpers::{self, timestamped_name}, index::IndexEntry, objects::errors::InvalidObjectIdError,
+    helpers::{self, timestamped_name},
+    index::IndexEntry,
+    objects::errors::InvalidObjectIdError,
     repo::Repository,
 };
 
@@ -131,11 +133,28 @@ impl RawObject {
         })
     }
 
-    /// Create a [`RawObject`] from headerless content data and separate metadata
+    /// Create a [`RawObject`] from headerless content data and separate metadata, assuming the object ID is already known.
+    ///
+    /// This function does not verify the passed-in object ID.
     pub fn from_headerless_data(data: &[u8], object_id: &str, metadata: ObjectMetadata) -> Self {
         Self {
             data: data.to_vec(),
             object_id: object_id.to_string(),
+            metadata,
+        }
+    }
+
+    /// Create a [`RawObject`] from headerless content data and separate metadata, computing the object ID.
+    pub fn from_unidentified_data(data: &[u8], metadata: ObjectMetadata) -> Self {
+        let mut headery_data = Self::construct_header(&metadata.kind, metadata.size);
+        headery_data.append(&mut data.to_vec());
+        let mut hasher = Sha1::new();
+        hasher.update(&headery_data);
+        let object_id = hex::encode(hasher.finalize());
+
+        Self {
+            data: data.to_vec(),
+            object_id,
             metadata,
         }
     }
@@ -465,7 +484,17 @@ pub struct Tag {
 
 impl Tag {
     /// Create a repository tag object, with a default tagging message.
-    pub fn create<Tz>(target: &str, name: &str, message: Option<&str>, committer: &str, timestamp: &DateTime<Tz>) -> Self where Tz: TimeZone, Tz::Offset: Display {
+    pub fn create<Tz>(
+        target: &str,
+        name: &str,
+        message: Option<&str>,
+        committer: &str,
+        timestamp: &DateTime<Tz>,
+    ) -> Self
+    where
+        Tz: TimeZone,
+        Tz::Offset: Display,
+    {
         let message = String::from(message.unwrap_or("CV: The user forgot to enter the message"));
         let mut map = IndexMap::<String, Vec<String>>::new();
         map.insert(String::from("object"), vec![target.to_string()]);
@@ -818,7 +847,12 @@ fn kvlm_serialise(map: &IndexMap<String, Vec<String>>, message: &str, buf: &mut 
         }
     }
     buf.push(0x0a);
-    buf.append(helpers::append_newline_if_necessary(message).as_bytes().to_vec().as_mut());
+    buf.append(
+        helpers::append_newline_if_necessary(message)
+            .as_bytes()
+            .to_vec()
+            .as_mut(),
+    );
 }
 
 // Find the first index in a slice of a particular value, where it's not followed immediately by another specific value.

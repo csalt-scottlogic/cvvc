@@ -132,13 +132,13 @@ pub fn shorten_and_prefix_message(prefix: &str, message: &str) -> String {
 }
 
 /// Converts a `&str` to an owned string, appending a `\n` character if the string does not already end with one.
-/// 
+///
 /// ```
 /// # use cvvc::helpers::append_newline_if_necessary;
 /// let str1 = "test";
 /// let output = append_newline_if_necessary(str1);
 /// assert_eq!("test\n", output);
-/// 
+///
 /// let str2 = "test\n";
 /// let output = append_newline_if_necessary(str2);
 /// assert_eq!("test\n", output);

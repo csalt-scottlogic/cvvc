@@ -222,7 +222,9 @@ impl RefLog {
         for ref_log_entry in helpers::fs::walk_fs(&self.base_path)? {
             let ref_log_entry = ref_log_entry?;
             if ref_log_entry.is_file() {
-                output.push(helpers::fs::path_translate(ref_log_entry.strip_prefix(&self.base_path)?))
+                output.push(helpers::fs::path_translate(
+                    ref_log_entry.strip_prefix(&self.base_path)?,
+                ))
             }
         }
         output.sort();

@@ -2,7 +2,12 @@ use std::path::PathBuf;
 
 use indexmap::IndexMap;
 
-use crate::{config::GlobalConfig, helpers::{self, find_repo_cwd}, objects::Tag, repo::Repository};
+use crate::{
+    config::GlobalConfig,
+    helpers::{self, find_repo_cwd},
+    objects::Tag,
+    repo::Repository,
+};
 
 /// Entry point for the `cv show-ref` coommand
 pub fn show_refs() -> Result<(), anyhow::Error> {
@@ -17,7 +22,13 @@ pub fn show_tags() -> Result<(), anyhow::Error> {
 }
 
 /// Entry point for the `cv tag <new-tag>` command.
-pub fn create_tag(config: &GlobalConfig, name: &str, target: &str, chunky: bool, message: Option<&str>) -> Result<(), anyhow::Error> {
+pub fn create_tag(
+    config: &GlobalConfig,
+    name: &str,
+    target: &str,
+    chunky: bool,
+    message: Option<&str>,
+) -> Result<(), anyhow::Error> {
     let repo = find_repo_cwd()?;
     let absolute_target = repo.find_object(target, None, true)?;
     if chunky {
@@ -27,7 +38,13 @@ pub fn create_tag(config: &GlobalConfig, name: &str, target: &str, chunky: bool,
     }
 }
 
-fn create_chunky_tag(repo: &Repository, config: &GlobalConfig, name: &str, target: &str, message: Option<&str>) -> Result<(), anyhow::Error> {
+fn create_chunky_tag(
+    repo: &Repository,
+    config: &GlobalConfig,
+    name: &str,
+    target: &str,
+    message: Option<&str>,
+) -> Result<(), anyhow::Error> {
     let tag = Tag::create(target, name, message, &config.author(), &helpers::now());
     let tag_id = repo.write_object(&tag)?;
     let name = format!("tags/{name}");

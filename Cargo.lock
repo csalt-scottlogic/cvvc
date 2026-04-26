@@ -242,6 +242,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "crc32fast",
  "flate2",
  "glob",
  "hex",

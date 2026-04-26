@@ -1743,7 +1743,7 @@ mod tests {
     #[test]
     fn index_new_version() {
         let expected_result = 2;
-        
+
         let test_result = Index::new();
 
         assert_eq!(expected_result, test_result.version);
@@ -1792,6 +1792,9 @@ mod tests {
 
         let test_result = Index::from_bytes(&test_input).unwrap_err();
 
-        assert_eq!(InvalidIndexKind::UnsupportedVersion(5), test_result.error_kind);
+        assert_eq!(
+            InvalidIndexKind::UnsupportedVersion(5),
+            test_result.error_kind
+        );
     }
 }

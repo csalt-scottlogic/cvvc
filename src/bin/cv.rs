@@ -267,7 +267,9 @@ fn parse_dispatch() -> ExitCode {
             name,
             target,
         } => match name {
-            Some(tag_name) => refs::create_tag(&config, &tag_name, &target, chunky, message.as_deref()),
+            Some(tag_name) => {
+                refs::create_tag(&config, &tag_name, &target, chunky, message.as_deref())
+            }
             None => refs::show_tags(),
         },
         Commands::WriteTree { no_checks } => staging::store_index_as_tree(no_checks),

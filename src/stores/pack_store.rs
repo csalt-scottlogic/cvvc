@@ -15,8 +15,11 @@ use std::{
 
 use crate::{
     objects::{GitObject, ObjectKind, ObjectMetadata, RawObject},
-    stores::ObjectStore,
+    stores::{pack_store::helpers::index_file_name, ObjectStore},
 };
+
+mod helpers;
+mod indexer;
 
 /// An object store which represents a packfile and its index.
 pub struct PackStore {
@@ -51,15 +54,19 @@ impl PackStore {
         if !base_path.is_dir() {
             return Err(anyhow!("base path is not a directory"));
         }
-        let primary_file = base_path.join(pack_name).with_added_extension("pack");
+        let primary_file = helpers::primary_file_name(base_path, pack_name);
         if !primary_file.is_file() {
             return Err(anyhow!("pack file does not exist"));
         }
-        let index_file = base_path.join(pack_name).with_added_extension("idx");
+        let index_file = index_file_name(base_path, pack_name);
         if !index_file.is_file() {
-            return Err(anyhow!("index file does not exist"));
+            if !index_file.exists() {
+                indexer::index(base_path, pack_name)?;
+            } else {
+                return Err(anyhow!("pack file exists but is not a file"));
+            }
         }
-        let mut index = Self::open_file_from_path(&index_file)?;
+        let mut index = helpers::open_file_from_path(&index_file)?;
         let item_count = Self::get_pack_item_count(&mut index)?;
         let primary_file_len = Self::get_path_len(&primary_file)?;
         Ok(PackStore {
@@ -125,26 +132,6 @@ impl PackStore {
         let mut buf = [0u8; 8];
         index_file.read_exact(&mut buf)?;
         Ok(buf == [255u8, 116, 79, 99, 0, 0, 0, 2])
-    }
-
-    fn check_pack_version<R>(&self, pack_file: &mut BufReader<R>) -> Result<bool, anyhow::Error>
-    where
-        R: Seek,
-        R: Read,
-    {
-        pack_file.rewind()?;
-        let mut buf = [0u8; 8];
-        pack_file.read_exact(&mut buf)?;
-        if buf != [80u8, 65, 67, 75, 0, 0, 0, 2] {
-            return Ok(false);
-        }
-        let mut buf = [0u8; 4];
-        pack_file.read_exact(&mut buf)?;
-        if self.item_count != u32::from_be_bytes(buf) {
-            Ok(false)
-        } else {
-            Ok(true)
-        }
     }
 
     fn get_index_offset_range<R>(
@@ -373,12 +360,7 @@ impl PackStore {
     }
 
     fn open_index_file(&self) -> Result<BufReader<File>, anyhow::Error> {
-        Self::open_file_from_path(&self.index_file)
-    }
-
-    fn open_file_from_path<P: AsRef<Path>>(path: P) -> Result<BufReader<File>, anyhow::Error> {
-        let file = OpenOptions::new().read(true).open(path)?;
-        Ok(BufReader::new(file))
+        helpers::open_file_from_path(&self.index_file)
     }
 
     fn get_file_len(f: &File) -> Result<u64, anyhow::Error> {
@@ -392,99 +374,7 @@ impl PackStore {
     }
 
     fn open_pack_file(&self) -> Result<BufReader<File>, anyhow::Error> {
-        Self::open_file_from_path(&self.primary_file)
-    }
-
-    fn get_packed_object_metadata<R>(
-        &self,
-        pack_file: &mut BufReader<R>,
-        address: u64,
-    ) -> Result<PackedObjectMetadata, anyhow::Error>
-    where
-        R: Read,
-        R: Seek,
-    {
-        pack_file.seek(SeekFrom::Start(address))?;
-        let mut buf = if self.primary_file_len - address > 30 {
-            // enough data to encode a 64-bit length followed by an object ID.
-
-            vec![0u8; 30]
-        } else {
-            // however, it's possible for a very small offset delta object to be less than
-            // ten bytes, so a 30-byte buffer would take us past the end of the file, so...
-            // (safe unwrap() - the result of the subtraction will be <1byte)
-            vec![0u8; (self.primary_file_len - address).try_into().unwrap()]
-        };
-
-        pack_file.read_exact(&mut buf)?;
-        let packed_object_type: PackedObjectTypeOnly = buf[0].try_into()?;
-        let mut object_size: u64 = (buf[0] & 0xf).into();
-        let mut bytes_read = 1;
-        while buf[bytes_read - 1] > 0x80 {
-            object_size |= ((buf[bytes_read] & 0x7f) as u64) << (4 + 7 * (bytes_read - 1));
-            bytes_read += 1;
-            if bytes_read >= buf.len() {
-                break;
-            }
-        }
-
-        let base_object = if let PackedObjectTypeOnly::NamedDelta = packed_object_type {
-            let val = Some(hex::encode(&buf[bytes_read..(bytes_read + 20)]));
-            bytes_read += 20;
-            val
-        } else {
-            None
-        };
-        let delta_offset = if let PackedObjectTypeOnly::OffsetDelta = packed_object_type {
-            let mut offset = 0u64;
-            while buf[bytes_read] >= 0x80 {
-                offset |= ((buf[bytes_read] & 0x7f) + 1) as u64;
-                offset <<= 7;
-                bytes_read += 1;
-            }
-            offset |= (buf[bytes_read] & 0x7f) as u64;
-            bytes_read += 1;
-            Some(offset)
-        } else {
-            None
-        };
-        let data_start_address = address + (bytes_read as u64);
-        PackedObjectMetadata::try_from_type_only(
-            packed_object_type,
-            object_size,
-            data_start_address,
-            delta_offset,
-            base_object,
-        )
-    }
-
-    fn read_at_address<R>(
-        &self,
-        pack_file: &mut BufReader<R>,
-        address: u64,
-    ) -> Result<(PackedObjectMetadata, Vec<u8>), anyhow::Error>
-    where
-        R: Read,
-        R: Seek,
-    {
-        let meta = self.get_packed_object_metadata(pack_file, address)?;
-        pack_file.seek(SeekFrom::Start(meta.data_start_address))?;
-        let mut decompressor = ZlibDecoder::new(pack_file);
-        let mut data = Vec::<u8>::with_capacity(meta.size as usize);
-        decompressor.read_to_end(&mut data)?;
-        let reusable_file = decompressor.into_inner();
-        if meta.is_base_object() {
-            Ok((meta, data))
-        } else if let PackedObjectType::OffsetDelta(offset) = meta.kind {
-            let (base_meta, base_data) = self.read_at_address(reusable_file, address - offset)?;
-            Ok((meta.combine(&base_meta), combine_data(&base_data, &data)))
-        } else if let PackedObjectType::NamedDelta(oid) = meta.kind {
-            Err(anyhow!(
-                "cannot load named delta offset: relies on object {oid}"
-            ))
-        } else {
-            Err(anyhow!("unsupported packed object type"))
-        }
+        helpers::open_file_from_path(&self.primary_file)
     }
 }
 
@@ -563,31 +453,14 @@ impl ObjectStore for PackStore {
             return Ok(None);
         };
         let mut pack_file = self.open_pack_file()?;
-        if !self.check_pack_version(&mut pack_file)? {
+        if !helpers::check_pack_version(&mut pack_file, Some(self.item_count))? {
             return Err(anyhow!("pack file format not recognised"));
         }
-        let (meta, data) = self.read_at_address(&mut pack_file, object_address)?;
-        if meta.is_base_object() {
-            let metadata = ObjectMetadata::new(ObjectKind::try_from(meta.kind)?, data.len());
-            Ok(Some(RawObject::from_headerless_data(
-                &data, object_id, metadata,
-            )))
-        } else if let PackedObjectType::OffsetDelta(offset) = meta.kind {
-            let (base_meta, base_data) =
-                self.read_at_address(&mut pack_file, object_address - offset)?;
-            let combined_meta = meta.combine(&base_meta);
-            let unpacked_metadata = ObjectMetadata::new(
-                ObjectKind::try_from(combined_meta.kind)?,
-                combined_meta.size as usize,
-            );
-            Ok(Some(RawObject::from_headerless_data(
-                &combine_data(&base_data, &data),
-                object_id,
-                unpacked_metadata,
-            )))
-        } else {
-            todo!();
-        }
+        Ok(Some(helpers::read_raw_object_at_address(
+            &mut pack_file,
+            object_address,
+            self.primary_file_len,
+        )?))
     }
 
     /// Fails to write a [`RawObject`] to the packfile.  This method always returns an error, because packfiles are not
@@ -732,95 +605,6 @@ impl PackedObjectMetadata {
             size: self.size,
             data_start_address: self.data_start_address,
             kind: other.kind.clone(),
-        }
-    }
-}
-
-fn combine_data(base_data: &[u8], apply_commands: &[u8]) -> Vec<u8> {
-    let mut result = Vec::<u8>::new();
-    let mut idx = 0;
-
-    // The commands start with two sizes, the size of the base and the size of the output.
-    // We could read these for verification, if I was a Good Girl, but that can be a job for later.
-    // Instead, we need to find the byte following the second byte less than 128 and start working from there.
-    let mut non_continuation = 0;
-    while non_continuation < 2 {
-        if apply_commands[idx] < 0x80 {
-            non_continuation += 1;
-        }
-        idx += 1;
-    }
-
-    while idx < apply_commands.len() {
-        let command = DeltaCommand::from_bytes(&apply_commands[idx..]);
-        match command.kind {
-            DeltaCommandType::Add(sz) => {
-                result.extend_from_slice(&apply_commands[(idx + 1)..(idx + 1 + sz)])
-            }
-            DeltaCommandType::Copy { offset, size } => {
-                result.extend_from_slice(&base_data[offset..(offset + size)])
-            }
-        }
-        idx += command.len;
-    }
-    result
-}
-
-enum DeltaCommandType {
-    Copy { offset: usize, size: usize },
-    Add(usize),
-}
-
-struct DeltaCommand {
-    len: usize,
-    kind: DeltaCommandType,
-}
-
-impl DeltaCommand {
-    fn from_bytes(data: &[u8]) -> Self {
-        if data[0] < 0x80 {
-            let size = data[0] & 0x7f;
-            Self {
-                len: size as usize + 1,
-                kind: DeltaCommandType::Add(size as usize),
-            }
-        } else {
-            let bits = data[0] & 0x7f;
-            if bits == 0 {
-                Self {
-                    len: 1,
-                    kind: DeltaCommandType::Copy {
-                        offset: 0,
-                        size: 0x10000,
-                    },
-                }
-            } else {
-                let mut offset = 0usize;
-                let mut size = 0usize;
-                let mut bit = 1u8;
-                let mut idx = 1;
-                for i in 0..4 {
-                    if bits & bit != 0 {
-                        offset |= (data[idx] as usize) << (i * 8);
-                        idx += 1;
-                    }
-                    bit <<= 1;
-                }
-                for i in 4..7 {
-                    if bits & bit != 0 {
-                        size |= (data[idx] as usize) << ((i - 4) * 8);
-                        idx += 1;
-                    }
-                    bit <<= 1;
-                }
-                if size == 0 {
-                    size = 0x10000;
-                }
-                Self {
-                    len: bits.count_ones() as usize + 1,
-                    kind: DeltaCommandType::Copy { offset, size },
-                }
-            }
         }
     }
 }

@@ -209,7 +209,7 @@ impl GlobalConfig {
 
     /// Try to find the likely path of the user configuration file.
     ///
-    /// If the environment variable `XDG_CONFIG_HOME` is set, this function returns the first of 
+    /// If the environment variable `XDG_CONFIG_HOME` is set, this function returns the first of
     /// `$XDG_CONFIG_HOME/.gitconfig` or `$XDG_CONFIG_HOME/git/config` that exists.
     /// If that environment variable is not set, it looks for those files in the user's home directory.
     ///
