@@ -380,7 +380,7 @@ impl PartialEq for IndexEntry {
 impl Eq for IndexEntry {}
 
 /// The in-memory representation of an entire index.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Index {
     /// The index version number.  At present, CVVC only supports v2 indexes.
     pub version: u32,
@@ -464,7 +464,8 @@ impl Index {
     /// The index entry is written in the Git on-disk index format, version 2.
     ///
     /// You must not call this method if the index contents are not sorted.  If you
-    /// do, then the serialised data may not be readable.
+    /// do, then the serialised data may not be readable on other Git implementations.  
+    /// The public API of this type, at the time of writing, sorts all data on insertion.
     pub fn serialise<T: Extend<u8>>(&self, buf: &mut T) {
         buf.extend([68, 73, 82, 67]); // equivalent of b"DIRC"
         buf.extend(self.version.to_be_bytes());
@@ -1796,5 +1797,803 @@ mod tests {
             InvalidIndexKind::UnsupportedVersion(5),
             test_result.error_kind
         );
+    }
+
+    #[test]
+    fn index_from_bytes_success() {
+        let test_input = [
+            0x44u8, 0x49, 0x52, 0x43, 0, 0, 0, 2, 0, 0, 0, 2, 0x69, 0xae, 0xe0, 4, 0xc, 0xc8, 0x34,
+            0x60, 0x69, 0xb8, 0x42, 0x9d, 0x32, 0xfa, 0x47, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0x81, 0xa4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xd, 0xb3, 0x27, 0x32, 0x6e, 0xa7, 0x73, 0,
+            0xf6, 0xcf, 0xd5, 0xa2, 0xf3, 0x87, 0x49, 0xff, 0x41, 0x65, 0xf1, 0xac, 0x65, 0xc6, 0,
+            0x12, 0x73, 0x72, 0x63, 0x2f, 0x63, 0x6c, 0x69, 0x2f, 0x6f, 0x62, 0x6a, 0x65, 0x63,
+            0x74, 0x73, 0x2e, 0x72, 0x73, 0, 0, 0, 0, 0, 0, 0, 0, 0x69, 0xae, 0xe0, 4, 0xc, 0xc8,
+            0x34, 0x60, 0x69, 0xb8, 0x41, 0xaa, 0x2c, 0x94, 0xa0, 0xd0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0x81, 0xa4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0x9d, 0xbe, 0x65, 0xc5, 0x99, 0xde,
+            0x1f, 0xda, 0xbc, 0x46, 0x92, 0x2b, 0xa, 0x86, 0x9a, 0x25, 0x5c, 0xa8, 0x2f, 0xdd,
+            0x80, 0, 0x12, 0x73, 0x72, 0x63, 0x2f, 0x63, 0x6c, 0x69, 0x2f, 0x72, 0x65, 0x66, 0x5f,
+            0x6c, 0x6f, 0x67, 0x2e, 0x72, 0x73, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        let expected_entries = vec![
+            IndexEntry {
+                ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                    .unwrap()
+                    .to_utc(),
+                mtime: DateTime::parse_from_rfc3339("2026-03-16T17:49:17.855263200Z")
+                    .unwrap()
+                    .to_utc(),
+                dev: 0,
+                ino: 0,
+                mode_type: IndexEntryType::File,
+                mode_perms: IndexEntryPermissions::NonExecutable,
+                uid: 0,
+                gid: 0,
+                fsize: 3507,
+                flag_assume_valid: false,
+                flag_stage: 0,
+                object_id: "27326ea77300f6cfd5a2f38749ff4165f1ac65c6".to_string(),
+                object_name: "src/cli/objects.rs".to_string(),
+            },
+            IndexEntry {
+                ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                    .unwrap()
+                    .to_utc(),
+                mtime: DateTime::parse_from_rfc3339("2026-03-16T17:45:14.747938Z")
+                    .unwrap()
+                    .to_utc(),
+                dev: 0,
+                ino: 0,
+                mode_type: IndexEntryType::File,
+                mode_perms: IndexEntryPermissions::NonExecutable,
+                uid: 0,
+                gid: 0,
+                fsize: 669,
+                flag_assume_valid: false,
+                flag_stage: 0,
+                object_id: "be65c599de1fdabc46922b0a869a255ca82fdd80".to_string(),
+                object_name: "src/cli/ref_log.rs".to_string(),
+            },
+        ];
+
+        let test_output = Index::from_bytes(&test_input).unwrap();
+
+        assert_eq!(2, test_output.version);
+        assert_eq!(2, test_output.entries.len());
+        assert_eq!(expected_entries, test_output.entries);
+    }
+
+    #[test]
+    fn index_from_bytes_invalid_entry() {
+        let test_input = [
+            0x44u8, 0x49, 0x52, 0x43, 0, 0, 0, 2, 0, 0, 0, 2, 0x69, 0xae, 0xe0, 4, 0xaf, 0xc8,
+            0x34, 0x60, 0x69, 0xb8, 0x8f, 0x9d, 0x32, 0xfa, 0x47, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0x81, 0xa4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xd, 0xb3, 0x27, 0x32, 0x6e, 0xa7, 0x73,
+            0, 0xf6, 0xcf, 0xd5, 0xa2, 0xf3, 0x87, 0x49, 0xff, 0x41, 0x65, 0xf1, 0xac, 0x65, 0xc6,
+            0, 0x12, 0x73, 0x72, 0x63, 0x2f, 0x63, 0x6c, 0x69, 0x2f, 0x6f, 0x62, 0x6a, 0x65, 0x63,
+            0x74, 0x73, 0x2e, 0x72, 0x73, 0, 0, 0, 0, 0, 0, 0, 0, 0x69, 0xae, 0xe0, 4, 0xc, 0xc8,
+            0x34, 0x60, 0x69, 0xb8, 0x41, 0xaa, 0x2c, 0x94, 0xa0, 0xd0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0x81, 0xa4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0x9d, 0xbe, 0x65, 0xc5, 0x99, 0xde,
+            0x1f, 0xda, 0xbc, 0x46, 0x92, 0x2b, 0xa, 0x86, 0x9a, 0x25, 0x5c, 0xa8, 0x2f, 0xdd,
+            0x80, 0, 0x12, 0x73, 0x72, 0x63, 0x2f, 0x63, 0x6c, 0x69, 0x2f, 0x72, 0x65, 0x66, 0x5f,
+            0x6c, 0x6f, 0x67, 0x2e, 0x72, 0x73, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+
+        let test_result = Index::from_bytes(&test_input).unwrap_err();
+
+        assert!(matches!(
+            test_result.error_kind,
+            InvalidIndexKind::InvalidEntry(_)
+        ));
+    }
+
+    #[test]
+    fn index_from_bytes_valid_but_truncated() {
+        let test_input = [
+            0x44u8, 0x49, 0x52, 0x43, 0, 0, 0, 2, 0, 0, 0, 2, 0x69, 0xae, 0xe0, 4, 0xc, 0xc8, 0x34,
+            0x60, 0x69, 0xb8, 0x42, 0x9d, 0x32, 0xfa, 0x47, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0x81, 0xa4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xd, 0xb3, 0x27, 0x32, 0x6e, 0xa7, 0x73, 0,
+            0xf6, 0xcf, 0xd5, 0xa2, 0xf3, 0x87, 0x49, 0xff, 0x41, 0x65, 0xf1, 0xac, 0x65, 0xc6, 0,
+            0x12, 0x73, 0x72, 0x63, 0x2f, 0x63, 0x6c, 0x69, 0x2f, 0x6f, 0x62, 0x6a, 0x65, 0x63,
+            0x74, 0x73, 0x2e, 0x72, 0x73, 0, 0, 0, 0, 0, 0, 0, 0, 0x69, 0xae, 0xe0, 4, 0xc, 0xc8,
+            0x34, 0x60, 0x69, 0xb8, 0x41, 0xaa, 0x2c, 0x94, 0xa0, 0xd0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0x81, 0xa4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0x9d, 0xbe, 0x65, 0xc5, 0x99, 0xde,
+            0x1f, 0xda, 0xbc, 0x46, 0x92, 0x2b, 0xa, 0x86, 0x9a, 0x25, 0x5c, 0xa8, 0x2f, 0xdd,
+            0x80, 0, 0x12, 0x73, 0x72, 0x63, 0x2f, 0x63, 0x6c, 0x69, 0x2f, 0x72, 0x65, 0x66, 0x5f,
+            0x6c, 0x6f, 0x67, 0x2e, 0x72, 0x73, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+
+        let test_result = Index::from_bytes(&test_input).unwrap_err();
+
+        assert!(matches!(test_result.error_kind, InvalidIndexKind::TooShort));
+    }
+
+    #[test]
+    fn index_serialise() {
+        let test_input = Index {
+            version: 2,
+            entries: vec![
+                IndexEntry {
+                    ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                        .unwrap()
+                        .to_utc(),
+                    mtime: DateTime::parse_from_rfc3339("2026-03-16T17:49:17.855263200Z")
+                        .unwrap()
+                        .to_utc(),
+                    dev: 0,
+                    ino: 0,
+                    mode_type: IndexEntryType::File,
+                    mode_perms: IndexEntryPermissions::NonExecutable,
+                    uid: 0,
+                    gid: 0,
+                    fsize: 3507,
+                    flag_assume_valid: false,
+                    flag_stage: 0,
+                    object_id: "27326ea77300f6cfd5a2f38749ff4165f1ac65c6".to_string(),
+                    object_name: "src/cli/objects.rs".to_string(),
+                },
+                IndexEntry {
+                    ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                        .unwrap()
+                        .to_utc(),
+                    mtime: DateTime::parse_from_rfc3339("2026-03-16T17:45:14.747938Z")
+                        .unwrap()
+                        .to_utc(),
+                    dev: 0,
+                    ino: 0,
+                    mode_type: IndexEntryType::File,
+                    mode_perms: IndexEntryPermissions::NonExecutable,
+                    uid: 0,
+                    gid: 0,
+                    fsize: 669,
+                    flag_assume_valid: false,
+                    flag_stage: 0,
+                    object_id: "be65c599de1fdabc46922b0a869a255ca82fdd80".to_string(),
+                    object_name: "src/cli/ref_log.rs".to_string(),
+                },
+            ],
+        };
+        let expected_result = vec![
+            0x44u8, 0x49, 0x52, 0x43, 0, 0, 0, 2, 0, 0, 0, 2, 0x69, 0xae, 0xe0, 4, 0xc, 0xc8, 0x34,
+            0x60, 0x69, 0xb8, 0x42, 0x9d, 0x32, 0xfa, 0x47, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0x81, 0xa4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xd, 0xb3, 0x27, 0x32, 0x6e, 0xa7, 0x73, 0,
+            0xf6, 0xcf, 0xd5, 0xa2, 0xf3, 0x87, 0x49, 0xff, 0x41, 0x65, 0xf1, 0xac, 0x65, 0xc6, 0,
+            0x12, 0x73, 0x72, 0x63, 0x2f, 0x63, 0x6c, 0x69, 0x2f, 0x6f, 0x62, 0x6a, 0x65, 0x63,
+            0x74, 0x73, 0x2e, 0x72, 0x73, 0, 0, 0, 0, 0, 0, 0, 0, 0x69, 0xae, 0xe0, 4, 0xc, 0xc8,
+            0x34, 0x60, 0x69, 0xb8, 0x41, 0xaa, 0x2c, 0x94, 0xa0, 0xd0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0x81, 0xa4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0x9d, 0xbe, 0x65, 0xc5, 0x99, 0xde,
+            0x1f, 0xda, 0xbc, 0x46, 0x92, 0x2b, 0xa, 0x86, 0x9a, 0x25, 0x5c, 0xa8, 0x2f, 0xdd,
+            0x80, 0, 0x12, 0x73, 0x72, 0x63, 0x2f, 0x63, 0x6c, 0x69, 0x2f, 0x72, 0x65, 0x66, 0x5f,
+            0x6c, 0x6f, 0x67, 0x2e, 0x72, 0x73, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        let mut test_output: Vec<u8> = vec![];
+
+        test_input.serialise(&mut test_output);
+
+        assert_eq!(expected_result, test_output);
+    }
+
+    #[test]
+    fn index_contains_path_true() {
+        let test_object = Index {
+            version: 2,
+            entries: vec![
+                IndexEntry {
+                    ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                        .unwrap()
+                        .to_utc(),
+                    mtime: DateTime::parse_from_rfc3339("2026-03-16T17:49:17.855263200Z")
+                        .unwrap()
+                        .to_utc(),
+                    dev: 0,
+                    ino: 0,
+                    mode_type: IndexEntryType::File,
+                    mode_perms: IndexEntryPermissions::NonExecutable,
+                    uid: 0,
+                    gid: 0,
+                    fsize: 3507,
+                    flag_assume_valid: false,
+                    flag_stage: 0,
+                    object_id: "27326ea77300f6cfd5a2f38749ff4165f1ac65c6".to_string(),
+                    object_name: "src/cli/objects.rs".to_string(),
+                },
+                IndexEntry {
+                    ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                        .unwrap()
+                        .to_utc(),
+                    mtime: DateTime::parse_from_rfc3339("2026-03-16T17:45:14.747938Z")
+                        .unwrap()
+                        .to_utc(),
+                    dev: 0,
+                    ino: 0,
+                    mode_type: IndexEntryType::File,
+                    mode_perms: IndexEntryPermissions::NonExecutable,
+                    uid: 0,
+                    gid: 0,
+                    fsize: 669,
+                    flag_assume_valid: false,
+                    flag_stage: 0,
+                    object_id: "be65c599de1fdabc46922b0a869a255ca82fdd80".to_string(),
+                    object_name: "src/cli/ref_log.rs".to_string(),
+                },
+            ],
+        };
+        let test_input = "src/cli/ref_log.rs";
+
+        let result = test_object.contains_path(test_input);
+
+        assert!(result);
+    }
+
+    #[test]
+    fn index_contains_path_false() {
+        let test_object = Index {
+            version: 2,
+            entries: vec![
+                IndexEntry {
+                    ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                        .unwrap()
+                        .to_utc(),
+                    mtime: DateTime::parse_from_rfc3339("2026-03-16T17:49:17.855263200Z")
+                        .unwrap()
+                        .to_utc(),
+                    dev: 0,
+                    ino: 0,
+                    mode_type: IndexEntryType::File,
+                    mode_perms: IndexEntryPermissions::NonExecutable,
+                    uid: 0,
+                    gid: 0,
+                    fsize: 3507,
+                    flag_assume_valid: false,
+                    flag_stage: 0,
+                    object_id: "27326ea77300f6cfd5a2f38749ff4165f1ac65c6".to_string(),
+                    object_name: "src/cli/objects.rs".to_string(),
+                },
+                IndexEntry {
+                    ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                        .unwrap()
+                        .to_utc(),
+                    mtime: DateTime::parse_from_rfc3339("2026-03-16T17:45:14.747938Z")
+                        .unwrap()
+                        .to_utc(),
+                    dev: 0,
+                    ino: 0,
+                    mode_type: IndexEntryType::File,
+                    mode_perms: IndexEntryPermissions::NonExecutable,
+                    uid: 0,
+                    gid: 0,
+                    fsize: 669,
+                    flag_assume_valid: false,
+                    flag_stage: 0,
+                    object_id: "be65c599de1fdabc46922b0a869a255ca82fdd80".to_string(),
+                    object_name: "src/cli/ref_log.rs".to_string(),
+                },
+            ],
+        };
+        let test_input = "src/cli/init.rs";
+
+        let result = test_object.contains_path(test_input);
+
+        assert!(!result);
+    }
+
+    #[test]
+    fn index_contains_path_prefix_false() {
+        let test_object = Index {
+            version: 2,
+            entries: vec![
+                IndexEntry {
+                    ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                        .unwrap()
+                        .to_utc(),
+                    mtime: DateTime::parse_from_rfc3339("2026-03-16T17:49:17.855263200Z")
+                        .unwrap()
+                        .to_utc(),
+                    dev: 0,
+                    ino: 0,
+                    mode_type: IndexEntryType::File,
+                    mode_perms: IndexEntryPermissions::NonExecutable,
+                    uid: 0,
+                    gid: 0,
+                    fsize: 3507,
+                    flag_assume_valid: false,
+                    flag_stage: 0,
+                    object_id: "27326ea77300f6cfd5a2f38749ff4165f1ac65c6".to_string(),
+                    object_name: "src/cli/objects.rs".to_string(),
+                },
+                IndexEntry {
+                    ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                        .unwrap()
+                        .to_utc(),
+                    mtime: DateTime::parse_from_rfc3339("2026-03-16T17:45:14.747938Z")
+                        .unwrap()
+                        .to_utc(),
+                    dev: 0,
+                    ino: 0,
+                    mode_type: IndexEntryType::File,
+                    mode_perms: IndexEntryPermissions::NonExecutable,
+                    uid: 0,
+                    gid: 0,
+                    fsize: 669,
+                    flag_assume_valid: false,
+                    flag_stage: 0,
+                    object_id: "be65c599de1fdabc46922b0a869a255ca82fdd80".to_string(),
+                    object_name: "src/cli/ref_log.rs".to_string(),
+                },
+            ],
+        };
+        let test_input = "src/cli/ob";
+
+        let result = test_object.contains_path(test_input);
+
+        assert!(!result);
+    }
+
+    #[test]
+    fn index_remove_entry_present() {
+        let mut test_object = Index {
+            version: 2,
+            entries: vec![
+                IndexEntry {
+                    ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                        .unwrap()
+                        .to_utc(),
+                    mtime: DateTime::parse_from_rfc3339("2026-03-16T17:49:17.855263200Z")
+                        .unwrap()
+                        .to_utc(),
+                    dev: 0,
+                    ino: 0,
+                    mode_type: IndexEntryType::File,
+                    mode_perms: IndexEntryPermissions::NonExecutable,
+                    uid: 0,
+                    gid: 0,
+                    fsize: 3507,
+                    flag_assume_valid: false,
+                    flag_stage: 0,
+                    object_id: "27326ea77300f6cfd5a2f38749ff4165f1ac65c6".to_string(),
+                    object_name: "src/cli/objects.rs".to_string(),
+                },
+                IndexEntry {
+                    ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                        .unwrap()
+                        .to_utc(),
+                    mtime: DateTime::parse_from_rfc3339("2026-03-16T17:45:14.747938Z")
+                        .unwrap()
+                        .to_utc(),
+                    dev: 0,
+                    ino: 0,
+                    mode_type: IndexEntryType::File,
+                    mode_perms: IndexEntryPermissions::NonExecutable,
+                    uid: 0,
+                    gid: 0,
+                    fsize: 669,
+                    flag_assume_valid: false,
+                    flag_stage: 0,
+                    object_id: "be65c599de1fdabc46922b0a869a255ca82fdd80".to_string(),
+                    object_name: "src/cli/ref_log.rs".to_string(),
+                },
+            ],
+        };
+        let test_input = "src/cli/objects.rs";
+        let expected_outcome = Index {
+            version: 2,
+            entries: vec![IndexEntry {
+                ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                    .unwrap()
+                    .to_utc(),
+                mtime: DateTime::parse_from_rfc3339("2026-03-16T17:45:14.747938Z")
+                    .unwrap()
+                    .to_utc(),
+                dev: 0,
+                ino: 0,
+                mode_type: IndexEntryType::File,
+                mode_perms: IndexEntryPermissions::NonExecutable,
+                uid: 0,
+                gid: 0,
+                fsize: 669,
+                flag_assume_valid: false,
+                flag_stage: 0,
+                object_id: "be65c599de1fdabc46922b0a869a255ca82fdd80".to_string(),
+                object_name: "src/cli/ref_log.rs".to_string(),
+            }],
+        };
+
+        let result = test_object.remove(test_input);
+
+        assert!(result);
+        assert_eq!(expected_outcome, test_object);
+    }
+
+    #[test]
+    fn index_remove_entry_not_present() {
+        let mut test_object = Index {
+            version: 2,
+            entries: vec![
+                IndexEntry {
+                    ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                        .unwrap()
+                        .to_utc(),
+                    mtime: DateTime::parse_from_rfc3339("2026-03-16T17:49:17.855263200Z")
+                        .unwrap()
+                        .to_utc(),
+                    dev: 0,
+                    ino: 0,
+                    mode_type: IndexEntryType::File,
+                    mode_perms: IndexEntryPermissions::NonExecutable,
+                    uid: 0,
+                    gid: 0,
+                    fsize: 3507,
+                    flag_assume_valid: false,
+                    flag_stage: 0,
+                    object_id: "27326ea77300f6cfd5a2f38749ff4165f1ac65c6".to_string(),
+                    object_name: "src/cli/objects.rs".to_string(),
+                },
+                IndexEntry {
+                    ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                        .unwrap()
+                        .to_utc(),
+                    mtime: DateTime::parse_from_rfc3339("2026-03-16T17:45:14.747938Z")
+                        .unwrap()
+                        .to_utc(),
+                    dev: 0,
+                    ino: 0,
+                    mode_type: IndexEntryType::File,
+                    mode_perms: IndexEntryPermissions::NonExecutable,
+                    uid: 0,
+                    gid: 0,
+                    fsize: 669,
+                    flag_assume_valid: false,
+                    flag_stage: 0,
+                    object_id: "be65c599de1fdabc46922b0a869a255ca82fdd80".to_string(),
+                    object_name: "src/cli/ref_log.rs".to_string(),
+                },
+            ],
+        };
+        let test_input = "src/not_an/entry.html";
+        let expected_outcome = Index {
+            version: 2,
+            entries: vec![
+                IndexEntry {
+                    ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                        .unwrap()
+                        .to_utc(),
+                    mtime: DateTime::parse_from_rfc3339("2026-03-16T17:49:17.855263200Z")
+                        .unwrap()
+                        .to_utc(),
+                    dev: 0,
+                    ino: 0,
+                    mode_type: IndexEntryType::File,
+                    mode_perms: IndexEntryPermissions::NonExecutable,
+                    uid: 0,
+                    gid: 0,
+                    fsize: 3507,
+                    flag_assume_valid: false,
+                    flag_stage: 0,
+                    object_id: "27326ea77300f6cfd5a2f38749ff4165f1ac65c6".to_string(),
+                    object_name: "src/cli/objects.rs".to_string(),
+                },
+                IndexEntry {
+                    ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                        .unwrap()
+                        .to_utc(),
+                    mtime: DateTime::parse_from_rfc3339("2026-03-16T17:45:14.747938Z")
+                        .unwrap()
+                        .to_utc(),
+                    dev: 0,
+                    ino: 0,
+                    mode_type: IndexEntryType::File,
+                    mode_perms: IndexEntryPermissions::NonExecutable,
+                    uid: 0,
+                    gid: 0,
+                    fsize: 669,
+                    flag_assume_valid: false,
+                    flag_stage: 0,
+                    object_id: "be65c599de1fdabc46922b0a869a255ca82fdd80".to_string(),
+                    object_name: "src/cli/ref_log.rs".to_string(),
+                },
+            ],
+        };
+
+        let test_result = test_object.remove(test_input);
+
+        assert!(!test_result);
+        assert_eq!(expected_outcome, test_object);
+    }
+
+    #[test]
+    fn index_add() {
+        let mut test_object = Index {
+            version: 2,
+            entries: vec![
+                IndexEntry {
+                    ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                        .unwrap()
+                        .to_utc(),
+                    mtime: DateTime::parse_from_rfc3339("2026-03-16T17:49:17.855263200Z")
+                        .unwrap()
+                        .to_utc(),
+                    dev: 0,
+                    ino: 0,
+                    mode_type: IndexEntryType::File,
+                    mode_perms: IndexEntryPermissions::NonExecutable,
+                    uid: 0,
+                    gid: 0,
+                    fsize: 3507,
+                    flag_assume_valid: false,
+                    flag_stage: 0,
+                    object_id: "27326ea77300f6cfd5a2f38749ff4165f1ac65c6".to_string(),
+                    object_name: "src/cli/objects.rs".to_string(),
+                },
+                IndexEntry {
+                    ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                        .unwrap()
+                        .to_utc(),
+                    mtime: DateTime::parse_from_rfc3339("2026-03-16T17:45:14.747938Z")
+                        .unwrap()
+                        .to_utc(),
+                    dev: 0,
+                    ino: 0,
+                    mode_type: IndexEntryType::File,
+                    mode_perms: IndexEntryPermissions::NonExecutable,
+                    uid: 0,
+                    gid: 0,
+                    fsize: 669,
+                    flag_assume_valid: false,
+                    flag_stage: 0,
+                    object_id: "be65c599de1fdabc46922b0a869a255ca82fdd80".to_string(),
+                    object_name: "src/cli/ref_log.rs".to_string(),
+                },
+            ],
+        };
+        let test_input = IndexEntry {
+            ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                .unwrap()
+                .to_utc(),
+            mtime: DateTime::parse_from_rfc3339("2026-03-16T17:45:14.747938Z")
+                .unwrap()
+                .to_utc(),
+            dev: 0,
+            ino: 0,
+            mode_type: IndexEntryType::File,
+            mode_perms: IndexEntryPermissions::NonExecutable,
+            uid: 0,
+            gid: 0,
+            fsize: 669,
+            flag_assume_valid: false,
+            flag_stage: 0,
+            object_id: "be65c599de1fdabc46922b0a869a255ca82fdd80".to_string(),
+            object_name: "src/cli/private.rs".to_string(),
+        };
+        let expected_outcome = vec![
+            IndexEntry {
+                ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                    .unwrap()
+                    .to_utc(),
+                mtime: DateTime::parse_from_rfc3339("2026-03-16T17:49:17.855263200Z")
+                    .unwrap()
+                    .to_utc(),
+                dev: 0,
+                ino: 0,
+                mode_type: IndexEntryType::File,
+                mode_perms: IndexEntryPermissions::NonExecutable,
+                uid: 0,
+                gid: 0,
+                fsize: 3507,
+                flag_assume_valid: false,
+                flag_stage: 0,
+                object_id: "27326ea77300f6cfd5a2f38749ff4165f1ac65c6".to_string(),
+                object_name: "src/cli/objects.rs".to_string(),
+            },
+            IndexEntry {
+                ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                    .unwrap()
+                    .to_utc(),
+                mtime: DateTime::parse_from_rfc3339("2026-03-16T17:45:14.747938Z")
+                    .unwrap()
+                    .to_utc(),
+                dev: 0,
+                ino: 0,
+                mode_type: IndexEntryType::File,
+                mode_perms: IndexEntryPermissions::NonExecutable,
+                uid: 0,
+                gid: 0,
+                fsize: 669,
+                flag_assume_valid: false,
+                flag_stage: 0,
+                object_id: "be65c599de1fdabc46922b0a869a255ca82fdd80".to_string(),
+                object_name: "src/cli/private.rs".to_string(),
+            },
+            IndexEntry {
+                ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                    .unwrap()
+                    .to_utc(),
+                mtime: DateTime::parse_from_rfc3339("2026-03-16T17:45:14.747938Z")
+                    .unwrap()
+                    .to_utc(),
+                dev: 0,
+                ino: 0,
+                mode_type: IndexEntryType::File,
+                mode_perms: IndexEntryPermissions::NonExecutable,
+                uid: 0,
+                gid: 0,
+                fsize: 669,
+                flag_assume_valid: false,
+                flag_stage: 0,
+                object_id: "be65c599de1fdabc46922b0a869a255ca82fdd80".to_string(),
+                object_name: "src/cli/ref_log.rs".to_string(),
+            },
+        ];
+
+        test_object.add(test_input);
+
+        assert_eq!(expected_outcome, test_object.entries);
+    }
+
+    #[test]
+    fn index_add_range() {
+        let mut test_object = Index {
+            version: 2,
+            entries: vec![
+                IndexEntry {
+                    ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                        .unwrap()
+                        .to_utc(),
+                    mtime: DateTime::parse_from_rfc3339("2026-03-16T17:49:17.855263200Z")
+                        .unwrap()
+                        .to_utc(),
+                    dev: 0,
+                    ino: 0,
+                    mode_type: IndexEntryType::File,
+                    mode_perms: IndexEntryPermissions::NonExecutable,
+                    uid: 0,
+                    gid: 0,
+                    fsize: 3507,
+                    flag_assume_valid: false,
+                    flag_stage: 0,
+                    object_id: "27326ea77300f6cfd5a2f38749ff4165f1ac65c6".to_string(),
+                    object_name: "src/cli/objects.rs".to_string(),
+                },
+                IndexEntry {
+                    ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                        .unwrap()
+                        .to_utc(),
+                    mtime: DateTime::parse_from_rfc3339("2026-03-16T17:45:14.747938Z")
+                        .unwrap()
+                        .to_utc(),
+                    dev: 0,
+                    ino: 0,
+                    mode_type: IndexEntryType::File,
+                    mode_perms: IndexEntryPermissions::NonExecutable,
+                    uid: 0,
+                    gid: 0,
+                    fsize: 669,
+                    flag_assume_valid: false,
+                    flag_stage: 0,
+                    object_id: "be65c599de1fdabc46922b0a869a255ca82fdd80".to_string(),
+                    object_name: "src/cli/ref_log.rs".to_string(),
+                },
+            ],
+        };
+        let mut test_input = vec![
+            IndexEntry {
+                ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                    .unwrap()
+                    .to_utc(),
+                mtime: DateTime::parse_from_rfc3339("2026-03-16T17:45:14.747938Z")
+                    .unwrap()
+                    .to_utc(),
+                dev: 0,
+                ino: 0,
+                mode_type: IndexEntryType::File,
+                mode_perms: IndexEntryPermissions::NonExecutable,
+                uid: 0,
+                gid: 0,
+                fsize: 669,
+                flag_assume_valid: false,
+                flag_stage: 0,
+                object_id: "be65c599de1fdabc46922b0a869a255ca82fdd80".to_string(),
+                object_name: "src/cli/private.rs".to_string(),
+            },
+            IndexEntry {
+                ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                    .unwrap()
+                    .to_utc(),
+                mtime: DateTime::parse_from_rfc3339("2026-03-16T17:45:14.747938Z")
+                    .unwrap()
+                    .to_utc(),
+                dev: 0,
+                ino: 0,
+                mode_type: IndexEntryType::File,
+                mode_perms: IndexEntryPermissions::NonExecutable,
+                uid: 0,
+                gid: 0,
+                fsize: 669,
+                flag_assume_valid: false,
+                flag_stage: 0,
+                object_id: "be65c599de1fdabc46922b0a869a255ca82fdd80".to_string(),
+                object_name: "src/annex.rs".to_string(),
+            },
+        ];
+        let expected_outcome = vec![
+            IndexEntry {
+                ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                    .unwrap()
+                    .to_utc(),
+                mtime: DateTime::parse_from_rfc3339("2026-03-16T17:45:14.747938Z")
+                    .unwrap()
+                    .to_utc(),
+                dev: 0,
+                ino: 0,
+                mode_type: IndexEntryType::File,
+                mode_perms: IndexEntryPermissions::NonExecutable,
+                uid: 0,
+                gid: 0,
+                fsize: 669,
+                flag_assume_valid: false,
+                flag_stage: 0,
+                object_id: "be65c599de1fdabc46922b0a869a255ca82fdd80".to_string(),
+                object_name: "src/annex.rs".to_string(),
+            },
+            IndexEntry {
+                ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                    .unwrap()
+                    .to_utc(),
+                mtime: DateTime::parse_from_rfc3339("2026-03-16T17:49:17.855263200Z")
+                    .unwrap()
+                    .to_utc(),
+                dev: 0,
+                ino: 0,
+                mode_type: IndexEntryType::File,
+                mode_perms: IndexEntryPermissions::NonExecutable,
+                uid: 0,
+                gid: 0,
+                fsize: 3507,
+                flag_assume_valid: false,
+                flag_stage: 0,
+                object_id: "27326ea77300f6cfd5a2f38749ff4165f1ac65c6".to_string(),
+                object_name: "src/cli/objects.rs".to_string(),
+            },
+            IndexEntry {
+                ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                    .unwrap()
+                    .to_utc(),
+                mtime: DateTime::parse_from_rfc3339("2026-03-16T17:45:14.747938Z")
+                    .unwrap()
+                    .to_utc(),
+                dev: 0,
+                ino: 0,
+                mode_type: IndexEntryType::File,
+                mode_perms: IndexEntryPermissions::NonExecutable,
+                uid: 0,
+                gid: 0,
+                fsize: 669,
+                flag_assume_valid: false,
+                flag_stage: 0,
+                object_id: "be65c599de1fdabc46922b0a869a255ca82fdd80".to_string(),
+                object_name: "src/cli/private.rs".to_string(),
+            },
+            IndexEntry {
+                ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                    .unwrap()
+                    .to_utc(),
+                mtime: DateTime::parse_from_rfc3339("2026-03-16T17:45:14.747938Z")
+                    .unwrap()
+                    .to_utc(),
+                dev: 0,
+                ino: 0,
+                mode_type: IndexEntryType::File,
+                mode_perms: IndexEntryPermissions::NonExecutable,
+                uid: 0,
+                gid: 0,
+                fsize: 669,
+                flag_assume_valid: false,
+                flag_stage: 0,
+                object_id: "be65c599de1fdabc46922b0a869a255ca82fdd80".to_string(),
+                object_name: "src/cli/ref_log.rs".to_string(),
+            },
+        ];
+
+        test_object.add_range(&mut test_input);
+
+        assert_eq!(expected_outcome, test_object.entries);
     }
 }
