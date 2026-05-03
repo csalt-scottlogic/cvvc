@@ -133,11 +133,28 @@ impl RawObject {
         })
     }
 
-    /// Create a [`RawObject`] from headerless content data and separate metadata
+    /// Create a [`RawObject`] from headerless content data and separate metadata, assuming the object ID is already known.
+    ///
+    /// This function does not verify the passed-in object ID.
     pub fn from_headerless_data(data: &[u8], object_id: &str, metadata: ObjectMetadata) -> Self {
         Self {
             data: data.to_vec(),
             object_id: object_id.to_string(),
+            metadata,
+        }
+    }
+
+    /// Create a [`RawObject`] from headerless content data and separate metadata, computing the object ID.
+    pub fn from_unidentified_data(data: &[u8], metadata: ObjectMetadata) -> Self {
+        let mut headery_data = Self::construct_header(&metadata.kind, metadata.size);
+        headery_data.append(&mut data.to_vec());
+        let mut hasher = Sha1::new();
+        hasher.update(&headery_data);
+        let object_id = hex::encode(hasher.finalize());
+
+        Self {
+            data: data.to_vec(),
+            object_id,
             metadata,
         }
     }
