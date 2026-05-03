@@ -171,9 +171,14 @@ where
 {
     let (meta, data) = read_at_address(pack_file, address, file_len)?;
     let Some(packed_size) = meta.packed_size else {
-        return Err(anyhow!("object packed size not present - this shouldn't happen"));
+        return Err(anyhow!(
+            "object packed size not present - this shouldn't happen"
+        ));
     };
-    Ok((construct_raw_object_from_packed(meta, data, pack_file, address, file_len)?, packed_size))
+    Ok((
+        construct_raw_object_from_packed(meta, data, pack_file, address, file_len)?,
+        packed_size,
+    ))
 }
 
 fn construct_raw_object_from_packed<R>(

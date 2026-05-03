@@ -15,6 +15,7 @@ struct PackIndexEntry {
     pack_offset: u64,
     packed_length: u64,
     pack_order: u32,
+    index_order: u32,
     crc: u32,
 }
 
@@ -29,8 +30,8 @@ impl PackIndexEntry {
         R: Read,
         R: Seek,
     {
-        
-        let (raw_object, packed_length) = helpers::read_raw_object_at_address(file, address, file_len)?;
+        let (raw_object, packed_length) =
+            helpers::read_raw_object_at_address(file, address, file_len)?;
 
         // let object_metadata = helpers::get_packed_object_metadata(file, idx, file_len)?;
         // file.seek(SeekFrom::Start(object_metadata.data_start_address))?;
@@ -47,7 +48,7 @@ impl PackIndexEntry {
         //     idx,
         //     file_len,
         // )?;
-        
+
         let mut buf = vec![0u8; packed_length as usize];
         file.seek(SeekFrom::Start(address))?;
         file.read_exact(&mut buf)?;
@@ -59,6 +60,7 @@ impl PackIndexEntry {
             packed_length,
             pack_order,
             crc,
+            index_order: 0,
         })
     }
 
@@ -79,7 +81,7 @@ impl PackIndexEntry {
                 last_val = buckets[i];
             }
         }
-        
+
         buckets
     }
 }
@@ -101,6 +103,9 @@ pub fn index<P: AsRef<Path>>(base_path: P, pack_name: &str) -> Result<(), anyhow
         index_entries.push(next_entry);
     }
     index_entries.sort();
+    for i in 0..index_entries.len() {
+        index_entries[i].index_order = i as u32;
+    }
     let mut pack_checksum = [0u8; 20];
     primary_file.seek(SeekFrom::Start(idx))?;
     primary_file.read_exact(&mut pack_checksum)?;
@@ -189,7 +194,6 @@ where
     H: Digest,
 {
     for e in entries {
-        
         let obj_id_bytes = hex::decode(&e.object_id)?;
         hasher.update(&obj_id_bytes);
         writer.write_all(&obj_id_bytes)?;
@@ -292,11 +296,11 @@ where
     H: Digest,
 {
     let mut resorted_entries = entries.iter().collect::<Vec<_>>();
-    resorted_entries.sort_by(|a, b| a.pack_offset.cmp(&b.pack_offset));
+    resorted_entries.sort_by(|a, b| a.pack_order.cmp(&b.pack_order));
     for e in resorted_entries {
-        let offset_data = e.pack_order.to_be_bytes();
-        hasher.update(&offset_data);
-        writer.write_all(&offset_data)?;
+        let idx_data = e.index_order.to_be_bytes();
+        hasher.update(&idx_data);
+        writer.write_all(&idx_data)?;
     }
     Ok(())
 }

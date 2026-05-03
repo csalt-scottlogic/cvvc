@@ -5,7 +5,11 @@
 
 use anyhow::anyhow;
 use std::{
-    cmp::Ordering, collections::HashSet, fs::{self, File, OpenOptions}, io::{BufReader, Read, Seek, SeekFrom}, path::{Path, PathBuf}
+    cmp::Ordering,
+    collections::HashSet,
+    fs::{self, File, OpenOptions},
+    io::{BufReader, Read, Seek, SeekFrom},
+    path::{Path, PathBuf},
 };
 
 use crate::{
