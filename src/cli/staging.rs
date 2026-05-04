@@ -140,7 +140,7 @@ pub fn full_commit(config: &GlobalConfig, message: Option<String>) -> Result<(),
     let start_commit = repo.current_commit()?;
     let tree_id = store_index_as_tree_repo(&repo, false)?;
     let parent_id = repo.current_commit()?;
-    let timestamp = helpers::now();
+    let timestamp = helpers::now_here();
     let message = message
         .as_deref()
         .unwrap_or("User forgot to enter commit message");
