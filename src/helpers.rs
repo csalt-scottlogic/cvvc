@@ -1,7 +1,7 @@
 use anyhow::anyhow;
-use std::{collections::HashMap, fmt::Display, str::FromStr, time::SystemTime};
+use std::{collections::HashMap, fmt::Display, str::FromStr};
 
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, Local, TimeZone, Utc};
 
 use crate::{helpers::fs::index_path_parent, repo::Repository};
 
@@ -153,5 +153,10 @@ pub fn append_newline_if_necessary(s: &str) -> String {
 
 /// Gets the current UTC date and time, as a [`DateTime<Utc>`].
 pub fn now() -> DateTime<Utc> {
-    DateTime::<Utc>::from(SystemTime::now())
+    Utc::now()
+}
+
+/// Gets the current local date and time, as a [`DateTime<Local>`]
+pub fn now_here() -> DateTime<Local> {
+    Local::now()
 }
