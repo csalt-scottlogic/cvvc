@@ -448,7 +448,10 @@ impl ObjectStore for PackStore {
     /// - the object's metadata cannot be successfully loaded from the packfile
     /// - the object's packfile data cannot be successfully decompressed
     /// - the object is an offset delta object and one of its ancestors cannot be loaded successfully from the packfile
-    fn read_raw_object(&self, object_id: &str) -> Result<Option<RawObjectData>, anyhow::Error> {
+    fn read_raw_object_data(
+        &self,
+        object_id: &str,
+    ) -> Result<Option<RawObjectData>, anyhow::Error> {
         let object_address = self.get_object_address(object_id)?;
         let Some(object_address) = object_address else {
             return Ok(None);

@@ -8,7 +8,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{objects::{RawObject, RawObjectData}, repo::is_partial_object_id, stores::ObjectStore};
+use crate::{
+    objects::{RawObject, RawObjectData},
+    repo::is_partial_object_id,
+    stores::ObjectStore,
+};
 
 /// The "loose object store" of a Git or CVVC repository.
 ///
@@ -137,7 +141,10 @@ impl ObjectStore for LooseObjectStore {
     /// "Minimal" parsing means that the decompressed data cannot be parsed sufficiently to create a [`RawObject`]
     /// instance.  This essentially requires that the decompressed data must begin with the expected header describing
     /// the object's type and size, and that the length of the remaining data matches the length given in the header.
-    fn read_raw_object(&self, object_id: &str) -> Result<Option<RawObjectData>, anyhow::Error> {
+    fn read_raw_object_data(
+        &self,
+        object_id: &str,
+    ) -> Result<Option<RawObjectData>, anyhow::Error> {
         if !is_partial_object_id(object_id) {
             return Err(anyhow!("object ID is not valid"));
         }

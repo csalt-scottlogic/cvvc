@@ -7,7 +7,7 @@ use std::{
 use anyhow::anyhow;
 use flate2::bufread::ZlibDecoder;
 
-use crate::objects::{ObjectKind, ObjectMetadata, RawObjectData, combine_object_delta_data};
+use crate::objects::{combine_object_delta_data, ObjectKind, ObjectMetadata, RawObjectData};
 
 use super::{PackedObjectMetadata, PackedObjectType, PackedObjectTypeOnly};
 
@@ -229,7 +229,10 @@ where
     let reusable_file = decompressor.into_inner();
     if let PackedObjectType::OffsetDelta(offset) = meta.kind {
         let (base_meta, base_data) = read_at_address(reusable_file, address - offset, file_len)?;
-        Ok((meta.combine(&base_meta), combine_object_delta_data(&base_data, &data)))
+        Ok((
+            meta.combine(&base_meta),
+            combine_object_delta_data(&base_data, &data),
+        ))
     } else {
         Ok((meta, data))
     }

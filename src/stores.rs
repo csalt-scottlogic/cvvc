@@ -37,7 +37,8 @@ pub trait ObjectStore {
     ///
     /// This function should return `Ok(None)` if the store does not contain the object,
     /// rather than erroring.
-    fn read_raw_object(&self, object_id: &str) -> Result<Option<RawObjectData>, anyhow::Error>;
+    fn read_raw_object_data(&self, object_id: &str)
+        -> Result<Option<RawObjectData>, anyhow::Error>;
 
     /// Write a raw object to the store.
     fn write_raw_object(&self, obj: &RawObject) -> Result<String, anyhow::Error>;

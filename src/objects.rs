@@ -14,7 +14,7 @@ use crate::{
 /// Object-related error structs.
 pub mod errors;
 
-/// Metadata describing a [`RawObject`].
+/// Metadata describing a [`RawObject`] or [`RawObjectData`].
 pub struct ObjectMetadata {
     /// The type of object.
     pub kind: ObjectKind,
@@ -29,6 +29,11 @@ impl ObjectMetadata {
         Self { kind, size }
     }
 
+    /// Create a new [`ObjectMetadata`] instance by combining this instance with another,
+    /// consuming this instance.
+    ///
+    /// This method takes the [`ObjectMetadata::size`] from the current instance and the
+    /// [`ObjectMetadata::kind`] from the base instance.
     pub fn combine(self, base: &ObjectMetadata) -> Self {
         Self::new(base.kind.clone(), self.size)
     }
@@ -94,39 +99,63 @@ impl TryFrom<&[u8]> for ObjectMetadata {
     }
 }
 
+/// The data comprising an "unidentified" raw object, without its ID.
+///
+/// The data may consist of a "named delta".  In this case, the data is a series of diff commands
+/// to be applied to the data of a base object, identified by its ID, and the [`RawObjectData::combine()`]
+/// method may be used to reconstruct the complete data.
+///
+/// Otherwise, the data may be readily converted into a [`RawObject`] using [`RawObject::from_raw_object_data()`].
 pub struct RawObjectData {
     data: Vec<u8>,
     metadata: ObjectMetadata,
 }
 
 impl RawObjectData {
+    /// Create a new [`RawObjectData`] instance.  
     pub fn new(data: &[u8], metadata: ObjectMetadata) -> Self {
         Self {
             data: data.to_vec(),
-            metadata
+            metadata,
         }
     }
 
+    /// Create a new [`RawObjectData`] instance from data prefixed by an object header containing the metadata.
+    ///
+    /// This method is used to construct a [`RawObjectData`] instance from a decompressed loose object file.
     pub fn from_data_with_header(data: &[u8]) -> Result<Self, anyhow::Error> {
-        let metadata = ObjectMetadata::try_from(data)
-            .with_context(|| "failed to load object data")?;
+        let metadata =
+            ObjectMetadata::try_from(data).with_context(|| "failed to load object data")?;
         let data_start_offset = data.len() - metadata.size;
         Ok(Self {
             data: data[data_start_offset..].to_vec(),
-                metadata },
-            )
+            metadata,
+        })
     }
 
+    /// Get the raw object metadata.
     pub fn metadata(&self) -> &ObjectMetadata {
         &self.metadata
     }
 
+    /// Combine a delta object with a base object to reconstitute the former.
+    ///
+    /// This method assumes that [`self`] is a named delta object and that the `base_object` parameter
+    /// is its base, but does not verify this.  The caller is responsible for ensuring that what they are doing
+    /// makes sense, and doing otherwise is very likely to cause runtime errors due to attempted reads outside slice bounds.
     pub fn combine(self, base_object: &RawObject) -> Self {
         let combined_data = combine_object_delta_data(&base_object.content.data, &self.data);
-        Self::new(&combined_data, self.metadata.combine(&base_object.content.metadata))
+        Self::new(
+            &combined_data,
+            self.metadata.combine(&base_object.content.metadata),
+        )
     }
 }
 
+/// Combine an object's data with a sequence of diff commands, to produce the data of a second object.
+///
+/// This function does not verify that its input is sensible.  Because of this, if this function is called with
+/// arbitrary data, it will likely produce a runtime panic due to the code attempting to read outside slice bounds.
 pub fn combine_object_delta_data(base_data: &[u8], apply_commands: &[u8]) -> Vec<u8> {
     let mut result = Vec::<u8>::new();
     let mut idx = 0;
@@ -216,7 +245,6 @@ impl DeltaCommand {
     }
 }
 
-
 /// A serialised object in memory, together with its ID and type.
 ///
 /// This struct represents a partially-parsed object which has either just been loaded from
@@ -253,8 +281,10 @@ impl RawObject {
             .with_context(|| format!("failed to load {}", object_id))?;
         let data_start_offset = data.len() - metadata.size;
         Ok(Self {
-            content: RawObjectData { data: data[data_start_offset..].to_vec(),
-                metadata },
+            content: RawObjectData {
+                data: data[data_start_offset..].to_vec(),
+                metadata,
+            },
             object_id: object_id.to_string(),
         })
     }
@@ -264,11 +294,23 @@ impl RawObject {
     /// This function does not verify the passed-in object ID.
     pub fn from_headerless_data(data: &[u8], object_id: &str, metadata: ObjectMetadata) -> Self {
         Self {
-            content: RawObjectData { data: data.to_vec(), metadata },
+            content: RawObjectData {
+                data: data.to_vec(),
+                metadata,
+            },
             object_id: object_id.to_string(),
         }
     }
 
+    /// Create a [`RawObject`] from data loaded without an object ID.
+    ///
+    /// The object ID will be computed by hashing the data, prepending the appropriate header first.
+    ///
+    /// # Errors
+    ///
+    /// If the data consists of diff commands for a "named delta" object, this function will return an error,
+    /// as the object ID cannot be computed.  The `data` should be combined with its base object first using
+    /// the [`RawObjectData::combine()`] method.
     pub fn from_raw_object_data(data: RawObjectData) -> Result<Self, anyhow::Error> {
         if matches!(data.metadata.kind, ObjectKind::Delta(_)) {
             return Err(anyhow!("cannot construct raw object from delta data"));
@@ -279,23 +321,11 @@ impl RawObject {
         hasher.update(&headery_data);
         let object_id = hex::encode(hasher.finalize());
 
-        Ok(Self { content: data, object_id })
+        Ok(Self {
+            content: data,
+            object_id,
+        })
     }
-
-    /// Create a [`RawObject`] from headerless content data and separate metadata, computing the object ID if possible.
-    // pub fn from_unidentified_data(data: &[u8], metadata: ObjectMetadata) -> Self {
-    //     let mut headery_data = Self::construct_header(&metadata.kind, metadata.size);
-    //     headery_data.append(&mut data.to_vec());
-    //     let mut hasher = Sha1::new();
-    //     hasher.update(&headery_data);
-    //     let object_id = hex::encode(hasher.finalize());
-
-    //     Self {
-    //         data: data.to_vec(),
-    //         object_id: Some(object_id),
-    //         metadata,
-    //     }
-    // }
 
     fn construct_header(kind: &ObjectKind, size: usize) -> Vec<u8> {
         let mut header = kind.bytes().to_vec();
@@ -320,10 +350,13 @@ impl RawObject {
         hasher.update(&content);
         let object_id = hex::encode(hasher.finalize());
         Self {
-            content: RawObjectData { data, metadata: ObjectMetadata {
-                kind: obj.kind(),
-                size,
-            } },
+            content: RawObjectData {
+                data,
+                metadata: ObjectMetadata {
+                    kind: obj.kind(),
+                    size,
+                },
+            },
             object_id,
         }
     }
@@ -337,7 +370,8 @@ impl RawObject {
     ///
     /// The data returned is identical to the uncompressed content of a loose object file on disk.
     pub fn content_with_header(&self) -> Vec<u8> {
-        let mut content = Self::construct_header(&self.content.metadata.kind, self.content.metadata.size);
+        let mut content =
+            Self::construct_header(&self.content.metadata.kind, self.content.metadata.size);
         content.extend(self.content.data.iter());
         content
     }

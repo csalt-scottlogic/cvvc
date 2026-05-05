@@ -26,11 +26,13 @@ use crate::{
     ignore::IgnoreInfo,
     index::{Index, IndexEntry},
     objects::{
-        Blob, GitObject, ObjectKind, RawObject, RawObjectData, StoredObject, Tree, TreeNode, errors::FindObjectError
+        errors::FindObjectError, Blob, GitObject, ObjectKind, RawObject, RawObjectData,
+        StoredObject, Tree, TreeNode,
     },
     ref_log::{RefLog, RefLogEntry},
     stores::{
-        BranchKind, BranchSpec, BranchStore, ObjectStore, branch_file_store::BranchFileStore, file_store::LooseObjectStore, pack_store::PackStore
+        branch_file_store::BranchFileStore, file_store::LooseObjectStore, pack_store::PackStore,
+        BranchKind, BranchSpec, BranchStore, ObjectStore,
     },
 };
 
@@ -493,16 +495,20 @@ impl Repository {
         Ok(None)
     }
 
-    
-    fn read_raw_object_data(&self, object_id: &str) -> Result<Option<RawObjectData>, anyhow::Error> {
+    fn read_raw_object_data(
+        &self,
+        object_id: &str,
+    ) -> Result<Option<RawObjectData>, anyhow::Error> {
         let source = self.find_store_for_object(object_id)?;
         let Some(source) = source else {
             return Ok(None);
         };
 
         let raw_object = match source {
-            ObjectSource::LooseObjectStore => self.loose_object_store.read_raw_object(object_id)?,
-            ObjectSource::Pack(i) => self.packs[i].read_raw_object(object_id)?,
+            ObjectSource::LooseObjectStore => {
+                self.loose_object_store.read_raw_object_data(object_id)?
+            }
+            ObjectSource::Pack(i) => self.packs[i].read_raw_object_data(object_id)?,
         };
 
         Ok(raw_object)
@@ -530,7 +536,7 @@ impl Repository {
                     return Err(anyhow!("named delta object base not found in repository"));
                 };
                 raw_object_data.combine(&base_object)
-            },
+            }
             _ => raw_object_data,
         };
 

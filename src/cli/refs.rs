@@ -45,7 +45,13 @@ fn create_chunky_tag(
     target: &str,
     message: Option<&str>,
 ) -> Result<(), anyhow::Error> {
-    let tag = Tag::create(target, name, message, &config.author(), &helpers::now_here());
+    let tag = Tag::create(
+        target,
+        name,
+        message,
+        &config.author(),
+        &helpers::now_here(),
+    );
     let tag_id = repo.write_object(&tag)?;
     let name = format!("tags/{name}");
     repo.create_ref(&name, &tag_id)

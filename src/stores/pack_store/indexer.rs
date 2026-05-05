@@ -1,5 +1,7 @@
 use std::{
-    fs::OpenOptions, io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write}, path::Path
+    fs::OpenOptions,
+    io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write},
+    path::Path,
 };
 
 use anyhow::anyhow;
@@ -36,7 +38,7 @@ impl PackIndexEntry {
             return Err(anyhow!("we don't support indexing named deltas yet"));
         }
         let raw_object = RawObject::from_raw_object_data(raw_object)?;
-        
+
         let mut buf = vec![0u8; packed_length as usize];
         file.seek(SeekFrom::Start(address))?;
         file.read_exact(&mut buf)?;
@@ -64,7 +66,7 @@ impl PackIndexEntry {
         let mut last_val = 0;
         for b in &mut buckets {
             if *b < last_val {
-                *b  = last_val;
+                *b = last_val;
             } else {
                 last_val = *b;
             }
