@@ -7,6 +7,8 @@ use std::{
 use anyhow::anyhow;
 use sha1::{Digest, Sha1};
 
+use crate::objects::{ObjectKind, RawObject};
+
 use super::helpers;
 
 #[derive(Ord, PartialEq, PartialOrd, Eq)]
@@ -32,22 +34,10 @@ impl PackIndexEntry {
     {
         let (raw_object, packed_length) =
             helpers::read_raw_object_at_address(file, address, file_len)?;
-
-        // let object_metadata = helpers::get_packed_object_metadata(file, idx, file_len)?;
-        // file.seek(SeekFrom::Start(object_metadata.data_start_address))?;
-        // let mut decompressor = ZlibDecoder::new(file);
-        // let mut data = Vec::<u8>::with_capacity(object_metadata.unpacked_size as usize);
-        // decompressor.read_to_end(&mut data)?;
-        // let data_start_address = object_metadata.data_start_address;
-        // let packed_length = (data_start_address - idx) + decompressor.total_in();
-        // let mut file = decompressor.into_inner();
-        // let raw_object = helpers::construct_raw_object_from_packed(
-        //     object_metadata,
-        //     data,
-        //     &mut file,
-        //     idx,
-        //     file_len,
-        // )?;
+        if matches!(&raw_object.metadata().kind, ObjectKind::Delta(_)) {
+            return Err(anyhow!("we don't support indexing named deltas yet"));
+        }
+        let raw_object = RawObject::from_raw_object_data(raw_object)?;
 
         let mut buf = vec![0u8; packed_length as usize];
         file.seek(SeekFrom::Start(address))?;
@@ -76,7 +66,7 @@ impl PackIndexEntry {
         let mut last_val = 0;
         for b in &mut buckets {
             if *b < last_val {
-                *b  = last_val;
+                *b = last_val;
             } else {
                 last_val = *b;
             }

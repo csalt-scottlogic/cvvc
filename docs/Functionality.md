@@ -46,6 +46,8 @@ The git disambiguation rules have not been fully checked to confirm they are app
 
 Commands do not accept the `--color` or `--no-color` options for colouring the output.
 
+CVVC supports reading loose objects and objects in packfiles.  If it encounters a packfile with a missing index, it will silently reindex it, unless the packfile contains objects consisting of a diff against an object that is referred to by its ID---in CVVC this is referred to as a "named delta" object.  It can write reverse index files for packs, but does not read them.  It cannot write packfiles.
+
 ## Support for individual commands
 
 At present `cv` accepts the following command verbs, with limitations as described:
