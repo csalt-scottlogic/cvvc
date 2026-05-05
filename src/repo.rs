@@ -26,13 +26,11 @@ use crate::{
     ignore::IgnoreInfo,
     index::{Index, IndexEntry},
     objects::{
-        errors::FindObjectError, Blob, GitObject, ObjectKind, RawObject, StoredObject, Tree,
-        TreeNode,
+        Blob, GitObject, ObjectKind, RawObject, RawObjectData, StoredObject, Tree, TreeNode, errors::FindObjectError
     },
     ref_log::{RefLog, RefLogEntry},
     stores::{
-        branch_file_store::BranchFileStore, file_store::LooseObjectStore, pack_store::PackStore,
-        BranchKind, BranchSpec, BranchStore, ObjectStore,
+        BranchKind, BranchSpec, BranchStore, ObjectStore, branch_file_store::BranchFileStore, file_store::LooseObjectStore, pack_store::PackStore
     },
 };
 
@@ -495,17 +493,8 @@ impl Repository {
         Ok(None)
     }
 
-    /// Reads a raw object from the object stores.
-    ///
-    /// The `object_id` parameter should be a full, valid object ID.  If this object is not present, the method will
-    /// return `Ok(None)`.  If the parameter is not a valid object ID, the method may return an error.
-    ///
-    /// If an object is present in the loose object store, it is loaded from there.  If not,
-    /// it is loaded from the first packfile it is found in.  The order packfiles are searched in is not guaranteed,
-    /// but it will be consistent across calls to the same object.
-    ///
-    /// This method will return an error if it encounters any errors reading from the object stores.
-    pub fn read_raw_object(&self, object_id: &str) -> Result<Option<RawObject>, anyhow::Error> {
+    
+    fn read_raw_object_data(&self, object_id: &str) -> Result<Option<RawObjectData>, anyhow::Error> {
         let source = self.find_store_for_object(object_id)?;
         let Some(source) = source else {
             return Ok(None);
@@ -517,6 +506,35 @@ impl Repository {
         };
 
         Ok(raw_object)
+    }
+
+    /// Reads a raw object from the object stores.
+    ///
+    /// The `object_id` parameter should be a full, valid object ID.  If this object is not present, the method will
+    /// return `Ok(None)`.  If the parameter is not a valid object ID, the method may return an error.
+    ///
+    /// If an object is present in the loose object store, it is loaded from there.  If not,
+    /// it is loaded from the first packfile it is found in.  The order packfiles are searched in is not guaranteed,
+    /// but it will be consistent across calls to the same object.
+    ///
+    /// This method will return an error if it encounters any errors reading from the object stores.
+    pub fn read_raw_object(&self, object_id: &str) -> Result<Option<RawObject>, anyhow::Error> {
+        let raw_object_data = self.read_raw_object_data(object_id)?;
+        let Some(raw_object_data) = raw_object_data else {
+            return Ok(None);
+        };
+        let raw_object_data = match &raw_object_data.metadata().kind {
+            ObjectKind::Delta(base) => {
+                let base_object = self.read_raw_object(base)?;
+                let Some(base_object) = base_object else {
+                    return Err(anyhow!("named delta object base not found in repository"));
+                };
+                raw_object_data.combine(&base_object)
+            },
+            _ => raw_object_data,
+        };
+
+        Ok(Some(RawObject::from_raw_object_data(raw_object_data)?))
     }
 
     /// Reads an object from the object stores.

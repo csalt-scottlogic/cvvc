@@ -13,7 +13,7 @@ use std::{
 };
 
 use crate::{
-    objects::{GitObject, ObjectKind, RawObject},
+    objects::{GitObject, ObjectKind, RawObject, RawObjectData},
     stores::ObjectStore,
 };
 
@@ -429,17 +429,17 @@ impl ObjectStore for PackStore {
         Ok(found_objects.len() == 1)
     }
 
-    /// Read a [`RawObject`] from the packfile.
+    /// Reads [`RawObjectData`] from the packfile.
     ///
-    /// This method reads a [`RawObject`] from the packfile, if it exists in the packfile.  If the given ID is a legal
+    /// This method reads [`RawObjectData`] from the packfile, if it exists in the packfile.  If the given ID is a legal
     /// partial object ID but is not the full object ID of an object in this packfile, the method returns `Ok(None)`.
     ///
-    /// An error is returned if the object is present in the packfile, but is a "named delta" (also known as an
-    /// OBJ_REF_DELTA) object.  These objects are found in "thin packs", so called because they can consist solely
-    /// of deltafied objects and do not need to contain the deltafied objects' dependencies.  CVVC does not at present
-    /// support thin packs, which should normally only be encountered when transferring packs over the network
+    /// If the object is an "offset delta" object, consisting of a diff to be applied against another object in the same
+    /// packfile, this method returns the reconstituted object data.  If the object is a "named delta" object, consisting
+    /// of a diff to be applied against an object identified by ID, this method returns the diff commands.  The base object
+    /// ID is encoded in the object's `metadata` property.
     ///
-    /// An error is also returned if:
+    /// An error is returned if:
     /// - the object ID is not a legal partial object ID longer than 1 character
     /// - the packfile or pack index file cannot be read, or another filesystem error occurs
     /// - the packfile fails basic format checks
@@ -447,8 +447,8 @@ impl ObjectStore for PackStore {
     /// - the index file is not a version 2 index
     /// - the object's metadata cannot be successfully loaded from the packfile
     /// - the object's packfile data cannot be successfully decompressed
-    /// - the object is a delta object and one of its ancestors cannot be loaded successfully from the packfile
-    fn read_raw_object(&self, object_id: &str) -> Result<Option<RawObject>, anyhow::Error> {
+    /// - the object is an offset delta object and one of its ancestors cannot be loaded successfully from the packfile
+    fn read_raw_object(&self, object_id: &str) -> Result<Option<RawObjectData>, anyhow::Error> {
         let object_address = self.get_object_address(object_id)?;
         let Some(object_address) = object_address else {
             return Ok(None);
@@ -522,17 +522,9 @@ impl TryFrom<PackedObjectType> for ObjectKind {
             PackedObjectType::Commit => Ok(ObjectKind::Commit),
             PackedObjectType::Tree => Ok(ObjectKind::Tree),
             PackedObjectType::Tag => Ok(ObjectKind::Tag),
+            PackedObjectType::NamedDelta(base) => Ok(ObjectKind::Delta(base)),
             _ => Err(anyhow!("unpacked objects must be undeltafied")),
         }
-    }
-}
-
-impl PackedObjectType {
-    fn is_base_object(&self) -> bool {
-        !matches!(
-            self,
-            PackedObjectType::OffsetDelta(_) | PackedObjectType::NamedDelta(_)
-        )
     }
 }
 
@@ -598,10 +590,6 @@ impl PackedObjectMetadata {
             kind,
             packed_size: None,
         })
-    }
-
-    fn is_base_object(&self) -> bool {
-        self.kind.is_base_object()
     }
 
     fn combine(&self, other: &Self) -> Self {

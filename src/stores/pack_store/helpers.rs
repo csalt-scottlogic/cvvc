@@ -7,7 +7,7 @@ use std::{
 use anyhow::anyhow;
 use flate2::bufread::ZlibDecoder;
 
-use crate::objects::{ObjectKind, ObjectMetadata, RawObject};
+use crate::objects::{ObjectKind, ObjectMetadata, RawObjectData, combine_object_delta_data};
 
 use super::{PackedObjectMetadata, PackedObjectType, PackedObjectTypeOnly};
 
@@ -164,7 +164,7 @@ pub fn read_raw_object_at_address<R>(
     pack_file: &mut BufReader<R>,
     address: u64,
     file_len: u64,
-) -> Result<(RawObject, u64), anyhow::Error>
+) -> Result<(RawObjectData, u64), anyhow::Error>
 where
     R: Read,
     R: Seek,
@@ -187,27 +187,25 @@ fn construct_raw_object_from_packed<R>(
     pack_file: &mut BufReader<R>,
     address: u64,
     file_len: u64,
-) -> Result<RawObject, anyhow::Error>
+) -> Result<RawObjectData, anyhow::Error>
 where
     R: Read,
     R: Seek,
 {
-    if metadata.is_base_object() {
-        let metadata = ObjectMetadata::new(ObjectKind::try_from(metadata.kind)?, data.len());
-        Ok(RawObject::from_unidentified_data(&data, metadata))
-    } else if let PackedObjectType::OffsetDelta(offset) = metadata.kind {
+    if let PackedObjectType::OffsetDelta(offset) = metadata.kind {
         let (base_meta, base_data) = read_at_address(pack_file, address - offset, file_len)?;
         let combined_meta = metadata.combine(&base_meta);
         let unpacked_metadata = ObjectMetadata::new(
             ObjectKind::try_from(combined_meta.kind)?,
             combined_meta.unpacked_size as usize,
         );
-        Ok(RawObject::from_unidentified_data(
-            &combine_data(&base_data, &data),
+        Ok(RawObjectData::new(
+            &combine_object_delta_data(&base_data, &data),
             unpacked_metadata,
         ))
     } else {
-        todo!();
+        let metadata = ObjectMetadata::new(ObjectKind::try_from(metadata.kind)?, data.len());
+        Ok(RawObjectData::new(&data, metadata))
     }
 }
 
@@ -229,105 +227,10 @@ where
     let packed_size = (meta.data_start_address - address) + compressed_data_length;
     meta.packed_size = Some(packed_size);
     let reusable_file = decompressor.into_inner();
-    if meta.is_base_object() {
-        Ok((meta, data))
-    } else if let PackedObjectType::OffsetDelta(offset) = meta.kind {
+    if let PackedObjectType::OffsetDelta(offset) = meta.kind {
         let (base_meta, base_data) = read_at_address(reusable_file, address - offset, file_len)?;
-        Ok((meta.combine(&base_meta), combine_data(&base_data, &data)))
-    } else if let PackedObjectType::NamedDelta(oid) = meta.kind {
-        Err(anyhow!(
-            "cannot load named delta offset: relies on object {oid}"
-        ))
+        Ok((meta.combine(&base_meta), combine_object_delta_data(&base_data, &data)))
     } else {
-        Err(anyhow!("unsupported packed object type"))
-    }
-}
-
-pub fn combine_data(base_data: &[u8], apply_commands: &[u8]) -> Vec<u8> {
-    let mut result = Vec::<u8>::new();
-    let mut idx = 0;
-
-    // The commands start with two sizes, the size of the base and the size of the output.
-    // We could read these for verification, if I was a Good Girl, but that can be a job for later.
-    // Instead, we need to find the byte following the second byte less than 128 and start working from there.
-    let mut non_continuation = 0;
-    while non_continuation < 2 {
-        if apply_commands[idx] < 0x80 {
-            non_continuation += 1;
-        }
-        idx += 1;
-    }
-
-    while idx < apply_commands.len() {
-        let command = DeltaCommand::from_bytes(&apply_commands[idx..]);
-        match command.kind {
-            DeltaCommandType::Add(sz) => {
-                result.extend_from_slice(&apply_commands[(idx + 1)..(idx + 1 + sz)])
-            }
-            DeltaCommandType::Copy { offset, size } => {
-                result.extend_from_slice(&base_data[offset..(offset + size)])
-            }
-        }
-        idx += command.len;
-    }
-    result
-}
-
-enum DeltaCommandType {
-    Copy { offset: usize, size: usize },
-    Add(usize),
-}
-
-struct DeltaCommand {
-    len: usize,
-    kind: DeltaCommandType,
-}
-
-impl DeltaCommand {
-    fn from_bytes(data: &[u8]) -> Self {
-        if data[0] < 0x80 {
-            let size = data[0] & 0x7f;
-            Self {
-                len: size as usize + 1,
-                kind: DeltaCommandType::Add(size as usize),
-            }
-        } else {
-            let bits = data[0] & 0x7f;
-            if bits == 0 {
-                Self {
-                    len: 1,
-                    kind: DeltaCommandType::Copy {
-                        offset: 0,
-                        size: 0x10000,
-                    },
-                }
-            } else {
-                let mut offset = 0usize;
-                let mut size = 0usize;
-                let mut bit = 1u8;
-                let mut idx = 1;
-                for i in 0..4 {
-                    if bits & bit != 0 {
-                        offset |= (data[idx] as usize) << (i * 8);
-                        idx += 1;
-                    }
-                    bit <<= 1;
-                }
-                for i in 4..7 {
-                    if bits & bit != 0 {
-                        size |= (data[idx] as usize) << ((i - 4) * 8);
-                        idx += 1;
-                    }
-                    bit <<= 1;
-                }
-                if size == 0 {
-                    size = 0x10000;
-                }
-                Self {
-                    len: bits.count_ones() as usize + 1,
-                    kind: DeltaCommandType::Copy { offset, size },
-                }
-            }
-        }
+        Ok((meta, data))
     }
 }

@@ -28,6 +28,10 @@ impl ObjectMetadata {
     pub fn new(kind: ObjectKind, size: usize) -> Self {
         Self { kind, size }
     }
+
+    pub fn combine(self, base: &ObjectMetadata) -> Self {
+        Self::new(base.kind.clone(), self.size)
+    }
 }
 
 impl TryFrom<&[u8]> for ObjectMetadata {
@@ -90,6 +94,129 @@ impl TryFrom<&[u8]> for ObjectMetadata {
     }
 }
 
+pub struct RawObjectData {
+    data: Vec<u8>,
+    metadata: ObjectMetadata,
+}
+
+impl RawObjectData {
+    pub fn new(data: &[u8], metadata: ObjectMetadata) -> Self {
+        Self {
+            data: data.to_vec(),
+            metadata
+        }
+    }
+
+    pub fn from_data_with_header(data: &[u8]) -> Result<Self, anyhow::Error> {
+        let metadata = ObjectMetadata::try_from(data)
+            .with_context(|| "failed to load object data")?;
+        let data_start_offset = data.len() - metadata.size;
+        Ok(Self {
+            data: data[data_start_offset..].to_vec(),
+                metadata },
+            )
+    }
+
+    pub fn metadata(&self) -> &ObjectMetadata {
+        &self.metadata
+    }
+
+    pub fn combine(self, base_object: &RawObject) -> Self {
+        let combined_data = combine_object_delta_data(&base_object.content.data, &self.data);
+        Self::new(&combined_data, self.metadata.combine(&base_object.content.metadata))
+    }
+}
+
+pub fn combine_object_delta_data(base_data: &[u8], apply_commands: &[u8]) -> Vec<u8> {
+    let mut result = Vec::<u8>::new();
+    let mut idx = 0;
+
+    // The commands start with two sizes, the size of the base and the size of the output.
+    // We could read these for verification, if I was a Good Girl, but that can be a job for later.
+    // Instead, we need to find the byte following the second byte less than 128 and start working from there.
+    let mut non_continuation = 0;
+    while non_continuation < 2 {
+        if apply_commands[idx] < 0x80 {
+            non_continuation += 1;
+        }
+        idx += 1;
+    }
+
+    while idx < apply_commands.len() {
+        let command = DeltaCommand::from_bytes(&apply_commands[idx..]);
+        match command.kind {
+            DeltaCommandType::Add(sz) => {
+                result.extend_from_slice(&apply_commands[(idx + 1)..(idx + 1 + sz)])
+            }
+            DeltaCommandType::Copy { offset, size } => {
+                result.extend_from_slice(&base_data[offset..(offset + size)])
+            }
+        }
+        idx += command.len;
+    }
+    result
+}
+
+enum DeltaCommandType {
+    Copy { offset: usize, size: usize },
+    Add(usize),
+}
+
+struct DeltaCommand {
+    len: usize,
+    kind: DeltaCommandType,
+}
+
+impl DeltaCommand {
+    fn from_bytes(data: &[u8]) -> Self {
+        if data[0] < 0x80 {
+            let size = data[0] & 0x7f;
+            Self {
+                len: size as usize + 1,
+                kind: DeltaCommandType::Add(size as usize),
+            }
+        } else {
+            let bits = data[0] & 0x7f;
+            if bits == 0 {
+                Self {
+                    len: 1,
+                    kind: DeltaCommandType::Copy {
+                        offset: 0,
+                        size: 0x10000,
+                    },
+                }
+            } else {
+                let mut offset = 0usize;
+                let mut size = 0usize;
+                let mut bit = 1u8;
+                let mut idx = 1;
+                for i in 0..4 {
+                    if bits & bit != 0 {
+                        offset |= (data[idx] as usize) << (i * 8);
+                        idx += 1;
+                    }
+                    bit <<= 1;
+                }
+                for i in 4..7 {
+                    if bits & bit != 0 {
+                        size |= (data[idx] as usize) << ((i - 4) * 8);
+                        idx += 1;
+                    }
+                    bit <<= 1;
+                }
+                if size == 0 {
+                    size = 0x10000;
+                }
+                Self {
+                    len: bits.count_ones() as usize + 1,
+                    kind: DeltaCommandType::Copy { offset, size },
+                }
+            }
+        }
+    }
+}
+
+
 /// A serialised object in memory, together with its ID and type.
 ///
 /// This struct represents a partially-parsed object which has either just been loaded from
@@ -110,9 +237,8 @@ impl TryFrom<&[u8]> for ObjectMetadata {
 /// [`RawObject::from_data_with_header`], which requires an object ID parameter but parses the
 /// object metadata from the header.
 pub struct RawObject {
-    data: Vec<u8>,
+    content: RawObjectData,
     object_id: String,
-    metadata: ObjectMetadata,
 }
 
 impl RawObject {
@@ -127,9 +253,9 @@ impl RawObject {
             .with_context(|| format!("failed to load {}", object_id))?;
         let data_start_offset = data.len() - metadata.size;
         Ok(Self {
-            data: data[data_start_offset..].to_vec(),
+            content: RawObjectData { data: data[data_start_offset..].to_vec(),
+                metadata },
             object_id: object_id.to_string(),
-            metadata,
         })
     }
 
@@ -138,26 +264,38 @@ impl RawObject {
     /// This function does not verify the passed-in object ID.
     pub fn from_headerless_data(data: &[u8], object_id: &str, metadata: ObjectMetadata) -> Self {
         Self {
-            data: data.to_vec(),
+            content: RawObjectData { data: data.to_vec(), metadata },
             object_id: object_id.to_string(),
-            metadata,
         }
     }
 
-    /// Create a [`RawObject`] from headerless content data and separate metadata, computing the object ID.
-    pub fn from_unidentified_data(data: &[u8], metadata: ObjectMetadata) -> Self {
-        let mut headery_data = Self::construct_header(&metadata.kind, metadata.size);
-        headery_data.append(&mut data.to_vec());
+    pub fn from_raw_object_data(data: RawObjectData) -> Result<Self, anyhow::Error> {
+        if matches!(data.metadata.kind, ObjectKind::Delta(_)) {
+            return Err(anyhow!("cannot construct raw object from delta data"));
+        }
+        let mut headery_data = Self::construct_header(&data.metadata.kind, data.metadata.size);
+        headery_data.append(&mut data.data.to_vec());
         let mut hasher = Sha1::new();
         hasher.update(&headery_data);
         let object_id = hex::encode(hasher.finalize());
 
-        Self {
-            data: data.to_vec(),
-            object_id,
-            metadata,
-        }
+        Ok(Self { content: data, object_id })
     }
+
+    /// Create a [`RawObject`] from headerless content data and separate metadata, computing the object ID if possible.
+    // pub fn from_unidentified_data(data: &[u8], metadata: ObjectMetadata) -> Self {
+    //     let mut headery_data = Self::construct_header(&metadata.kind, metadata.size);
+    //     headery_data.append(&mut data.to_vec());
+    //     let mut hasher = Sha1::new();
+    //     hasher.update(&headery_data);
+    //     let object_id = hex::encode(hasher.finalize());
+
+    //     Self {
+    //         data: data.to_vec(),
+    //         object_id: Some(object_id),
+    //         metadata,
+    //     }
+    // }
 
     fn construct_header(kind: &ObjectKind, size: usize) -> Vec<u8> {
         let mut header = kind.bytes().to_vec();
@@ -182,26 +320,25 @@ impl RawObject {
         hasher.update(&content);
         let object_id = hex::encode(hasher.finalize());
         Self {
-            data,
-            object_id,
-            metadata: ObjectMetadata {
+            content: RawObjectData { data, metadata: ObjectMetadata {
                 kind: obj.kind(),
                 size,
-            },
+            } },
+            object_id,
         }
     }
 
     /// Get the headerless content of a [`RawObject`]
     pub fn content_headerless(&self) -> &[u8] {
-        &self.data
+        &self.content.data
     }
 
     /// Get the content of a [`RawObject`] with the metadata header prepended.
     ///
     /// The data returned is identical to the uncompressed content of a loose object file on disk.
     pub fn content_with_header(&self) -> Vec<u8> {
-        let mut content = Self::construct_header(&self.metadata.kind, self.metadata.size);
-        content.extend(self.data.iter());
+        let mut content = Self::construct_header(&self.content.metadata.kind, self.content.metadata.size);
+        content.extend(self.content.data.iter());
         content
     }
 
@@ -212,7 +349,7 @@ impl RawObject {
 
     /// Get the object's metadata.
     pub fn metadata(&self) -> &ObjectMetadata {
-        &self.metadata
+        &self.content.metadata
     }
 
     pub fn to_stored_object(&self) -> Result<StoredObject, anyhow::Error> {
@@ -229,17 +366,19 @@ impl RawObject {
             ObjectKind::Tag => Ok(StoredObject::Tag(Tag::deserialise(
                 self.content_headerless(),
             )?)),
+            _ => Err(anyhow!("Delta objects cannot be parsed")),
         }
     }
 }
 
 /// The legal types of repository object.
-#[derive(PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum ObjectKind {
     Blob,
     Commit,
     Tree,
     Tag,
+    Delta(String),
 }
 
 impl ObjectKind {
@@ -253,6 +392,7 @@ impl ObjectKind {
             ObjectKind::Commit => b"commit",
             ObjectKind::Tag => b"tag",
             ObjectKind::Tree => b"tree",
+            _ => b"",
         }
     }
 }
