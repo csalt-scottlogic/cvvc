@@ -427,7 +427,8 @@ impl Index {
     /// be either [`InvalidIndexKind::TooShort`] or [`InvalidIndexKind::InvalidEntry`] depending on whether or not the
     /// end of the data occurs at the end of a valid entry.
     pub fn from_bytes(data: &[u8]) -> Result<Index, InvalidIndexError> {
-        if data.len() < 12 {
+        let data_len = data.len();
+        if data_len < 12 {
             return Err(InvalidIndexError {
                 error_kind: InvalidIndexKind::TooShort,
             });
@@ -436,7 +437,7 @@ impl Index {
             return Err(InvalidIndexError {
                 error_kind: InvalidIndexKind::MissingMagic,
             });
-        }
+        }        
         let version = helpers::u32_from_be_bytes_unchecked(data, 4);
         if version != 2 {
             return Err(InvalidIndexError {
@@ -446,8 +447,7 @@ impl Index {
         let count = usize::try_from(helpers::u32_from_be_bytes_unchecked(data, 8)).unwrap();
         let mut entries = Vec::<IndexEntry>::with_capacity(count);
         let mut idx = 12;
-        for _ in 0..count {
-            println!("Loading from position {idx:x}");
+        for i in 0..count {
             let entry = IndexEntry::from_bytes(&data[idx..]);
             let entry = match entry {
                 Ok(e) => e,
@@ -458,7 +458,7 @@ impl Index {
                 }
             };
             idx += entry.byte_length();
-            if idx >= data.len() {
+            if idx > data_len || (idx == data_len && i < count - 1) {
                 return Err(InvalidIndexError {
                     error_kind: errors::InvalidIndexKind::TooShort,
                 });
@@ -1855,7 +1855,7 @@ mod tests {
             0, 0x81, 0xa4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0x9d, 0xbe, 0x65, 0xc5, 0x99, 0xde,
             0x1f, 0xda, 0xbc, 0x46, 0x92, 0x2b, 0xa, 0x86, 0x9a, 0x25, 0x5c, 0xa8, 0x2f, 0xdd,
             0x80, 0, 0x12, 0x73, 0x72, 0x63, 0x2f, 0x63, 0x6c, 0x69, 0x2f, 0x72, 0x65, 0x66, 0x5f,
-            0x6c, 0x6f, 0x67, 0x2e, 0x72, 0x73, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0x6c, 0x6f, 0x67, 0x2e, 0x72, 0x73, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         let expected_entries = vec![
             IndexEntry {
@@ -1942,7 +1942,7 @@ mod tests {
             0, 0x81, 0xa4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0x9d, 0xbe, 0x65, 0xc5, 0x99, 0xde,
             0x1f, 0xda, 0xbc, 0x46, 0x92, 0x2b, 0xa, 0x86, 0x9a, 0x25, 0x5c, 0xa8, 0x2f, 0xdd,
             0x80, 0, 0x12, 0x73, 0x72, 0x63, 0x2f, 0x63, 0x6c, 0x69, 0x2f, 0x72, 0x65, 0x66, 0x5f,
-            0x6c, 0x6f, 0x67, 0x2e, 0x72, 0x73, 0, 0, 0, 0, 0, 0, 0, 0,
+            0x6c, 0x6f, 0x67, 0x2e, 0x72, 0x73, 0, 0, 0, 0, 0, 0, 0,
         ];
 
         let test_result = Index::from_bytes(&test_input).unwrap_err();
