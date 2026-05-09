@@ -2,13 +2,12 @@ use crate::{
     config::GlobalConfig, helpers::find_repo_cwd, objects::StoredObject, repo::Repository,
 };
 use anyhow::anyhow;
-use chrono::{DateTime, Utc};
-use std::{fs, path::Path, time::SystemTime};
+use chrono::Utc;
 
 /// Entry point for the `cv checkout` command
-pub fn checkout(target_name: &str, dest: &str, config: &GlobalConfig) -> Result<(), anyhow::Error> {
+pub fn checkout(target_name: &str, config: &GlobalConfig) -> Result<(), anyhow::Error> {
     let repo = find_repo_cwd()?;
-    checkout_from_repo(&repo, target_name, dest, config)
+    checkout_from_repo(&repo, target_name, config)
 }
 
 /// Entry point for the `cv branch <new-branch>` and `cv checkout -b <new-branch>` commands
@@ -59,7 +58,6 @@ fn new_branch_in_repo(
 fn checkout_from_repo(
     repo: &Repository,
     target_name: &str,
-    dest: &str,
     config: &GlobalConfig,
 ) -> Result<(), anyhow::Error> {
     let prev_branch = repo.current_branch()?;
@@ -87,19 +85,7 @@ fn checkout_from_repo(
         ));
     };
 
-    let path = Path::new(dest);
-    if path.exists() {
-        if !path.is_dir() {
-            return Err(anyhow!("Path {} is not a directory", dest));
-        }
-        if !is_dir_empty(path)? {
-            return Err(anyhow!("Path {} is not empty", dest));
-        }
-    } else {
-        fs::create_dir_all(path)?;
-    }
-
-    let objects_checked_out = tree_obj.checkout(repo, path)?;
+    let objects_checked_out = tree_obj.checkout(repo, &repo.worktree)?;
     let mut index = repo.read_index()?;
     index.remove_not_present(&objects_checked_out);
     repo.write_index(&index)?;
@@ -119,14 +105,8 @@ fn checkout_from_repo(
         prev_commit_id.as_deref(),
         &target_id,
         &config.committer(),
-        &DateTime::<Utc>::from(SystemTime::now()),
+        &Utc::now(),
         &ref_log_message,
         None,
     )
-}
-
-fn is_dir_empty(dir: &Path) -> Result<bool, anyhow::Error> {
-    let mut entries = fs::read_dir(dir)?;
-    let first_entry = entries.next();
-    Ok(first_entry.is_none())
 }

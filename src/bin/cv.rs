@@ -59,9 +59,6 @@ enum Commands {
         /// The commit or tree to check out
         #[arg(value_name = "COMMIT-OR-TREE")]
         target: String,
-        /// The directory to check out into
-        #[arg(value_name = "DIR", default_value = ".")]
-        path: String,
     },
     /// Create a new commit object
     #[command(name = "commit-tree", arg_required_else_help = true)]
@@ -213,15 +210,11 @@ fn parse_dispatch() -> ExitCode {
         }
         Commands::CatFile { obj_type, obj_path } => objects::cat_file(&obj_type, &obj_path),
         Commands::CheckIgnore { paths } => staging::check_ignore(&paths),
-        Commands::Checkout {
-            new_branch,
-            target,
-            path,
-        } => {
+        Commands::Checkout { new_branch, target } => {
             if new_branch {
                 branches::new_branch(&target, true)
             } else {
-                branches::checkout(&target, &path, &config)
+                branches::checkout(&target, &config)
             }
         }
         Commands::Commit { message } => staging::full_commit(&config, message),

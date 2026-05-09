@@ -79,9 +79,9 @@ This command takes no options (including `--stdin`) but otherwise behaves as `gi
 This command is two forms:
 
 - `cv checkout -b <new-branch>`, which creates a branch based on the current commit and checks it out
-- `cv checkout REV [<dir>]`, which checks out an existing revision, potentially into the specified directory
+- `cv checkout REV`, which checks out an existing revision
 
-At present, `cv checkout REV` without a directory, when run in a subdir of a working directory, does not give the expected result (issue #43).
+This command no longer supports the `wyag` feature which permits the user to check out into an arbitrary directory.
 
 ### `cv commit-tree`
 
