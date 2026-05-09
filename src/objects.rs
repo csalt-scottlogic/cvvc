@@ -519,7 +519,9 @@ impl Tree {
             let path = path.as_ref().join(&entry.name);
             match obj {
                 StoredObject::Tree(tree) => {
-                    fs::create_dir(&path)?;
+                    if !path.is_dir() {
+                        fs::create_dir(&path)?;
+                    }
                     let mut subdir_checked_out = tree.checkout(repo, &path)?;
                     objects_checked_out.append(&mut subdir_checked_out);
                 }
