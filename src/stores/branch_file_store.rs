@@ -94,7 +94,7 @@ impl BranchStore for BranchFileStore {
         if !branch_path.exists() || !branch_path.is_file() {
             return Ok(None);
         }
-        let ref_conts = fs::read_to_string(branch_path)?;
+        let ref_conts = fs::read_to_string(branch_path)?.trim().to_string();
         Ok(Some(ref_conts))
     }
 

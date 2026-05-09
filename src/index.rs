@@ -322,7 +322,10 @@ impl IndexEntry {
         buf.extend(self.object_name.bytes());
         buf.extend([0]);
         // The formula for computing the entry length only works on v2 indexes (that pesky hardcoded 63 I just perpetrated)
-        buf.extend(repeat_n(0, 8 - ((self.object_name.len() + 63) % 8)));
+        let block_overage = (self.object_name.len() + 63) % 8;
+        if block_overage > 0 {
+            buf.extend(repeat_n(0, 8 - block_overage));
+        }
     }
 
     /// Get the parent directory of this entry.
@@ -424,7 +427,8 @@ impl Index {
     /// be either [`InvalidIndexKind::TooShort`] or [`InvalidIndexKind::InvalidEntry`] depending on whether or not the
     /// end of the data occurs at the end of a valid entry.
     pub fn from_bytes(data: &[u8]) -> Result<Index, InvalidIndexError> {
-        if data.len() < 12 {
+        let data_len = data.len();
+        if data_len < 12 {
             return Err(InvalidIndexError {
                 error_kind: InvalidIndexKind::TooShort,
             });
@@ -433,7 +437,7 @@ impl Index {
             return Err(InvalidIndexError {
                 error_kind: InvalidIndexKind::MissingMagic,
             });
-        }
+        }        
         let version = helpers::u32_from_be_bytes_unchecked(data, 4);
         if version != 2 {
             return Err(InvalidIndexError {
@@ -443,7 +447,7 @@ impl Index {
         let count = usize::try_from(helpers::u32_from_be_bytes_unchecked(data, 8)).unwrap();
         let mut entries = Vec::<IndexEntry>::with_capacity(count);
         let mut idx = 12;
-        for _ in 0..count {
+        for i in 0..count {
             let entry = IndexEntry::from_bytes(&data[idx..]);
             let entry = match entry {
                 Ok(e) => e,
@@ -454,7 +458,7 @@ impl Index {
                 }
             };
             idx += entry.byte_length();
-            if idx >= data.len() {
+            if idx > data_len || (idx == data_len && i < count - 1) {
                 return Err(InvalidIndexError {
                     error_kind: errors::InvalidIndexKind::TooShort,
                 });
@@ -1211,7 +1215,7 @@ mod tests {
     }
 
     #[test]
-    fn index_entry_serialise() {
+    fn index_entry_serialise_with_padding() {
         let test_input = IndexEntry {
             ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
                 .unwrap()
@@ -1238,6 +1242,40 @@ mod tests {
             0x7b, 0x1c, 0x69, 0xf6, 0xb2, 0x46, 0xcf, 0xca, 0x46, 0x40, 0xc4, 0, 0x13, 0x73, 0x72,
             0x63, 0x2f, 0x69, 0x6e, 0x64, 0x65, 0x78, 0x2f, 0x65, 0x72, 0x72, 0x6f, 0x72, 0x73,
             0x2e, 0x72, 0x73, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        let mut results = Vec::<u8>::new();
+
+        test_input.serialise(&mut results);
+
+        assert_eq!(expected_result, *results);
+    }
+
+    #[test]
+    fn index_entry_serialise_without_padding() {
+        let test_input = IndexEntry {
+            ctime: DateTime::parse_from_rfc3339("2026-03-09T14:58:12.214447200Z")
+                .unwrap()
+                .to_utc(),
+            mtime: DateTime::parse_from_rfc3339("2026-03-16T17:49:18.073935600Z")
+                .unwrap()
+                .to_utc(),
+            dev: 4472,
+            ino: 4468,
+            mode_type: IndexEntryType::File,
+            mode_perms: IndexEntryPermissions::NonExecutable,
+            uid: 80105,
+            gid: 2857,
+            fsize: 3372,
+            flag_assume_valid: false,
+            flag_stage: 0,
+            object_id: "f6d9d26f9d58b58c0d7b1c69f6b246cfca4640c4".to_string(),
+            object_name: "README.md".to_string(),
+        };
+        let expected_result = [
+            0x69u8, 0xae, 0xe0, 0x4, 0xc, 0xc8, 0x34, 0x60, 0x69, 0xb8, 0x42, 0x9e, 0x4, 0x68,
+            0x2a, 0xf0, 0, 0, 0x11, 0x78, 0, 0, 0x11, 0x74, 0, 0, 0x81, 0xa4, 0, 0x1, 0x38, 0xe9,
+            0, 0, 0x0b, 0x29, 0, 0, 0xd, 0x2c, 0xf6, 0xd9, 0xd2, 0x6f, 0x9d, 0x58, 0xb5, 0x8c, 0xd,
+            0x7b, 0x1c, 0x69, 0xf6, 0xb2, 0x46, 0xcf, 0xca, 0x46, 0x40, 0xc4, 0, 9, 0x52, 0x45, 0x41, 0x44, 0x4d, 0x45, 0x2e, 0x6d, 0x64, 0,
         ];
         let mut results = Vec::<u8>::new();
 
@@ -1817,7 +1855,7 @@ mod tests {
             0, 0x81, 0xa4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0x9d, 0xbe, 0x65, 0xc5, 0x99, 0xde,
             0x1f, 0xda, 0xbc, 0x46, 0x92, 0x2b, 0xa, 0x86, 0x9a, 0x25, 0x5c, 0xa8, 0x2f, 0xdd,
             0x80, 0, 0x12, 0x73, 0x72, 0x63, 0x2f, 0x63, 0x6c, 0x69, 0x2f, 0x72, 0x65, 0x66, 0x5f,
-            0x6c, 0x6f, 0x67, 0x2e, 0x72, 0x73, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0x6c, 0x6f, 0x67, 0x2e, 0x72, 0x73, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         let expected_entries = vec![
             IndexEntry {
@@ -1904,7 +1942,7 @@ mod tests {
             0, 0x81, 0xa4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0x9d, 0xbe, 0x65, 0xc5, 0x99, 0xde,
             0x1f, 0xda, 0xbc, 0x46, 0x92, 0x2b, 0xa, 0x86, 0x9a, 0x25, 0x5c, 0xa8, 0x2f, 0xdd,
             0x80, 0, 0x12, 0x73, 0x72, 0x63, 0x2f, 0x63, 0x6c, 0x69, 0x2f, 0x72, 0x65, 0x66, 0x5f,
-            0x6c, 0x6f, 0x67, 0x2e, 0x72, 0x73, 0, 0, 0, 0, 0, 0, 0, 0,
+            0x6c, 0x6f, 0x67, 0x2e, 0x72, 0x73, 0, 0, 0, 0, 0, 0, 0,
         ];
 
         let test_result = Index::from_bytes(&test_input).unwrap_err();

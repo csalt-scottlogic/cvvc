@@ -488,10 +488,12 @@ impl Tree {
     }
 
     /// Read all of the contents of this tree and its subtrees from the repository, and copy
-    /// them to the filesystem.
+    /// them to a given directory in the filesystem.
     ///
     /// If successful, this method returns a vector of all of the object IDs which were written
     /// to the filesystem.
+    ///
+    /// This method is called recursively to check out subtrees.
     ///
     /// This method is not atomic.  If this method returns an error, any changes it has already
     /// made to the filesystem will not be undone.  
@@ -503,17 +505,23 @@ impl Tree {
     ///
     /// This function will error if the tree contains a link to a submodule.  CVVC does not currently
     /// support submodules.
-    pub fn checkout(&self, repo: &Repository, path: &Path) -> Result<Vec<String>, anyhow::Error> {
+    pub fn checkout<P: AsRef<Path>>(
+        &self,
+        repo: &Repository,
+        path: P,
+    ) -> Result<Vec<String>, anyhow::Error> {
         let mut objects_checked_out = Vec::<String>::new();
         for entry in &self.entries {
             let obj = repo.read_object(&entry.object_id)?;
             let Some(obj) = obj else {
                 return Err(anyhow!("Object {} not found", entry.object_id));
             };
-            let path = path.join(&entry.name);
+            let path = path.as_ref().join(&entry.name);
             match obj {
                 StoredObject::Tree(tree) => {
-                    fs::create_dir(&path)?;
+                    if !path.is_dir() {
+                        fs::create_dir(&path)?;
+                    }
                     let mut subdir_checked_out = tree.checkout(repo, &path)?;
                     objects_checked_out.append(&mut subdir_checked_out);
                 }
