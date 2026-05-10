@@ -228,7 +228,7 @@ fn parse_dispatch() -> ExitCode {
             obj_type: _,
             filename,
         } => objects::object_hash(write, &filename),
-        Commands::Init { pathname } => init::cmd(&pathname),
+        Commands::Init { pathname } => init::cmd(&pathname, &config.default_branch_name()),
         Commands::ListFiles { verbose } => staging::list_files(verbose),
         Commands::ListTree { recursive, tree } => objects::list_tree(recursive, &tree),
         Commands::Log { commit } => log::cmd(&commit),
