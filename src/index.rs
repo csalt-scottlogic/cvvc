@@ -7,9 +7,9 @@ use self::errors::{
 use crate::{
     helpers::{
         self, datetime_to_bytes,
-        fs::{index_path_file, index_path_parent, FileMetadata},
+        fs::{FileMetadata, index_path_file, index_path_parent},
     },
-    index::errors::InvalidIndexEntryType,
+    index::errors::{InvalidIndexEntryPermissions, InvalidIndexEntryType},
 };
 
 /// Index parse errors
@@ -77,21 +77,25 @@ pub enum IndexEntryPermissions {
     Link,
 }
 
-impl IndexEntryPermissions {
+impl TryFrom<u16> for IndexEntryPermissions {
+    type Error = InvalidIndexEntryPermissions;
+
     /// Parse an [`IndexEntryPermissions`] value from a [`u16`].  
-    /// If the value is not zero, octal 644 or octal 755, return `None`
-    pub fn from_u16(v: u16) -> Option<Self> {
-        match v {
-            0o644 => Some(IndexEntryPermissions::NonExecutable),
-            0o755 => Some(IndexEntryPermissions::Executable),
-            0 => Some(IndexEntryPermissions::Link),
-            _ => None,
+    /// If the value is not zero, octal 644 or octal 755, return an [`InvalidIndexEntryPermissions`] error.
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match value {
+            0o644 => Ok(IndexEntryPermissions::NonExecutable),
+            0o755 => Ok(IndexEntryPermissions::Executable),
+            0 => Ok(IndexEntryPermissions::Link),
+            _ => Err(InvalidIndexEntryPermissions::new(value)),
         }
     }
+}
 
+impl From<&IndexEntryPermissions> for u16 {
     /// Convert an [`IndexEntryPermissions`] value to a [`u16`].
-    pub fn to_u16(&self) -> u16 {
-        match self {
+    fn from(value: &IndexEntryPermissions) -> Self {
+        match value {
             IndexEntryPermissions::Link => 0,
             IndexEntryPermissions::NonExecutable => 0o644,
             IndexEntryPermissions::Executable => 0o755,
@@ -219,8 +223,8 @@ impl IndexEntry {
                 error_kind: InvalidIndexEntryKind::UnexpectedMode(mode_type_val),
             });
         };
-        let mode_perms = IndexEntryPermissions::from_u16(mode & 0x1FF);
-        let Some(mode_perms) = mode_perms else {
+        let mode_perms = IndexEntryPermissions::try_from(mode & 0x1FF);
+        let Ok(mode_perms) = mode_perms else {
             return Err(InvalidIndexEntryError {
                 error_kind: InvalidIndexEntryKind::UnexpectedPermissions(mode & 0x1FF),
             });
@@ -310,7 +314,7 @@ impl IndexEntry {
         buf.extend(datetime_to_bytes(&self.mtime));
         buf.extend(self.dev.to_be_bytes());
         buf.extend(self.ino.to_be_bytes());
-        let mode = u32::from((u16::from(&self.mode_type) << 12) | self.mode_perms.to_u16());
+        let mode = u32::from((u16::from(&self.mode_type) << 12) | u16::from(&self.mode_perms));
         buf.extend(mode.to_be_bytes());
         buf.extend(self.uid.to_be_bytes());
         buf.extend(self.gid.to_be_bytes());
@@ -634,43 +638,44 @@ mod tests {
     fn index_entry_permissions_from_u16_non_executable() {
         let test_input: u16 = 0o644;
 
-        let result = IndexEntryPermissions::from_u16(test_input);
+        let result = IndexEntryPermissions::try_from(test_input);
 
-        assert_eq!(Some(IndexEntryPermissions::NonExecutable), result);
+        assert_eq!(Ok(IndexEntryPermissions::NonExecutable), result);
     }
 
     #[test]
     fn index_entry_permissions_from_u16_executable() {
         let test_input: u16 = 0o755;
 
-        let result = IndexEntryPermissions::from_u16(test_input);
+        let result = IndexEntryPermissions::try_from(test_input);
 
-        assert_eq!(Some(IndexEntryPermissions::Executable), result);
+        assert_eq!(Ok(IndexEntryPermissions::Executable), result);
     }
 
     #[test]
     fn index_entry_permissions_from_u16_link() {
         let test_input: u16 = 0;
 
-        let result = IndexEntryPermissions::from_u16(test_input);
+        let result = IndexEntryPermissions::try_from(test_input);
 
-        assert_eq!(Some(IndexEntryPermissions::Link), result);
+        assert_eq!(Ok(IndexEntryPermissions::Link), result);
     }
 
     #[test]
     fn index_entry_permissions_from_u16_invalid_value() {
         let test_input: u16 = 0o237;
+        let expected_error = InvalidIndexEntryPermissions::new(test_input);
 
-        let result = IndexEntryPermissions::from_u16(test_input);
+        let result = IndexEntryPermissions::try_from(test_input);
 
-        assert_eq!(None, result);
+        assert_eq!(Err(expected_error), result);
     }
 
     #[test]
     fn index_entry_permissions_to_u16_non_executable() {
         let test_input = IndexEntryPermissions::NonExecutable;
 
-        let result = test_input.to_u16();
+        let result = u16::from(&test_input);
 
         assert_eq!(0o644, result);
     }
@@ -679,7 +684,7 @@ mod tests {
     fn index_entry_permissions_to_u16_executable() {
         let test_input = IndexEntryPermissions::Executable;
 
-        let result = test_input.to_u16();
+        let result = u16::from(&test_input);
 
         assert_eq!(0o755, result);
     }
@@ -688,7 +693,7 @@ mod tests {
     fn index_entry_permissions_to_u16_link() {
         let test_input = IndexEntryPermissions::Link;
 
-        let result = test_input.to_u16();
+        let result = u16::from(&test_input);
 
         assert_eq!(0, result);
     }
