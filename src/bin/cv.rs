@@ -203,7 +203,7 @@ fn parse_dispatch() -> ExitCode {
             if list {
                 branches::list_branches()
             } else if let Some(branch) = branch {
-                branches::new_branch(&branch, false)
+                branches::new_branch(&branch, false, &config)
             } else {
                 branches::list_branches()
             }
@@ -212,7 +212,7 @@ fn parse_dispatch() -> ExitCode {
         Commands::CheckIgnore { paths } => staging::check_ignore(&paths),
         Commands::Checkout { new_branch, target } => {
             if new_branch {
-                branches::new_branch(&target, true)
+                branches::new_branch(&target, true, &config)
             } else {
                 branches::checkout(&target, &config)
             }
