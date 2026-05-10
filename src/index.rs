@@ -7,7 +7,7 @@ use self::errors::{
 use crate::{
     helpers::{
         self, datetime_to_bytes,
-        fs::{FileMetadata, index_path_file, index_path_parent},
+        fs::{index_path_file, index_path_parent, FileMetadata},
     },
     index::errors::{InvalidIndexEntryPermissions, InvalidIndexEntryType},
 };
