@@ -138,6 +138,7 @@ impl BranchStore for BranchFileStore {
     /// This method may return an error, if any filesystem errors were encountered.
     fn update_branch(&self, branch: &BranchSpec, commit_id: &str) -> Result<(), anyhow::Error> {
         let branch_path = self.base_path.join(PathBuf::from(branch));
+        check_and_create_dir(&branch_path.parent().unwrap())?;
         write_single_line(branch_path, commit_id)
     }
 }

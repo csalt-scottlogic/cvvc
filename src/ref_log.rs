@@ -7,7 +7,7 @@ use std::{
     str::FromStr,
 };
 
-use crate::{helpers, repo::is_partial_object_id};
+use crate::{helpers::{self, fs::check_and_create_dir}, repo::is_partial_object_id};
 
 /// An entry in a ref log.
 #[derive(Debug)]
@@ -171,6 +171,7 @@ impl RefLog {
         entry: &RefLogEntry,
         path: P,
     ) -> Result<(), anyhow::Error> {
+        check_and_create_dir(path.as_ref().parent().unwrap())?;
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
