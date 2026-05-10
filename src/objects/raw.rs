@@ -129,7 +129,7 @@ impl RawObjectData {
 
     /// Combine a delta object with a base object to reconstitute the former.
     ///
-    /// This method assumes that [`self`] is a named delta object and that the `base_object` parameter
+    /// This method assumes that `self` is a delta object and that the `base_object` parameter
     /// is its base, but does not verify this.  The caller is responsible for ensuring that what they are doing
     /// makes sense, and doing otherwise is very likely to cause runtime errors due to attempted reads outside slice bounds.
     pub fn combine(self, base_object: &RawObject) -> Self {
