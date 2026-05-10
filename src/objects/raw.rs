@@ -161,7 +161,7 @@ pub fn combine_object_delta_data(base_data: &[u8], apply_commands: &[u8]) -> Vec
     }
 
     while idx < apply_commands.len() {
-        let command = DeltaCommand::from_bytes(&apply_commands[idx..]);
+        let command = DeltaCommand::from(&apply_commands[idx..]);
         match command.kind {
             DeltaCommandType::Add(sz) => {
                 result.extend_from_slice(&apply_commands[(idx + 1)..(idx + 1 + sz)])
@@ -185,8 +185,8 @@ struct DeltaCommand {
     kind: DeltaCommandType,
 }
 
-impl DeltaCommand {
-    fn from_bytes(data: &[u8]) -> Self {
+impl From<&[u8]> for DeltaCommand {
+    fn from(data: &[u8]) -> Self {
         if data[0] < 0x80 {
             let size = data[0] & 0x7f;
             Self {
