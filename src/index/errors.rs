@@ -9,14 +9,12 @@ use std::{
 #[derive(Debug, PartialEq)]
 pub struct InvalidIndexEntryType {
     /// The invalid flag value.
-    value: u8
+    value: u8,
 }
 
 impl InvalidIndexEntryType {
     pub fn new(value: u8) -> Self {
-        Self {
-            value
-        }
+        Self { value }
     }
 }
 

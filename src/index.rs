@@ -4,10 +4,13 @@ use std::{cmp::Ordering, fmt::Display, iter::repeat_n, path::Path};
 use self::errors::{
     InvalidIndexEntryError, InvalidIndexEntryKind, InvalidIndexError, InvalidIndexKind,
 };
-use crate::{helpers::{
-    self, datetime_to_bytes,
-    fs::{FileMetadata, index_path_file, index_path_parent},
-}, index::errors::InvalidIndexEntryType};
+use crate::{
+    helpers::{
+        self, datetime_to_bytes,
+        fs::{index_path_file, index_path_parent, FileMetadata},
+    },
+    index::errors::InvalidIndexEntryType,
+};
 
 /// Index parse errors
 pub mod errors;
@@ -307,8 +310,7 @@ impl IndexEntry {
         buf.extend(datetime_to_bytes(&self.mtime));
         buf.extend(self.dev.to_be_bytes());
         buf.extend(self.ino.to_be_bytes());
-        let mode =
-            u32::from((u16::from(&self.mode_type) << 12) | self.mode_perms.to_u16());
+        let mode = u32::from((u16::from(&self.mode_type) << 12) | self.mode_perms.to_u16());
         buf.extend(mode.to_be_bytes());
         buf.extend(self.uid.to_be_bytes());
         buf.extend(self.gid.to_be_bytes());
@@ -446,7 +448,7 @@ impl Index {
             return Err(InvalidIndexError {
                 error_kind: InvalidIndexKind::MissingMagic,
             });
-        }        
+        }
         let version = helpers::u32_from_be_bytes_unchecked(data, 4);
         if version != 2 {
             return Err(InvalidIndexError {
@@ -570,7 +572,6 @@ mod tests {
         let expected_error_result = InvalidIndexEntryType::new(test_input);
 
         let result = IndexEntryType::try_from(test_input);
-    
 
         assert_eq!(Err(expected_error_result), result);
     }
@@ -1286,7 +1287,8 @@ mod tests {
             0x69u8, 0xae, 0xe0, 0x4, 0xc, 0xc8, 0x34, 0x60, 0x69, 0xb8, 0x42, 0x9e, 0x4, 0x68,
             0x2a, 0xf0, 0, 0, 0x11, 0x78, 0, 0, 0x11, 0x74, 0, 0, 0x81, 0xa4, 0, 0x1, 0x38, 0xe9,
             0, 0, 0x0b, 0x29, 0, 0, 0xd, 0x2c, 0xf6, 0xd9, 0xd2, 0x6f, 0x9d, 0x58, 0xb5, 0x8c, 0xd,
-            0x7b, 0x1c, 0x69, 0xf6, 0xb2, 0x46, 0xcf, 0xca, 0x46, 0x40, 0xc4, 0, 9, 0x52, 0x45, 0x41, 0x44, 0x4d, 0x45, 0x2e, 0x6d, 0x64, 0,
+            0x7b, 0x1c, 0x69, 0xf6, 0xb2, 0x46, 0xcf, 0xca, 0x46, 0x40, 0xc4, 0, 9, 0x52, 0x45,
+            0x41, 0x44, 0x4d, 0x45, 0x2e, 0x6d, 0x64, 0,
         ];
         let mut results = Vec::<u8>::new();
 

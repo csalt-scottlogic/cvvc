@@ -224,7 +224,7 @@ impl Repository {
                     repo.git_dir.display()
                 )));
             }
-            
+
             let mut dir_contents = repo
                 .git_dir
                 .read_dir()
@@ -243,7 +243,10 @@ impl Repository {
         repo.branch_store.create()?;
 
         write_single_line(repo.file("description")?, "Unnamed repository")?;
-        write_single_line(repo.file("HEAD")?, &format!("ref: refs/heads/{first_branch}"))?;
+        write_single_line(
+            repo.file("HEAD")?,
+            &format!("ref: refs/heads/{first_branch}"),
+        )?;
 
         repo.config.write_to_file(repo.file("config")?)?;
 
