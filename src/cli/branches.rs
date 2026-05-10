@@ -2,7 +2,7 @@ use crate::{
     config::GlobalConfig, helpers::find_repo_cwd, objects::StoredObject, repo::Repository,
 };
 use anyhow::anyhow;
-use chrono::Utc;
+use chrono::{Local, Utc};
 
 /// Entry point for the `cv checkout` command
 pub fn checkout(target_name: &str, config: &GlobalConfig) -> Result<(), anyhow::Error> {
@@ -11,9 +11,9 @@ pub fn checkout(target_name: &str, config: &GlobalConfig) -> Result<(), anyhow::
 }
 
 /// Entry point for the `cv branch <new-branch>` and `cv checkout -b <new-branch>` commands
-pub fn new_branch(branch_name: &str, checkout: bool) -> Result<(), anyhow::Error> {
+pub fn new_branch(branch_name: &str, checkout: bool, config: &GlobalConfig) -> Result<(), anyhow::Error> {
     let repo = find_repo_cwd()?;
-    new_branch_in_repo(&repo, branch_name, checkout)
+    new_branch_in_repo(&repo, branch_name, checkout, config)
 }
 
 /// Entry point for the `cv branch --list` command.
@@ -40,6 +40,7 @@ fn new_branch_in_repo(
     repo: &Repository,
     branch_name: &str,
     checkout: bool,
+    config: &GlobalConfig
 ) -> Result<(), anyhow::Error> {
     if repo.is_branch_name(branch_name)? {
         return Err(anyhow!("Branch {branch_name} exists"));
@@ -47,6 +48,7 @@ fn new_branch_in_repo(
     let current_commit = repo.current_commit()?;
     if let Some(current_commit) = current_commit {
         repo.update_branch(branch_name, &current_commit)?;
+        repo.write_ref_log(None, &current_commit, &config.committer(), &Local::now(), "branch: Created from HEAD", Some(branch_name))?;
     }
     if checkout {
         repo.update_head(branch_name)
