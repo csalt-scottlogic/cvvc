@@ -26,6 +26,27 @@ impl Display for InvalidIndexEntryType {
 
 impl Error for InvalidIndexEntryType {}
 
+/// An index entry permissions field has an invalid value.  The valid values are 0o644, 0o755, and 0o000.
+#[derive(Debug, PartialEq)]
+pub struct InvalidIndexEntryPermissions {
+    /// The actual value of the field.
+    value: u16,
+}
+
+impl InvalidIndexEntryPermissions {
+    pub fn new(value: u16) -> Self {
+        Self { value }
+    }
+}
+
+impl Display for InvalidIndexEntryPermissions {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "invalid index entry permissions {:o}", self.value)
+    }
+}
+
+impl Error for InvalidIndexEntryPermissions {}
+
 /// The reasons that an index entry may be invalid.
 #[derive(Debug, PartialEq)]
 pub enum InvalidIndexEntryKind {
