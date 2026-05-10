@@ -206,7 +206,7 @@ impl Repository {
     /// following applies:
     /// - the path exists but is not a directory
     /// - a file named `.git` exists in the path directory.
-    pub fn create(path: &PathBuf) -> Result<Self, anyhow::Error> {
+    pub fn create<P: AsRef<Path>>(path: P, first_branch: &str) -> Result<Self, anyhow::Error> {
         let repo = Repository::new_impl(path, true)?;
 
         if repo.worktree.exists() {
@@ -217,11 +217,14 @@ impl Repository {
                 )));
             }
             if !repo.git_dir.exists() {
+                fs::create_dir(&repo.git_dir).context("could not create .git directory")?;
+            } else if !repo.git_dir.is_dir() {
                 return Err(anyhow!(format!(
                     "Path {} is not a directory",
                     repo.git_dir.display()
                 )));
             }
+            
             let mut dir_contents = repo
                 .git_dir
                 .read_dir()
@@ -230,18 +233,17 @@ impl Repository {
                 return Err(anyhow!("Repository directory is not empty"));
             }
         } else {
-            fs::create_dir_all(&repo.worktree)
+            fs::create_dir_all(&repo.git_dir)
                 .context("Could not create all components of directory path")?;
         }
 
         repo.loose_object_store.create()?;
         fs::create_dir_all(&repo.packfile_base)?;
         repo.ref_log_store.create()?;
-        repo.dir(&["refs", "tags"].iter().collect::<PathBuf>())?;
         repo.branch_store.create()?;
 
         write_single_line(repo.file("description")?, "Unnamed repository")?;
-        write_single_line(repo.file("HEAD")?, "ref: refs/heads/main")?;
+        write_single_line(repo.file("HEAD")?, &format!("ref: refs/heads/{first_branch}"))?;
 
         repo.config.write_to_file(repo.file("config")?)?;
 

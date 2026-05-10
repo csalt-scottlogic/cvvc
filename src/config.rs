@@ -207,6 +207,13 @@ impl GlobalConfig {
         format!("{committer_name} <{committer_email}>")
     }
 
+    /// Get the name of the default branch for a new repository.
+    /// 
+    /// This method returns the value of the init.defaultbranch setting if set, and the string "main" if it is not.
+    pub fn default_branch_name(&self) -> String {
+        self.get_setting("init", "defaultbranch").unwrap_or_else(|| String::from("main"))
+    }
+
     /// Try to find the likely path of the user configuration file.
     ///
     /// If the environment variable `XDG_CONFIG_HOME` is set, this function returns the first of
