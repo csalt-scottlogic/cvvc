@@ -5,6 +5,29 @@ use std::{
     fmt::{self, Display, Formatter},
 };
 
+/// An index entry type flag had an invalid value.  The valid values are 0x08, 0x0a and 0x0e.
+#[derive(Debug, PartialEq)]
+pub struct InvalidIndexEntryType {
+    /// The invalid flag value.
+    value: u8
+}
+
+impl InvalidIndexEntryType {
+    pub fn new(value: u8) -> Self {
+        Self {
+            value
+        }
+    }
+}
+
+impl Display for InvalidIndexEntryType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "invalid index entry type {:x}", self.value)
+    }
+}
+
+impl Error for InvalidIndexEntryType {}
+
 /// The reasons that an index entry may be invalid.
 #[derive(Debug, PartialEq)]
 pub enum InvalidIndexEntryKind {

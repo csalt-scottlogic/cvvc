@@ -4,10 +4,10 @@ use std::{cmp::Ordering, fmt::Display, iter::repeat_n, path::Path};
 use self::errors::{
     InvalidIndexEntryError, InvalidIndexEntryKind, InvalidIndexError, InvalidIndexKind,
 };
-use crate::helpers::{
+use crate::{helpers::{
     self, datetime_to_bytes,
-    fs::{index_path_file, index_path_parent, FileMetadata},
-};
+    fs::{FileMetadata, index_path_file, index_path_parent},
+}, index::errors::InvalidIndexEntryType};
 
 /// Index parse errors
 pub mod errors;
@@ -25,24 +25,33 @@ pub enum IndexEntryType {
     Gitlink,
 }
 
-impl IndexEntryType {
-    /// Parse an [`IndexEntryType`] from a byte
-    pub fn from_byte(b: u8) -> Option<Self> {
-        match b {
-            8 => Some(IndexEntryType::File),
-            10 => Some(IndexEntryType::Symlink),
-            14 => Some(IndexEntryType::Gitlink),
-            _ => None,
+impl TryFrom<u8> for IndexEntryType {
+    type Error = InvalidIndexEntryType;
+
+    /// Parse an [`IndexEntryType`] from a byte.
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            8 => Ok(IndexEntryType::File),
+            10 => Ok(IndexEntryType::Symlink),
+            14 => Ok(IndexEntryType::Gitlink),
+            _ => Err(InvalidIndexEntryType::new(value)),
         }
     }
+}
 
-    /// Convert an [`IndexEntryType`] value to a byte
-    pub fn to_byte(&self) -> u8 {
-        match self {
+impl From<&IndexEntryType> for u8 {
+    fn from(value: &IndexEntryType) -> Self {
+        match value {
             IndexEntryType::File => 8,
             IndexEntryType::Symlink => 10,
             IndexEntryType::Gitlink => 14,
         }
+    }
+}
+
+impl From<&IndexEntryType> for u16 {
+    fn from(value: &IndexEntryType) -> Self {
+        u8::from(value) as Self
     }
 }
 
@@ -201,8 +210,8 @@ impl IndexEntry {
         let ino = helpers::u32_from_be_bytes_unchecked(data, 20);
         let mode = helpers::u16_from_be_bytes_unchecked(data, 26);
         let mode_type_val = mode >> 12;
-        let mode_type = IndexEntryType::from_byte(mode_type_val as u8);
-        let Some(mode_type) = mode_type else {
+        let mode_type = IndexEntryType::try_from(mode_type_val as u8);
+        let Ok(mode_type) = mode_type else {
             return Err(InvalidIndexEntryError {
                 error_kind: InvalidIndexEntryKind::UnexpectedMode(mode_type_val),
             });
@@ -299,7 +308,7 @@ impl IndexEntry {
         buf.extend(self.dev.to_be_bytes());
         buf.extend(self.ino.to_be_bytes());
         let mode =
-            u32::from((u16::from(self.mode_type.to_byte()) << 12) | self.mode_perms.to_u16());
+            u32::from((u16::from(&self.mode_type) << 12) | self.mode_perms.to_u16());
         buf.extend(mode.to_be_bytes());
         buf.extend(self.uid.to_be_bytes());
         buf.extend(self.gid.to_be_bytes());
@@ -532,61 +541,63 @@ mod tests {
     fn index_entry_type_from_byte_file() {
         let test_input: u8 = 8;
 
-        let result = IndexEntryType::from_byte(test_input);
+        let result = IndexEntryType::try_from(test_input);
 
-        assert_eq!(Some(IndexEntryType::File), result);
+        assert_eq!(Ok(IndexEntryType::File), result);
     }
 
     #[test]
     fn index_entry_type_from_byte_symlink() {
         let test_input: u8 = 10;
 
-        let result = IndexEntryType::from_byte(test_input);
+        let result = IndexEntryType::try_from(test_input);
 
-        assert_eq!(Some(IndexEntryType::Symlink), result);
+        assert_eq!(Ok(IndexEntryType::Symlink), result);
     }
 
     #[test]
     fn index_entry_type_from_byte_gitlink() {
         let test_input: u8 = 14;
 
-        let result = IndexEntryType::from_byte(test_input);
+        let result = IndexEntryType::try_from(test_input);
 
-        assert_eq!(Some(IndexEntryType::Gitlink), result);
+        assert_eq!(Ok(IndexEntryType::Gitlink), result);
     }
 
     #[test]
     fn index_entry_type_from_byte_invalid() {
         let test_input: u8 = 242;
+        let expected_error_result = InvalidIndexEntryType::new(test_input);
 
-        let result = IndexEntryType::from_byte(test_input);
+        let result = IndexEntryType::try_from(test_input);
+    
 
-        assert_eq!(None, result);
+        assert_eq!(Err(expected_error_result), result);
     }
 
     #[test]
-    fn index_entry_type_to_byte_file() {
+    fn index_entry_type_to_u16_file() {
         let test_input = IndexEntryType::File;
 
-        let result = test_input.to_byte();
+        let result = u16::from(&test_input);
 
         assert_eq!(8, result);
     }
 
     #[test]
-    fn index_entry_type_to_byte_symlink() {
+    fn index_entry_type_to_u16_symlink() {
         let test_input = IndexEntryType::Symlink;
 
-        let result = test_input.to_byte();
+        let result = u16::from(&test_input);
 
         assert_eq!(10, result);
     }
 
     #[test]
-    fn index_entry_type_to_byte_gitlink() {
+    fn index_entry_type_to_u16_gitlink() {
         let test_input = IndexEntryType::Gitlink;
 
-        let result = test_input.to_byte();
+        let result = u16::from(&test_input);
 
         assert_eq!(14, result);
     }
