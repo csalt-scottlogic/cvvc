@@ -99,8 +99,14 @@ fn checkout_from_repo(
     };
 
     let objects_checked_out = tree_obj.checkout(repo, &repo.worktree)?;
+    for item in &objects_checked_out {
+        println!("{} is now {}", item.1, item.0.display());
+    }
     let mut index = repo.read_index()?;
-    index.remove_not_present(&objects_checked_out);
+    for item in &objects_checked_out {
+        index.update_entry(&item.0, &item.1, &repo.worktree)?;
+    }
+    index.remove_not_present(&objects_checked_out.iter().map(|x| x.1.as_str()).collect::<Vec<&str>>());
     repo.write_index(&index)?;
 
     if repo.is_branch_name(target_name)? {

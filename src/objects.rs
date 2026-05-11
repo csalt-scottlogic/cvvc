@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context};
 use chrono::{DateTime, TimeZone};
 use indexmap::IndexMap;
-use std::{cmp::Ordering, fmt::Display, fs, io::Read, path::Path};
+use std::{cmp::Ordering, fmt::Display, fs, io::Read, path::{Path, PathBuf}};
 
 use crate::{
     helpers::{self, timestamped_name},
@@ -509,8 +509,8 @@ impl Tree {
         &self,
         repo: &Repository,
         path: P,
-    ) -> Result<Vec<String>, anyhow::Error> {
-        let mut objects_checked_out = Vec::<String>::new();
+    ) -> Result<Vec<(PathBuf, String)>, anyhow::Error> {
+        let mut objects_checked_out = Vec::<(PathBuf, String)>::new();
         for entry in &self.entries {
             let obj = repo.read_object(&entry.object_id)?;
             let Some(obj) = obj else {
@@ -526,8 +526,8 @@ impl Tree {
                     objects_checked_out.append(&mut subdir_checked_out);
                 }
                 StoredObject::Blob(blob) => {
-                    fs::write(path, blob.data)?;
-                    objects_checked_out.push(entry.object_id.to_string());
+                    fs::write(&path, blob.data)?;
+                    objects_checked_out.push((path, entry.object_id.to_string()));
                 }
                 StoredObject::Tag(_) => (),
                 StoredObject::Commit(_) => {

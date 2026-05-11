@@ -278,14 +278,14 @@ impl FileMetadata {
     ///
     /// This function will return an error if the path does not point to a valid, accessible file on the
     /// filesystem; and no doubt for various platform-dependent reasons.
-    pub fn from_path(path: &Path) -> Result<Self, anyhow::Error> {
-        let metadata = path.metadata()?;
+    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self, anyhow::Error> {
+        let metadata = path.as_ref().metadata()?;
         get_platform_metadata(metadata, path)
     }
 }
 
 #[cfg(windows)]
-fn get_platform_metadata(metadata: Metadata, path: &Path) -> Result<FileMetadata, anyhow::Error> {
+fn get_platform_metadata<P: AsRef<Path>>(metadata: Metadata, path: P) -> Result<FileMetadata, anyhow::Error> {
     use is_executable::IsExecutable;
     use std::os::windows::fs::MetadataExt;
 
@@ -298,7 +298,7 @@ fn get_platform_metadata(metadata: Metadata, path: &Path) -> Result<FileMetadata
     };
     let mode_perms = if metadata.is_symlink() {
         IndexEntryPermissions::Link
-    } else if path.is_executable() {
+    } else if path.as_ref().is_executable() {
         IndexEntryPermissions::Executable
     } else {
         IndexEntryPermissions::NonExecutable
@@ -326,7 +326,7 @@ fn time_convert(ft: u64) -> DateTime<Utc> {
 }
 
 #[cfg(unix)]
-fn get_platform_metadata(metadata: Metadata, _path: &Path) -> Result<FileMetadata, anyhow::Error> {
+fn get_platform_metadata<P: AsRef<Path>>(metadata: Metadata, _path: P) -> Result<FileMetadata, anyhow::Error> {
     use std::os::unix::fs::MetadataExt;
 
     let ctime = time_convert(metadata.ctime(), metadata.ctime_nsec());

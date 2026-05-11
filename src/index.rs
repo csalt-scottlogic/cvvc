@@ -7,7 +7,7 @@ use self::errors::{
 use crate::{
     helpers::{
         self, datetime_to_bytes,
-        fs::{index_path_file, index_path_parent, FileMetadata},
+        fs::{FileMetadata, index_path_file, index_path_parent, path_translate},
     },
     index::errors::{InvalidIndexEntryPermissions, InvalidIndexEntryType},
 };
@@ -283,8 +283,8 @@ impl IndexEntry {
     ///
     /// This function returns an error if the file does not exist, or any other filesystem error occurs
     /// when loading the file's metadata.
-    pub fn from_file(
-        path: &Path,
+    pub fn from_file<P: AsRef<Path>>(
+        path: P,
         object_id: String,
         index_ready_name: String,
     ) -> Result<Self, anyhow::Error> {
@@ -522,8 +522,8 @@ impl Index {
 
     /// Retain all of the index entries whose object IDs are in a given list, and remove all of the
     /// entries whose IDs are not on that list.
-    pub fn remove_not_present(&mut self, object_ids: &[String]) {
-        self.entries.retain(|e| object_ids.contains(&e.object_id));
+    pub fn remove_not_present(&mut self, object_ids: &[&str]) {
+        self.entries.retain(|e| object_ids.iter().any(|x| *x == e.object_id));
     }
 
     /// Add an entry to the index, consuming it.
@@ -532,10 +532,26 @@ impl Index {
         self.entries.sort();
     }
 
+    fn add_or_replace(&mut self, entry: IndexEntry) {
+        let idx = self.entries.iter().position(|x| x.object_name == entry.object_name);
+        match idx {
+            Some(i) => self.entries[i] = entry,
+            None => self.add(entry),
+        }
+    }
+
     /// Add a sequence of entries to the index, consuming them.
     pub fn add_range(&mut self, entries: &mut Vec<IndexEntry>) {
         self.entries.append(entries);
         self.entries.sort();
+    }
+
+    pub fn update_entry<P, R>(&mut self, entry_path: P, object_id: &str, base_path: R) -> Result<(), anyhow::Error> where P: AsRef<Path>, R: AsRef<Path> {
+        let rel_path = entry_path.as_ref().strip_prefix(base_path)?;
+        let index_name = path_translate(rel_path);
+        let new_entry = IndexEntry::from_file(entry_path, object_id.to_string(), index_name)?;
+        self.add_or_replace(new_entry);
+        Ok(())
     }
 }
 
