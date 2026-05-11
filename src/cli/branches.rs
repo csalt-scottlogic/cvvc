@@ -99,9 +99,6 @@ fn checkout_from_repo(
     };
 
     let objects_checked_out = tree_obj.checkout(repo, &repo.worktree)?;
-    for item in &objects_checked_out {
-        println!("{} is now {}", item.1, item.0.display());
-    }
     let mut index = repo.read_index()?;
     for item in &objects_checked_out {
         index.update_entry(&item.0, &item.1, &repo.worktree)?;
