@@ -490,8 +490,8 @@ impl Tree {
     /// Read all of the contents of this tree and its subtrees from the repository, and copy
     /// them to a given directory in the filesystem.
     ///
-    /// If successful, this method returns a vector of all of the object IDs which were written
-    /// to the filesystem.
+    /// If successful, this method returns a vector of all of the objects which were written
+    /// to the filesystem, both their full path and their ID.
     ///
     /// This method is called recursively to check out subtrees.
     ///

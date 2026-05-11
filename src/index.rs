@@ -546,6 +546,12 @@ impl Index {
         self.entries.sort();
     }
 
+    /// Updates an entry that's assumed to be already in the index
+    /// 
+    /// This method takes the absolute path to a file, its object ID, and the absolute path of the worktree.
+    /// 
+    /// If the index contains an entry for that file, it updates it to match the given object ID.  If it does not,
+    /// it creates a new entry.
     pub fn update_entry<P, R>(&mut self, entry_path: P, object_id: &str, base_path: R) -> Result<(), anyhow::Error> where P: AsRef<Path>, R: AsRef<Path> {
         let rel_path = entry_path.as_ref().strip_prefix(base_path)?;
         let index_name = path_translate(rel_path);
