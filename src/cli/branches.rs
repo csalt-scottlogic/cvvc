@@ -103,7 +103,12 @@ fn checkout_from_repo(
     for item in &objects_checked_out {
         index.update_entry(&item.0, &item.1, &repo.worktree)?;
     }
-    index.remove_not_present(&objects_checked_out.iter().map(|x| x.1.as_str()).collect::<Vec<&str>>());
+    index.remove_not_present(
+        &objects_checked_out
+            .iter()
+            .map(|x| x.1.as_str())
+            .collect::<Vec<&str>>(),
+    );
     repo.write_index(&index)?;
 
     if repo.is_branch_name(target_name)? {

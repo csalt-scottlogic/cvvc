@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! Cait's Version of Version Control.  Git-compatible version control.
 //!
 //! CVVC is a library crate which can be used to manipulate Git on-disk structures; the package also contains

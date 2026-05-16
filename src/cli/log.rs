@@ -22,17 +22,22 @@ fn log_from_repo(repo: Repository, commit: &str) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
+/// Create a GraphViz repository graph, starting from a specific commit.
+///
+/// This function is intended to be called recursively from the tip of a branch,
+/// so includes a `seen` parameter which lists commits whose ancestral lines
+/// have already been followed.  Callers should pass an empty [`HashSet<String>`].
 pub fn log_object_graphviz<'a>(
     repo: &'a Repository,
-    object_name: &'a str,
+    commit_id: &'a str,
     seen: &mut HashSet<String>,
 ) -> Result<(), anyhow::Error> {
-    if seen.contains(object_name) {
+    if seen.contains(commit_id) {
         return Ok(());
     }
-    seen.insert(String::from(object_name));
+    seen.insert(String::from(commit_id));
 
-    let commit = repo.read_object(object_name)?;
+    let commit = repo.read_object(commit_id)?;
     if let Some(StoredObject::Commit(commit)) = commit {
         let message = commit
             .message
@@ -40,14 +45,14 @@ pub fn log_object_graphviz<'a>(
             .replace("\\", "\\\\")
             .replace("\"", "\\\"");
         let printable_message = message.split("\n").next().unwrap();
-        let object_name_start = if object_name.len() > 7 {
-            &object_name[..8]
+        let commit_id_prefix = if commit_id.len() > 7 {
+            &commit_id[..8]
         } else {
-            object_name
+            commit_id
         };
-        println!("  c_{object_name} [label=\"{object_name_start}: {printable_message}\"]");
+        println!("  c_{commit_id} [label=\"{commit_id_prefix}: {printable_message}\"]");
         for p in commit.parents().iter() {
-            println!("  c_{object_name} -> c_{p};");
+            println!("  c_{commit_id} -> c_{p};");
             log_object_graphviz(repo, p, seen)?;
         }
     }

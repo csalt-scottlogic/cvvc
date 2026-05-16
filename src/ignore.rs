@@ -4,6 +4,10 @@ use std::{collections::HashMap, error::Error, fmt::Display, path::Path, str::Fro
 
 use crate::objects::Blob;
 
+/// An [`Error`] struct that indicates a zero-content line in an ignore file.
+///
+/// This is not an error as such, because it could be an empty line or a comment line,
+/// but it indicates the line can't be parsed as an ignore pattern.
 #[derive(Debug)]
 pub struct EmptyIgnorePattern {}
 
@@ -119,6 +123,10 @@ pub struct IgnoreInfo {
 
 impl IgnoreInfo {
     #[cfg(test)]
+    /// Create a new ignore pattern.
+    ///
+    /// This function is only used in unit testing; in the live code, the only route to creating
+    /// an [`IgnoreInfo`] object is by parsing files.
     pub fn new(absolute: Vec<IgnorePattern>, scoped: HashMap<String, Vec<IgnorePattern>>) -> Self {
         IgnoreInfo { absolute, scoped }
     }

@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use indexmap::IndexMap;
 
 use crate::{
@@ -58,13 +56,13 @@ fn create_chunky_tag(
 }
 
 fn show_refs_in_repo(repo: &Repository) -> Result<(), anyhow::Error> {
-    let ref_map = repo.ref_list_dir(None)?;
+    let ref_map = repo.ref_list()?;
     print_refs(ref_map, true, "");
     Ok(())
 }
 
 fn show_tags_in_repo(repo: &Repository) -> Result<(), anyhow::Error> {
-    let ref_map = repo.ref_list_dir(Some(&PathBuf::from_iter(["refs", "tags"])))?;
+    let ref_map = repo.tag_list()?;
     print_refs(ref_map, false, "");
     Ok(())
 }

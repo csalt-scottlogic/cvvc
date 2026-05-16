@@ -1,16 +1,21 @@
-use anyhow::anyhow;
 use std::{fmt::Display, str::FromStr};
 
-use crate::objects::{GitObject, RawObject, RawObjectData};
+use crate::{
+    objects::{GitObject, RawObject, RawObjectData},
+    stores::errors::InvalidRefNameError,
+};
 
-/// The store that records branch details using the filesystem.
-pub mod branch_file_store;
+/// The store that records ref details using the filesystem.
+pub mod ref_file_store;
 
 /// The loose object store.
 pub mod file_store;
 
 /// The store which reads objects from packfiles.
 pub mod pack_store;
+
+/// Standard error types for stores.
+mod errors;
 
 /// The stores that store objects.
 pub trait ObjectStore {
@@ -53,28 +58,48 @@ pub trait ObjectStore {
 }
 
 /// The stores that store branches.
-pub trait BranchStore {
-    /// Create a branch store, if necessary.
+pub trait RefStore {
+    /// Create a ref store, if necessary.
     ///
     /// This function should create the store's permanent data structures, such as filesystem directories.
     /// Implementations should provide their own `new()` function with appropriate parameters.
     fn create(&self) -> Result<(), anyhow::Error>;
 
-    /// Determine whether a given branch exists in the store.
-    fn is_valid(&self, branch: &BranchSpec) -> Result<bool, anyhow::Error>;
+    /// Determine whether a given branch or tag exists in the store.
+    fn is_existing_ref(&self, r: &RefSpec) -> Result<bool, anyhow::Error>;
 
     /// List all of the local branches in the store.
     fn local_branches(&self) -> Result<Vec<BranchSpec>, anyhow::Error>;
 
-    /// Return the commit ID of the tip of the branch.
+    /// List all of the tags in the store.
+    fn tags(&self) -> Result<Vec<RefSpec>, anyhow::Error>;
+
+    /// List all of the refs in the store.
+    fn all_refs(&self) -> Result<Vec<RefSpec>, anyhow::Error>;
+
+    /// List all of the refs in the store, and their target objects.
+    ///
+    /// This method should return a vector of tuples, each tuple consisting of a [`RefSpec`], and the ID of
+    /// the object it points to.
+    ///
+    /// This method should peel symbolic refs until it gets an object ID, but does not unpeel annotated tags.
+    fn all_ref_targets(&self) -> Result<Vec<(RefSpec, String)>, anyhow::Error>;
+
+    /// Return the ID of the ref (the tip of the branch, or the tag).
+    ///
+    /// In the case of a chunky tag, this will be the ID of the tag object; it is the caller's
+    /// responsibiity to peel it.
     ///
     /// This function should return `Ok(None)` if the branch does not exist rather than erroring.
-    fn resolve_branch_target(&self, branch: &BranchSpec) -> Result<Option<String>, anyhow::Error>;
+    fn resolve_target(&self, r: &RefSpec) -> Result<Option<String>, anyhow::Error>;
 
     /// Return all of the remote branches with the matching name.
     ///
     /// This function should return `Ok(vec![])` if no branches with the given name exist, rather than erroring.
     fn search_remotes_for_branch(&self, name: &str) -> Result<Vec<BranchSpec>, anyhow::Error>;
+
+    /// Create a new ref
+    fn create_ref(&self, r: &RefSpec, object_id: &str) -> Result<(), anyhow::Error>;
 
     /// Update the given branch to point to the given commit.
     ///
@@ -82,18 +107,18 @@ pub trait BranchStore {
     fn update_branch(&self, branch: &BranchSpec, commit_id: &str) -> Result<(), anyhow::Error>;
 }
 
-/// Specifies if a branch is local, or if it is remote, which remote it belongs to.
+/// Specifies if a branch or tag is local, or if it is remote, which remote it belongs to.
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
-pub enum BranchKind {
-    /// A local branch
+pub enum BranchLocation {
+    /// A local branch or tag
     Local,
 
     /// A remote branch on a named remote.
     Remote(String),
 }
 
-impl Display for BranchKind {
-    /// Format a `BranchKind` as a string.
+impl Display for BranchLocation {
+    /// Format a `BranchLocation` as a string.
     ///
     /// The output format matches the Unix path to the files which store branches of this kind,
     /// relative to the `.git` directory, as follows:
@@ -104,22 +129,22 @@ impl Display for BranchKind {
             f,
             "refs/{}",
             match self {
-                BranchKind::Local => "heads".to_string(),
-                BranchKind::Remote(r) => format!("remotes/{r}"),
+                BranchLocation::Local => "heads".to_string(),
+                BranchLocation::Remote(r) => format!("remotes/{r}"),
             }
         )
     }
 }
 
-impl FromStr for BranchKind {
-    type Err = anyhow::Error;
+impl FromStr for BranchLocation {
+    type Err = InvalidRefNameError;
 
-    /// Convert a string to a `BranchKind`
+    /// Convert a string to a `BranchLocation`
     ///
-    /// The inverse of [`BranchKind::fmt`], this function carries out the following conversion:
-    /// - if the string starts `refs/heads/` it returns [`BranchKind::Local`]
+    /// The inverse of [`BranchLocation::fmt`], this function carries out the following conversion:
+    /// - if the string starts `refs/heads/` it returns [`BranchLocation::Local`]
     /// - if the string starts with `refs/remotes/` and contains at least one following character,
-    ///   it returns [`BranchKind::Remote`], taking the string after the second `/` and up to (but not
+    ///   it returns [`BranchLocation::Remote`], taking the string after the second `/` and up to (but not
     ///   including) the third `/` as the remote name.
     ///
     /// # Errors
@@ -130,7 +155,7 @@ impl FromStr for BranchKind {
     /// - if the string consists solely of `refs/remotes/`
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.starts_with("refs/heads/") {
-            Ok(BranchKind::Local)
+            Ok(BranchLocation::Local)
         } else if s.starts_with("refs/remotes/") {
             const START_LEN: usize = 13;
             let lim = s[START_LEN..]
@@ -138,11 +163,47 @@ impl FromStr for BranchKind {
                 .unwrap_or_else(|| s.len() - START_LEN)
                 + START_LEN;
             if lim <= START_LEN + 1 {
-                return Err(anyhow!("unrecognised branch format (no remote name)"));
+                return Err(InvalidRefNameError::new(s));
             }
-            Ok(BranchKind::Remote(s[START_LEN..lim].to_string()))
+            Ok(BranchLocation::Remote(s[START_LEN..lim].to_string()))
         } else {
-            Err(anyhow!("unrecognised branch format"))
+            Err(InvalidRefNameError::new(s))
+        }
+    }
+}
+
+/// The specification of a ref.
+pub enum RefSpec {
+    /// A branch ref, either a local branch or a remote branch.
+    Branch(BranchSpec),
+
+    /// A tag ref.
+    Tag(String),
+}
+
+impl Display for RefSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RefSpec::Tag(tag_name) => write!(f, "refs/tags/{tag_name}"),
+            RefSpec::Branch(branch_spec) => branch_spec.fmt(f),
+        }
+    }
+}
+
+impl FromStr for RefSpec {
+    type Err = InvalidRefNameError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.starts_with("refs/tags/")
+            && s.len() > 10
+            && !s[10..].starts_with("/")
+            && !s.contains("//")
+        {
+            Ok(Self::Tag(s[10..].to_string()))
+        } else if s.starts_with("refs/heads/") || s.starts_with("refs/remotes/") {
+            Ok(Self::Branch(BranchSpec::from_str(s)?))
+        } else {
+            Err(InvalidRefNameError::new(s))
         }
     }
 }
@@ -154,7 +215,7 @@ pub struct BranchSpec {
     // ordering of members of this struct, so that the derived
     // Ord and PartialOrd implementations give the expected result
     /// Whether the branch is local or remote (and if remote, which remote it is on).
-    pub kind: BranchKind,
+    pub location: BranchLocation,
 
     /// The branch name.
     pub name: String,
@@ -162,11 +223,16 @@ pub struct BranchSpec {
 
 impl BranchSpec {
     /// Create a new [`BranchSpec`] object.
-    pub fn new(name: &str, kind: BranchKind) -> Self {
+    pub fn new(name: &str, location: BranchLocation) -> Self {
         Self {
             name: name.to_string(),
-            kind,
+            location,
         }
+    }
+
+    /// Convert this branch spec into a [`RefSpec`], consuming it.
+    pub fn into_ref_spec(self) -> RefSpec {
+        RefSpec::Branch(self)
     }
 }
 
@@ -178,12 +244,12 @@ impl Display for BranchSpec {
     /// - for local branches, `refs/heads/<branch-name>`
     /// - for remote branches, `refs/remotes/<remote-name>/<branch-name>`
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}/{}", self.kind, self.name)
+        write!(f, "{}/{}", self.location, self.name)
     }
 }
 
 impl FromStr for BranchSpec {
-    type Err = anyhow::Error;
+    type Err = InvalidRefNameError;
 
     /// Convert a string to a [`BranchSpec`]
     ///
@@ -193,17 +259,17 @@ impl FromStr for BranchSpec {
     ///
     /// Any other input will return an error.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let kind: BranchKind = s.parse()?;
-        let start_idx = match &kind {
-            BranchKind::Local => 11,
-            BranchKind::Remote(r) => 14 + r.len(),
+        let location: BranchLocation = s.parse()?;
+        let start_idx = match &location {
+            BranchLocation::Local => 11,
+            BranchLocation::Remote(r) => 14 + r.len(),
         };
         if s.len() <= start_idx {
-            Err(anyhow!("No branch name given"))
+            Err(InvalidRefNameError::new(s))
         } else {
             Ok(Self {
                 name: s[start_idx..].to_string(),
-                kind,
+                location,
             })
         }
     }
