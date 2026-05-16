@@ -109,14 +109,18 @@ impl RefStore for RefFileStore {
     ///
     /// This method may return an error, if any filesystem errors were encountered.
     fn resolve_target(&self, r: &RefSpec) -> Result<Option<String>, anyhow::Error> {
+        println!("Resolving {r:?}");
         let ref_path = self.base_path.join(PathBuf::from(r));
-        if !ref_path.exists() || !ref_path.is_file() {
+        if !(ref_path.exists() && ref_path.is_file()) {
+            println!("{} doesn't exist", ref_path.display());
             return Ok(None);
         }
         let ref_conts = fs::read_to_string(ref_path)?.trim().to_string();
         if let Some(nested_ref) = ref_conts.strip_prefix("ref: ") {
+            println!("Resolving nested ref {nested_ref}");
             self.resolve_target(&RefSpec::from_str(nested_ref)?)
         } else {
+            println!("Resolved to {ref_conts}");
             Ok(Some(ref_conts))
         }
     }
