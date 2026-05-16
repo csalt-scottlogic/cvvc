@@ -163,6 +163,9 @@ enum Commands {
         #[arg(default_value = "HEAD", value_name = "OBJECT")]
         target: String,
     },
+    /// Output the current branch and last commit
+    #[command()]
+    Where,
     /// Create a set of tree objects from the current index
     #[command(name = "write-tree")]
     WriteTree {
@@ -265,6 +268,7 @@ fn parse_dispatch() -> ExitCode {
             }
             None => refs::show_tags(),
         },
+        Commands::Where => staging::current_branch_and_commit(),
         Commands::WriteTree { no_checks } => staging::store_index_as_tree(no_checks),
     }
     .expect("Error!");

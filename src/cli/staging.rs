@@ -13,6 +13,16 @@ use crate::{
     repo::Repository,
 };
 
+/// Entry point for the `cv where` command.
+pub fn current_branch_and_commit() -> Result<(), anyhow::Error> {
+    let repo = find_repo_cwd()?;
+    let branch = repo.current_branch()?;
+    let commit = repo.current_commit()?;
+    println!("Branch: {}", branch.map(|b| b.name).unwrap_or_else(|| "[none]".to_string()));
+    println!("Commit: {}", commit.unwrap_or_else(|| "[none]".to_string()));
+    Ok(())
+}
+
 /// Entry point for the `cv ls-files` command.
 pub fn list_files(verbose: bool) -> Result<(), anyhow::Error> {
     let repo = find_repo_cwd()?;

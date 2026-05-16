@@ -110,7 +110,7 @@ impl RefStore for RefFileStore {
     /// This method may return an error, if any filesystem errors were encountered.
     fn resolve_target(&self, r: &RefSpec) -> Result<Option<String>, anyhow::Error> {
         let ref_path = self.base_path.join(PathBuf::from(r));
-        if !ref_path.exists() || !ref_path.is_file() {
+        if !(ref_path.exists() && ref_path.is_file()) {
             return Ok(None);
         }
         let ref_conts = fs::read_to_string(ref_path)?.trim().to_string();
