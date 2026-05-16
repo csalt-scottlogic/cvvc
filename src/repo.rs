@@ -767,8 +767,7 @@ impl Repository {
             return Ok(None);
         }
         let head_conts = fs::read_to_string(path)?;
-        if let Some(ref_target) = head_conts.strip_prefix("ref: ") {
-            println!("Head is at {ref_target}");
+        if let Some(ref_target) = head_conts.strip_prefix("ref: ").map(|x| x.trim()) {
             self.ref_store
                 .resolve_target(&RefSpec::from_str(ref_target)?)
         } else {
