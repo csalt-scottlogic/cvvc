@@ -7,7 +7,7 @@ use self::errors::{
 use crate::{
     helpers::{
         self, datetime_to_bytes,
-        fs::{FileMetadata, index_path_file, index_path_parent, path_translate},
+        fs::{index_path_file, index_path_parent, path_translate, FileMetadata},
     },
     index::errors::{InvalidIndexEntryPermissions, InvalidIndexEntryType},
 };
@@ -72,8 +72,16 @@ impl Display for IndexEntryType {
 /// The permissions of an index entry
 #[derive(Debug, PartialEq)]
 pub enum IndexEntryPermissions {
+    /// Permission set 0644
     Executable,
+
+    /// Permission set 0755
     NonExecutable,
+
+    /// Permission set 0000
+    ///
+    /// This isn't a useful permission set in a real-world filesystem,
+    /// but it used by Git to indicate links.
     Link,
 }
 
@@ -523,7 +531,8 @@ impl Index {
     /// Retain all of the index entries whose object IDs are in a given list, and remove all of the
     /// entries whose IDs are not on that list.
     pub fn remove_not_present(&mut self, object_ids: &[&str]) {
-        self.entries.retain(|e| object_ids.iter().any(|x| *x == e.object_id));
+        self.entries
+            .retain(|e| object_ids.iter().any(|x| *x == e.object_id));
     }
 
     /// Add an entry to the index, consuming it.
@@ -533,7 +542,10 @@ impl Index {
     }
 
     fn add_or_replace(&mut self, entry: IndexEntry) {
-        let idx = self.entries.iter().position(|x| x.object_name == entry.object_name);
+        let idx = self
+            .entries
+            .iter()
+            .position(|x| x.object_name == entry.object_name);
         match idx {
             Some(i) => self.entries[i] = entry,
             None => self.add(entry),
@@ -547,12 +559,21 @@ impl Index {
     }
 
     /// Updates an entry that's assumed to be already in the index
-    /// 
+    ///
     /// This method takes the absolute path to a file, its object ID, and the absolute path of the worktree.
-    /// 
+    ///
     /// If the index contains an entry for that file, it updates it to match the given object ID.  If it does not,
     /// it creates a new entry.
-    pub fn update_entry<P, R>(&mut self, entry_path: P, object_id: &str, base_path: R) -> Result<(), anyhow::Error> where P: AsRef<Path>, R: AsRef<Path> {
+    pub fn update_entry<P, R>(
+        &mut self,
+        entry_path: P,
+        object_id: &str,
+        base_path: R,
+    ) -> Result<(), anyhow::Error>
+    where
+        P: AsRef<Path>,
+        R: AsRef<Path>,
+    {
         let rel_path = entry_path.as_ref().strip_prefix(base_path)?;
         let index_name = path_translate(rel_path);
         let new_entry = IndexEntry::from_file(entry_path, object_id.to_string(), index_name)?;

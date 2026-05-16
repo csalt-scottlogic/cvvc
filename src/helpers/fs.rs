@@ -285,7 +285,10 @@ impl FileMetadata {
 }
 
 #[cfg(windows)]
-fn get_platform_metadata<P: AsRef<Path>>(metadata: Metadata, path: P) -> Result<FileMetadata, anyhow::Error> {
+fn get_platform_metadata<P: AsRef<Path>>(
+    metadata: Metadata,
+    path: P,
+) -> Result<FileMetadata, anyhow::Error> {
     use is_executable::IsExecutable;
     use std::os::windows::fs::MetadataExt;
 
@@ -326,7 +329,10 @@ fn time_convert(ft: u64) -> DateTime<Utc> {
 }
 
 #[cfg(unix)]
-fn get_platform_metadata<P: AsRef<Path>>(metadata: Metadata, _path: P) -> Result<FileMetadata, anyhow::Error> {
+fn get_platform_metadata<P: AsRef<Path>>(
+    metadata: Metadata,
+    _path: P,
+) -> Result<FileMetadata, anyhow::Error> {
     use std::os::unix::fs::MetadataExt;
 
     let ctime = time_convert(metadata.ctime(), metadata.ctime_nsec());

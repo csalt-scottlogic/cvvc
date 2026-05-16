@@ -1,7 +1,13 @@
 use anyhow::{anyhow, Context};
 use chrono::{DateTime, TimeZone};
 use indexmap::IndexMap;
-use std::{cmp::Ordering, fmt::Display, fs, io::Read, path::{Path, PathBuf}};
+use std::{
+    cmp::Ordering,
+    fmt::Display,
+    fs,
+    io::Read,
+    path::{Path, PathBuf},
+};
 
 use crate::{
     helpers::{self, timestamped_name},
@@ -19,10 +25,19 @@ pub use raw::{combine_object_delta_data, ObjectMetadata, RawObject, RawObjectDat
 /// The legal types of repository object.
 #[derive(Clone, PartialEq)]
 pub enum ObjectKind {
+    /// A non-delta blob object.
     Blob,
+
+    /// A non-delta commit object.
     Commit,
+
+    /// A non-delta tree object.
     Tree,
+
+    /// A non-delta chunky (annotated) tag object.
     Tag,
+
+    /// An unresolved delta based on a named object.
     Delta(String),
 }
 
@@ -62,9 +77,16 @@ impl TryFrom<&[u8]> for ObjectKind {
 
 /// An enumeration that is similar to [`ObjectKind`], but also wraps the object itself.
 pub enum StoredObject {
+    /// A blob object.
     Blob(Blob),
+
+    /// A commit object.
     Commit(Commit),
+
+    /// A tree object.
     Tree(Tree),
+
+    /// A chunky (annotated) tag object.
     Tag(Tag),
 }
 

@@ -6,8 +6,7 @@ use std::{
     collections::{HashMap, HashSet},
     env,
     fmt::Display,
-    fs::{self, File},
-    io::Write,
+    fs,
     path::{Path, PathBuf},
     str::FromStr,
 };
@@ -31,8 +30,8 @@ use crate::{
     },
     ref_log::{RefLog, RefLogEntry},
     stores::{
-        branch_file_store::BranchFileStore, file_store::LooseObjectStore, pack_store::PackStore,
-        BranchKind, BranchSpec, BranchStore, ObjectStore,
+        ref_file_store::RefFileStore, file_store::LooseObjectStore, pack_store::PackStore,
+        BranchLocation, BranchSpec, ObjectStore, RefSpec, RefStore,
     },
 };
 
@@ -41,12 +40,16 @@ use crate::{
 /// The repository need not exist on disk.  If it does not, the [`Repository::create`] method will create a minimal empty repository
 /// at the given path.
 pub struct Repository {
+    /// The canonical path of the repository root.
     pub worktree: PathBuf,
+
+    /// The canonical path of the repository's backend directory.  Conventionally this is `<worktree>/.git`.
     pub git_dir: PathBuf,
+    
     loose_object_store: LooseObjectStore,
     packfile_base: PathBuf,
     packs: Vec<PackStore>,
-    branch_store: BranchFileStore,
+    ref_store: RefFileStore,
     ref_log_store: RefLog,
     config: Ini,
 }
@@ -158,7 +161,7 @@ impl Repository {
 
         let loose_store_path = git_dir.join("objects");
         let loose_object_store = LooseObjectStore::new(&loose_store_path)?;
-        let branch_store = BranchFileStore::new(&git_dir);
+        let ref_store = RefFileStore::new(&git_dir);
         let ref_log_store = RefLog::new(git_dir.join("logs"));
 
         let pack_dir = git_dir.join("objects").join("pack");
@@ -172,7 +175,7 @@ impl Repository {
             worktree,
             git_dir,
             loose_object_store,
-            branch_store,
+            ref_store,
             ref_log_store,
             packfile_base: pack_dir.clone(),
             packs,
@@ -240,7 +243,7 @@ impl Repository {
         repo.loose_object_store.create()?;
         fs::create_dir_all(&repo.packfile_base)?;
         repo.ref_log_store.create()?;
-        repo.branch_store.create()?;
+        repo.ref_store.create()?;
 
         write_single_line(repo.file("description")?, "Unnamed repository")?;
         write_single_line(
@@ -344,23 +347,6 @@ impl Repository {
         }
     }
 
-    /// Converts a directory path relative to the .git directory to an absolute path, and creates it if it does not exist.
-    fn dir(&self, path: &Path) -> Result<PathBuf, anyhow::Error> {
-        let path = fs::canonicalize(self.path(path))?;
-        if !path.starts_with(&self.git_dir) {
-            return Err(anyhow!("Path is outside repository"));
-        }
-        check_and_create_dir(path)
-    }
-
-    fn strip_git_dir(&self, path: &Path) -> PathBuf {
-        if path.starts_with(&self.git_dir) {
-            path.strip_prefix(&self.git_dir).unwrap().to_path_buf()
-        } else {
-            path.to_path_buf()
-        }
-    }
-
     /// Find the canonical ID of an object.
     ///
     /// The name parameter to this method can be any of the following:
@@ -438,7 +424,7 @@ impl Repository {
         }
 
         if name == "HEAD" {
-            let head_ref = self.resolve_ref(name)?;
+            let head_ref = self.current_commit()?;
             return match head_ref {
                 Some(hr) => Ok(vec![hr]),
                 None => Ok(vec![]),
@@ -461,21 +447,24 @@ impl Repository {
             }
         }
 
-        let potential_tag = self.resolve_ref(&("refs/tags/".to_string() + name))?;
+        let potential_tag = self
+            .ref_store
+            .resolve_target(&RefSpec::Tag(name.to_string()))?;
         if let Some(potential_tag) = potential_tag {
             collected.insert(potential_tag);
         }
 
         let potential_branch = self
-            .branch_store
-            .resolve_branch_target(&BranchSpec::new(name, BranchKind::Local))?;
+            .ref_store
+            .resolve_target(&BranchSpec::new(name, BranchLocation::Local).into_ref_spec())?;
         if let Some(potential_branch) = potential_branch {
             collected.insert(potential_branch);
         } else {
-            let potential_remote_branches = self.branch_store.search_remotes_for_branch(name)?;
+            let potential_remote_branches = self.ref_store.search_remotes_for_branch(name)?;
             for remote_branch in potential_remote_branches {
-                if let Some(remote_branch_target) =
-                    self.branch_store.resolve_branch_target(&remote_branch)?
+                if let Some(remote_branch_target) = self
+                    .ref_store
+                    .resolve_target(&remote_branch.into_ref_spec())?
                 {
                     collected.insert(remote_branch_target);
                 }
@@ -586,101 +575,45 @@ impl Repository {
         self.loose_object_store.write_object(obj)
     }
 
-    /// Map a reference to an object ID
+    /// Returns a map of references in the repository and the objects they point to, unpeeled
+    /// in the case of tags.
     ///
-    /// Expects a full path to the reference relative to the .git directory, eg `refs/tags/tag-name`.
-    ///
-    /// Resolves references to branches and thin tags recursively, but not references to chunky tags.
-    ///
-    /// Returns `OK(None)` if no reference with the given name is found, or if any references are broken.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if it encounters any errors reading from the filesystem.
-    fn resolve_ref(&self, git_ref: &str) -> Result<Option<String>, anyhow::Error> {
-        let path = self.file(PathBuf::from_iter(git_ref.split("/")))?;
-        if !path.exists() {
-            return Ok(None);
+    /// Returns an error if any errors are encountered accessing the filesystem.
+    pub fn ref_list(&self) -> Result<IndexMap<String, String>, anyhow::Error> {
+        let refs = self.ref_store.all_ref_targets()?;
+        let mut result = IndexMap::<String, String>::new();
+        for item in refs.iter().map(|x| (x.0.to_string(), x.1.clone())) {
+            result.insert(item.0, item.1);
         }
-        let ref_conts = fs::read_to_string(path)?;
-        if let Some(ref_target) = ref_conts.strip_prefix("ref: ") {
-            return self.resolve_ref(ref_target.trim());
-        }
-        Ok(Some(ref_conts.trim().to_string()))
+        Ok(result)
     }
 
-    /// Returns a map pf references in the repository and the objects they point to
+    /// Returns a map of tags in the repository and the objects they point to, unpeeled.
     ///
-    /// The `path` argument is relative to the .git directory
-    ///
-    /// Returns an error if any errors are encountered accessing the filesystem or
-    /// reading objects.
-    pub fn ref_list_dir(
-        &self,
-        path: Option<&Path>,
-    ) -> Result<IndexMap<String, String>, anyhow::Error> {
-        let (path, root_path) = match path {
-            Some(p) => (p, Some(&p.to_path_buf())),
-            None => (Path::new("refs"), None),
-        };
-        self.ref_list_dir_internal(path, root_path)
-    }
-
-    fn ref_list_dir_internal(
-        &self,
-        path: &Path,
-        root_path: Option<&PathBuf>,
-    ) -> Result<IndexMap<String, String>, anyhow::Error> {
-        let path = self.dir(path);
-        let Ok(path) = path else {
-            return Err(path.err().unwrap());
-        };
-        let dir_entries = fs::read_dir(&path)
-            .context(format!("Trying to read path {}", &path.to_string_lossy()))?
-            .collect::<Result<Vec<_>, std::io::Error>>()?;
-        let mut files = dir_entries
+    /// Returns an error if any errors are encountered accessing the filesystem.
+    pub fn tag_list(&self) -> Result<IndexMap<String, String>, anyhow::Error> {
+        let refs = self.ref_store.all_ref_targets()?;
+        let mut result = IndexMap::<String, String>::new();
+        for item in refs
             .iter()
-            .filter(|e| e.metadata().is_ok_and(|f| f.is_file()))
-            .map(|e| e.path())
-            .collect::<Vec<PathBuf>>();
-        files.sort();
-        let mut dirs = dir_entries
-            .iter()
-            .filter(|e| e.metadata().is_ok_and(|f| f.is_dir()))
-            .map(|e| e.path())
-            .collect::<Vec<PathBuf>>();
-        dirs.sort();
-        let mut output = IndexMap::<String, String>::new();
-        for f in files {
-            let mut stripped_path = self.strip_git_dir(&f);
-            let ref_target = self.resolve_ref(&stripped_path.to_string_lossy())?;
-            if let Some(rp) = root_path {
-                stripped_path = stripped_path.strip_prefix(rp)?.to_path_buf();
-            }
-            if let Some(ref_target) = ref_target {
-                output.insert(stripped_path.to_string_lossy().to_string(), ref_target);
-            }
+            .filter(|x| matches!(x.0, RefSpec::Tag(_)))
+            .map(|x| (x.0.to_string(), x.1.clone()))
+        {
+            result.insert(item.0, item.1);
         }
-        for d in dirs {
-            let mut rec_result = self.ref_list_dir_internal(&self.strip_git_dir(&d), root_path)?;
-            output.append(&mut rec_result);
-        }
-        Ok(output)
+        Ok(result)
     }
 
     /// Creates a thin reference to an object.
     ///
-    /// The `target_name` parameter should be a valid object name.
+    /// The `target_id` parameter should be a valid object ID, but is not validated.
     ///
     /// # Errors
     ///
     /// An error is returned if there are any issues writing to the repository.
-    pub fn create_ref(&self, name: &str, target_name: &str) -> Result<(), anyhow::Error> {
-        let ref_file_path = self.file(PathBuf::from_iter(["refs", name]))?;
-        let mut ref_file = File::create(&ref_file_path)?;
-        ref_file.write_all(target_name.as_bytes())?;
-        ref_file.write_all("\n".as_bytes())?;
-        Ok(())
+    pub fn create_ref(&self, name: &str, target_id: &str) -> Result<(), anyhow::Error> {
+        self.ref_store
+            .create_ref(&RefSpec::from_str(name)?, target_id)
     }
 
     /// Loads the repository index file, named `.git/index`.
@@ -829,10 +762,16 @@ impl Repository {
     /// Returns an error if errors are encountered reading from the filesystem, or if the file
     /// `.git/HEAD` is missing.
     pub fn current_commit(&self) -> Result<Option<String>, anyhow::Error> {
-        if let Some(current_branch) = self.current_branch()? {
-            self.branch_store.resolve_branch_target(&current_branch)
+        let path = self.file(PathBuf::from("HEAD"))?;
+        if !path.exists() {
+            return Ok(None);
+        }
+        let head_conts = fs::read_to_string(path)?;
+        if let Some(ref_target) = head_conts.strip_prefix("ref: ") {
+            self.ref_store
+                .resolve_target(&RefSpec::from_str(ref_target)?)
         } else {
-            self.resolve_ref("HEAD")
+            Ok(Some(head_conts.trim().to_string()))
         }
     }
 
@@ -846,7 +785,7 @@ impl Repository {
     /// Returns an error if errors are encountered reading from the filesystem or if the file `.git/HEAD`
     /// is missing.
     pub fn branches(&self) -> Result<Vec<BranchSpec>, anyhow::Error> {
-        let mut branches = self.branch_store.local_branches()?;
+        let mut branches = self.ref_store.local_branches()?;
         if let Some(cb) = self.current_branch()? {
             if !branches.contains(&cb) {
                 branches.push(cb);
@@ -862,8 +801,8 @@ impl Repository {
     /// for this method to return `Ok(false)` for a branch name that is included in the output of
     /// [`Repository::branches`], if `.git/HEAD` points to a currently non-existent branch.
     pub fn is_branch_name(&self, query_name: &str) -> Result<bool, anyhow::Error> {
-        self.branch_store
-            .is_valid(&BranchSpec::new(query_name, BranchKind::Local))
+        self.ref_store
+            .is_existing_ref(&BranchSpec::new(query_name, BranchLocation::Local).into_ref_spec())
     }
 
     /// Update the commit that a branch points to.
@@ -875,8 +814,10 @@ impl Repository {
     ///
     /// If the branch does not exist, it will be created.
     pub fn update_branch(&self, branch_name: &str, commit_id: &str) -> Result<(), anyhow::Error> {
-        self.branch_store
-            .update_branch(&BranchSpec::new(branch_name, BranchKind::Local), commit_id)
+        self.ref_store.update_branch(
+            &BranchSpec::new(branch_name, BranchLocation::Local),
+            commit_id,
+        )
     }
 
     /// Update the branch that `HEAD` points to.

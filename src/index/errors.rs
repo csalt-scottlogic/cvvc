@@ -13,6 +13,7 @@ pub struct InvalidIndexEntryType {
 }
 
 impl InvalidIndexEntryType {
+    /// Create a new [`InvalidIndexEntryType`] object.
     pub fn new(value: u8) -> Self {
         Self { value }
     }
@@ -34,6 +35,7 @@ pub struct InvalidIndexEntryPermissions {
 }
 
 impl InvalidIndexEntryPermissions {
+    /// Create a new [`InvalidIndexEntryPermissions`] object.
     pub fn new(value: u16) -> Self {
         Self { value }
     }
@@ -116,6 +118,7 @@ pub enum InvalidIndexKind {
 /// individual entry, or with the index as a whole.
 #[derive(Debug)]
 pub struct InvalidIndexError {
+    /// The first condition detected that makes the index content unparseable.
     pub error_kind: InvalidIndexKind,
 }
 

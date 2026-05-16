@@ -375,6 +375,9 @@ impl RawObject {
         &self.content.metadata
     }
 
+    /// Attempt to convert this raw object to a stored object by parsing its data
+    ///
+    /// This method will error if the object is a raw delta object.
     pub fn to_stored_object(&self) -> Result<StoredObject, anyhow::Error> {
         match self.metadata().kind {
             ObjectKind::Blob => Ok(StoredObject::Blob(Blob::deserialise(
