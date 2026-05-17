@@ -1,5 +1,5 @@
 use crate::{
-    config::GlobalConfig, helpers::find_repo_cwd, objects::StoredObject, repo::Repository, stores::{BranchLocation, BranchSpec},
+    config::GlobalConfig, helpers::find_repo_cwd, objects::StoredObject, repo::Repository,
 };
 use anyhow::anyhow;
 use chrono::{Local, Utc};
