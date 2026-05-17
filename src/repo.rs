@@ -30,7 +30,7 @@ use crate::{
     },
     ref_log::{RefLog, RefLogEntry},
     stores::{
-        ref_file_store::RefFileStore, file_store::LooseObjectStore, pack_store::PackStore,
+        file_store::LooseObjectStore, pack_store::PackStore, ref_file_store::RefFileStore,
         BranchLocation, BranchSpec, ObjectStore, RefSpec, RefStore,
     },
 };
@@ -45,7 +45,7 @@ pub struct Repository {
 
     /// The canonical path of the repository's backend directory.  Conventionally this is `<worktree>/.git`.
     pub git_dir: PathBuf,
-    
+
     loose_object_store: LooseObjectStore,
     packfile_base: PathBuf,
     packs: Vec<PackStore>,
