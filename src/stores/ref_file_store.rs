@@ -152,7 +152,7 @@ impl RefStore for RefFileStore {
         Ok(results)
     }
 
-    /// Update the head of a branch to point to the given commit ID.
+    /// Update the head of a branch to point to the given commit ID, creating the branch if it does not exist.
     ///
     /// This method updates either remote or local branches.  It does not confirm that the given ID is a valid
     /// commit ID within the repository.

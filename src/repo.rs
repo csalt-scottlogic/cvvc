@@ -30,8 +30,9 @@ use crate::{
     },
     ref_log::{RefLog, RefLogEntry},
     stores::{
-        file_store::LooseObjectStore, pack_store::PackStore, ref_file_store::RefFileStore,
-        BranchLocation, BranchSpec, ObjectStore, RefSpec, RefStore,
+        combined_ref_store::CombinedRefStore, file_store::LooseObjectStore, pack_store::PackStore,
+        BranchLocation, BranchSpec,
+        ObjectStore, RefSpec, RefStore,
     },
 };
 
@@ -49,7 +50,7 @@ pub struct Repository {
     loose_object_store: LooseObjectStore,
     packfile_base: PathBuf,
     packs: Vec<PackStore>,
-    ref_store: RefFileStore,
+    ref_store: CombinedRefStore,
     ref_log_store: RefLog,
     config: Ini,
 }
@@ -161,7 +162,13 @@ impl Repository {
 
         let loose_store_path = git_dir.join("objects");
         let loose_object_store = LooseObjectStore::new(&loose_store_path)?;
-        let ref_store = RefFileStore::new(&git_dir);
+        let packed_refs_path = git_dir.join("packed-refs");
+        let packed_refs_path = if packed_refs_path.exists() {
+            Some(packed_refs_path)
+        } else {
+            None
+        };
+        let ref_store = CombinedRefStore::new(&git_dir, packed_refs_path)?;
         let ref_log_store = RefLog::new(git_dir.join("logs"));
 
         let pack_dir = git_dir.join("objects").join("pack");
@@ -578,9 +585,15 @@ impl Repository {
     ///
     /// Returns an error if any errors are encountered accessing the filesystem.
     pub fn ref_list(&self) -> Result<IndexMap<String, String>, anyhow::Error> {
-        let refs = self.ref_store.all_ref_targets()?;
+        let mut refs = self
+            .ref_store
+            .all_ref_targets()?
+            .iter()
+            .map(|x| (x.0.to_string(), x.1.clone()))
+            .collect::<Vec<(String, String)>>();
+        refs.sort_by(|a, b| a.0.cmp(&b.0));
         let mut result = IndexMap::<String, String>::new();
-        for item in refs.iter().map(|x| (x.0.to_string(), x.1.clone())) {
+        for item in refs.into_iter() {
             result.insert(item.0, item.1);
         }
         Ok(result)
@@ -806,18 +819,22 @@ impl Repository {
     /// Determine if a given string is a valid remote branch name.
     pub fn is_remote_branch_name(&self, query_name: &str) -> Result<bool, anyhow::Error> {
         let search_results = self.ref_store.search_remotes_for_branch(query_name)?;
-        Ok(search_results.len() > 0)
+        Ok(!search_results.is_empty())
     }
 
-    /// Update the commit that a branch points to.
+    /// Update the commit that a branch points to, creating it if it does not exist.
     ///
     /// The caller is responsible for verifying the commit ID is valid, updating the branch's ref log,
     /// and potentially updating the `HEAD` ref log if this branch is the current branch.
     ///
-    /// The branch is specified by name and should be assumed to be a local branch
+    /// The branch is specified by name, as it is assumed to be local.
     ///
     /// If the branch does not exist, it will be created.
-    pub fn update_local_branch(&self, branch_name: &str, commit_id: &str) -> Result<(), anyhow::Error> {
+    pub fn update_local_branch(
+        &self,
+        branch_name: &str,
+        commit_id: &str,
+    ) -> Result<(), anyhow::Error> {
         self.ref_store.update_branch(
             &BranchSpec::new(branch_name, BranchLocation::Local),
             commit_id,

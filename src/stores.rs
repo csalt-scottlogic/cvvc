@@ -8,6 +8,12 @@ use crate::{
 /// The store that records ref details using the filesystem.
 pub mod ref_file_store;
 
+/// The store that reads ref details from a packed ref file.
+pub mod packed_ref_store;
+
+/// The store that can read ref details from either a loose store or a packed store.
+pub mod combined_ref_store;
+
 /// The loose object store.
 pub mod file_store;
 
@@ -108,7 +114,7 @@ pub trait RefStore {
 }
 
 /// Specifies if a branch or tag is local, or if it is remote, which remote it belongs to.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum BranchLocation {
     /// A local branch or tag
     Local,
@@ -173,7 +179,7 @@ impl FromStr for BranchLocation {
 }
 
 /// The specification of a ref.
-#[derive(Debug)]
+#[derive(Debug, Eq, Hash, PartialEq)]
 pub enum RefSpec {
     /// A branch ref, either a local branch or a remote branch.
     Branch(BranchSpec),
@@ -210,7 +216,7 @@ impl FromStr for RefSpec {
 }
 
 /// The definition of a branch.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BranchSpec {
     // Correct behaviour of the branch-list command depends on the
     // ordering of members of this struct, so that the derived
