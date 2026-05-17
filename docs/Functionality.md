@@ -137,6 +137,10 @@ This command takes no options.
 
 This command supports the `-a` and `-m` options.  Like  `git tag`, when run with no arguments it displays all tags in the repository.
 
+### `cv where`
+
+This command prints the current branch and last commit on that branch.  It takes no options.
+
 ### `cv write-tree`
 
 This command supports the `--missing-ok` option, but not the `--prefix` option.
