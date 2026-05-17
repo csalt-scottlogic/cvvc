@@ -130,8 +130,7 @@ fn checkout_from_repo(
         repo.update_head(target_name)?;
     } else if repo.is_remote_branch_name(target_name)? {
         repo.update_local_branch(target_name, &target_id)?;
-        let local_spec = BranchSpec::new(target_name, BranchLocation::Local);
-        repo.update_head(&local_spec.to_string())?;
+        repo.update_head(target_name)?;
     } else {
         repo.update_head_detached(&target_id)?;
         println!("HEAD is detached at {target_id}");
