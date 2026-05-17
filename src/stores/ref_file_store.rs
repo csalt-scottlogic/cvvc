@@ -115,7 +115,7 @@ impl RefStore for RefFileStore {
         }
         let ref_conts = fs::read_to_string(ref_path)?.trim().to_string();
         if let Some(nested_ref) = ref_conts.strip_prefix("ref: ") {
-            self.resolve_target(&RefSpec::from_str(nested_ref)?)
+            self.resolve_target(&RefSpec::from_str(nested_ref.trim())?)
         } else {
             Ok(Some(ref_conts))
         }
