@@ -1,5 +1,5 @@
 use crate::{
-    config::GlobalConfig, helpers::find_repo_cwd, objects::StoredObject, repo::Repository,
+    config::GlobalConfig, helpers::find_repo_cwd, objects::StoredObject, repo::Repository, stores::{BranchLocation, BranchSpec},
 };
 use anyhow::anyhow;
 use chrono::{Local, Utc};
@@ -66,7 +66,7 @@ fn new_branch_in_repo(
     }
     let current_commit = repo.current_commit()?;
     if let Some(current_commit) = current_commit {
-        repo.update_branch(branch_name, &current_commit)?;
+        repo.update_local_branch(branch_name, &current_commit)?;
         repo.write_ref_log(
             None,
             &current_commit,
@@ -128,6 +128,10 @@ fn checkout_from_repo(
 
     if repo.is_branch_name(target_name)? {
         repo.update_head(target_name)?;
+    } else if repo.is_remote_branch_name(target_name)? {
+        repo.update_local_branch(target_name, &target_id)?;
+        let local_spec = BranchSpec::new(target_name, BranchLocation::Local);
+        repo.update_head(&local_spec.to_string())?;
     } else {
         repo.update_head_detached(&target_id)?;
         println!("HEAD is detached at {target_id}");

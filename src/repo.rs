@@ -795,12 +795,18 @@ impl Repository {
 
     /// Determine if a given string is a valid local branch name.
     ///
-    /// This method will only return `Ok(true)` if the branch is present on disk.  It is therefore possible
+    /// This method will only return `Ok(true)` if the branch is present in store.  It is therefore possible
     /// for this method to return `Ok(false)` for a branch name that is included in the output of
-    /// [`Repository::branches`], if `.git/HEAD` points to a currently non-existent branch.
+    /// [`Repository::branches`], if `HEAD` points to a currently non-existent branch.
     pub fn is_branch_name(&self, query_name: &str) -> Result<bool, anyhow::Error> {
         self.ref_store
             .is_existing_ref(&BranchSpec::new(query_name, BranchLocation::Local).into_ref_spec())
+    }
+
+    /// Determine if a given string is a valid remote branch name.
+    pub fn is_remote_branch_name(&self, query_name: &str) -> Result<bool, anyhow::Error> {
+        let search_results = self.ref_store.search_remotes_for_branch(query_name)?;
+        Ok(search_results.len() > 0)
     }
 
     /// Update the commit that a branch points to.
@@ -811,7 +817,7 @@ impl Repository {
     /// The branch is specified by name and should be assumed to be a local branch
     ///
     /// If the branch does not exist, it will be created.
-    pub fn update_branch(&self, branch_name: &str, commit_id: &str) -> Result<(), anyhow::Error> {
+    pub fn update_local_branch(&self, branch_name: &str, commit_id: &str) -> Result<(), anyhow::Error> {
         self.ref_store.update_branch(
             &BranchSpec::new(branch_name, BranchLocation::Local),
             commit_id,
