@@ -12,22 +12,21 @@ pub fn cmd(commit: &str) -> Result<(), anyhow::Error> {
 }
 
 fn log_from_repo(repo: Repository, commit: &str) -> Result<(), anyhow::Error> {
-    let mut seen = HashSet::<String>::new();
     let starting_node = repo.find_object(commit, Some(ObjectKind::Commit), true)?;
 
     println!("digraph cvlog{{");
     println!("  node[shape=rect]");
-    log_object_graphviz(&repo, &starting_node, &mut seen)?;
+    log_commits_graphviz(&repo, &starting_node)?;
     println!("}}");
     Ok(())
 }
 
 /// Create a GraphViz repository graph, starting from a specific commit.
-///
-/// This function is intended to be called recursively from the tip of a branch,
-/// so includes a `seen` parameter which lists commits whose ancestral lines
-/// have already been followed.  Callers should pass an empty [`HashSet<String>`].
-pub fn log_object_graphviz<'a>(
+pub fn log_commits_graphviz(repo: &Repository, commit_id: &str) -> Result<(), anyhow::Error> {
+    log_commits_graphviz_impl(repo, commit_id, &mut HashSet::<String>::new())
+}
+
+fn log_commits_graphviz_impl<'a>(
     repo: &'a Repository,
     commit_id: &'a str,
     seen: &mut HashSet<String>,
@@ -53,7 +52,7 @@ pub fn log_object_graphviz<'a>(
         println!("  c_{commit_id} [label=\"{commit_id_prefix}: {printable_message}\"]");
         for p in commit.parents().iter() {
             println!("  c_{commit_id} -> c_{p};");
-            log_object_graphviz(repo, p, seen)?;
+            log_commits_graphviz_impl(repo, p, seen)?;
         }
     }
     Ok(())
