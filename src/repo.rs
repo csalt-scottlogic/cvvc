@@ -210,34 +210,32 @@ impl Repository {
     /// - the path exists but is not a directory
     /// - a file named `.git` exists in the path directory.
     pub fn create<P: AsRef<Path>>(path: P, first_branch: &str) -> Result<Self, anyhow::Error> {
+        if !path.as_ref().exists() {
+            fs::create_dir_all(&path)?;
+        }
         let repo = Repository::new_impl(path, true)?;
 
-        if repo.worktree.exists() {
-            if !repo.worktree.is_dir() {
-                return Err(anyhow!(format!(
-                    "Path {} is not a directory",
-                    repo.worktree.display()
-                )));
-            }
-            if !repo.git_dir.exists() {
-                fs::create_dir(&repo.git_dir).context("could not create .git directory")?;
-            } else if !repo.git_dir.is_dir() {
-                return Err(anyhow!(format!(
-                    "Path {} is not a directory",
-                    repo.git_dir.display()
-                )));
-            }
+        if !repo.worktree.is_dir() {
+            return Err(anyhow!(format!(
+                "Path {} is not a directory",
+                repo.worktree.display()
+            )));
+        }
+        if !repo.git_dir.exists() {
+            fs::create_dir(&repo.git_dir).context("could not create .git directory")?;
+        } else if !repo.git_dir.is_dir() {
+            return Err(anyhow!(format!(
+                "Path {} is not a directory",
+                repo.git_dir.display()
+            )));
+        }
 
-            let mut dir_contents = repo
-                .git_dir
-                .read_dir()
-                .context("Could not attempt to read contents of repository")?;
-            if dir_contents.next().is_some() {
-                return Err(anyhow!("Repository directory is not empty"));
-            }
-        } else {
-            fs::create_dir_all(&repo.git_dir)
-                .context("Could not create all components of directory path")?;
+        let mut dir_contents = repo
+            .git_dir
+            .read_dir()
+            .context("Could not attempt to read contents of repository")?;
+        if dir_contents.next().is_some() {
+            return Err(anyhow!("Repository directory is not empty"));
         }
 
         repo.loose_object_store.create()?;
