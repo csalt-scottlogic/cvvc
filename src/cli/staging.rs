@@ -169,7 +169,7 @@ pub fn full_commit(config: &GlobalConfig, message: Option<String>) -> Result<(),
     )?;
     let current_branch = repo.current_branch()?;
     if let Some(ref branch) = current_branch {
-        repo.update_branch(&branch.name, &commit_id)?
+        repo.update_local_branch(&branch.name, &commit_id)?
     } else {
         repo.update_head_detached(&commit_id)?
     }

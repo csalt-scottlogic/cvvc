@@ -66,7 +66,7 @@ fn new_branch_in_repo(
     }
     let current_commit = repo.current_commit()?;
     if let Some(current_commit) = current_commit {
-        repo.update_branch(branch_name, &current_commit)?;
+        repo.update_local_branch(branch_name, &current_commit)?;
         repo.write_ref_log(
             None,
             &current_commit,
@@ -127,6 +127,9 @@ fn checkout_from_repo(
     repo.write_index(&index)?;
 
     if repo.is_branch_name(target_name)? {
+        repo.update_head(target_name)?;
+    } else if repo.is_remote_branch_name(target_name)? {
+        repo.update_local_branch(target_name, &target_id)?;
         repo.update_head(target_name)?;
     } else {
         repo.update_head_detached(&target_id)?;
