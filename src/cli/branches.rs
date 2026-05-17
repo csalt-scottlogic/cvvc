@@ -40,12 +40,27 @@ fn list_branches_in_repo(repo: &Repository) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
+const ILLEGAL_BRANCH_NAMES: [&str; 9] = [
+    "HEAD",
+    "FETCH_HEAD",
+    "ORIG_HEAD",
+    "MERGE_HEAD",
+    "REBASE_HEAD",
+    "REVERT_HEAD",
+    "CHERRY_PICK_HEAD",
+    "BISECT_HEAD",
+    "AUTO_MERGE",
+];
+
 fn new_branch_in_repo(
     repo: &Repository,
     branch_name: &str,
     checkout: bool,
     config: &GlobalConfig,
 ) -> Result<(), anyhow::Error> {
+    if ILLEGAL_BRANCH_NAMES.contains(&branch_name) {
+        return Err(anyhow!("reserved branch name {branch_name}"));
+    }
     if repo.is_branch_name(branch_name)? {
         return Err(anyhow!("Branch {branch_name} exists"));
     }
