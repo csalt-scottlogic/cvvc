@@ -31,8 +31,7 @@ use crate::{
     ref_log::{RefLog, RefLogEntry},
     stores::{
         combined_ref_store::CombinedRefStore, file_store::LooseObjectStore, pack_store::PackStore,
-        BranchLocation, BranchSpec,
-        ObjectStore, RefSpec, RefStore,
+        BranchLocation, BranchSpec, ObjectStore, RefSpec, RefStore,
     },
 };
 

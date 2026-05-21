@@ -4,6 +4,7 @@ use sha1::{Digest, Sha1};
 use crate::objects::{Blob, Commit, GitObject, ObjectKind, StoredObject, Tag, Tree};
 
 /// Metadata describing a [`RawObject`] or [`RawObjectData`].
+#[derive(Debug, PartialEq)]
 pub struct ObjectMetadata {
     /// The type of object.
     pub kind: ObjectKind,
@@ -95,6 +96,7 @@ impl TryFrom<&[u8]> for ObjectMetadata {
 /// method may be used to reconstruct the complete data.
 ///
 /// Otherwise, the data may be readily converted into a [`RawObject`] using [`RawObject::from_raw_object_data()`].
+#[derive(Debug)]
 pub struct RawObjectData {
     data: Vec<u8>,
     metadata: ObjectMetadata,
@@ -175,6 +177,7 @@ pub fn combine_object_delta_data(base_data: &[u8], apply_commands: &[u8]) -> Vec
     result
 }
 
+#[derive(Debug, PartialEq)]
 enum DeltaCommandType {
     Copy { offset: usize, size: usize },
     Add(usize),
@@ -253,6 +256,7 @@ impl From<&[u8]> for DeltaCommand {
 /// [`RawObject::from_headerless_data`], which requires a separate metadata parameter, and
 /// [`RawObject::from_data_with_header`], which requires an object ID parameter but parses the
 /// object metadata from the header.
+#[derive(Debug)]
 pub struct RawObject {
     content: RawObjectData,
     object_id: String,
@@ -394,5 +398,665 @@ impl RawObject {
             )?)),
             _ => Err(anyhow!("Delta objects cannot be parsed")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::DateTime;
+
+    use crate::objects::{Blob, Commit, ObjectKind, StoredObject, Tag, Tree, TreeNode};
+
+    use super::{DeltaCommand, DeltaCommandType, ObjectMetadata, RawObject, RawObjectData};
+
+    #[test]
+    fn object_metadata_new() {
+        let kind = ObjectKind::Tag;
+        let size = 42usize;
+
+        let test_output = ObjectMetadata::new(kind, size);
+
+        assert_eq!(ObjectKind::Tag, test_output.kind);
+        assert_eq!(size, test_output.size);
+    }
+
+    #[test]
+    fn object_metadata_combine_takes_base_kind() {
+        let test_object = ObjectMetadata::new(ObjectKind::Tag, 42);
+        let test_input = ObjectMetadata::new(ObjectKind::Blob, 4472);
+
+        let test_output = test_object.combine(&test_input);
+
+        assert_eq!(ObjectKind::Blob, test_output.kind);
+    }
+
+    #[test]
+    fn object_metadata_combine_takes_own_size() {
+        let test_object = ObjectMetadata::new(ObjectKind::Tag, 42);
+        let test_input = ObjectMetadata::new(ObjectKind::Blob, 4472);
+
+        let test_output = test_object.combine(&test_input);
+
+        assert_eq!(42, test_output.size);
+    }
+
+    #[test]
+    fn object_metadata_try_from_succeeds_with_valid_blob() {
+        let test_input = [98u8, 108, 111, 98, 32, 53, 0, 67, 117, 110, 116, 115];
+
+        let test_output = ObjectMetadata::try_from(&test_input[..]).unwrap();
+
+        assert_eq!(ObjectKind::Blob, test_output.kind);
+        assert_eq!(5, test_output.size);
+    }
+
+    #[test]
+    fn object_metadata_try_from_succeeds_with_valid_commit_header() {
+        let test_input = [
+            99u8, 111, 109, 109, 105, 116, 32, 53, 0, 67, 117, 110, 116, 115,
+        ];
+
+        let test_output = ObjectMetadata::try_from(&test_input[..]).unwrap();
+
+        assert_eq!(ObjectKind::Commit, test_output.kind);
+        assert_eq!(5, test_output.size);
+    }
+
+    #[test]
+    fn object_metadata_try_from_succeeds_with_valid_tree_header() {
+        let test_input = [116u8, 114, 101, 101, 32, 53, 0, 67, 117, 110, 116, 115];
+
+        let test_output = ObjectMetadata::try_from(&test_input[..]).unwrap();
+
+        assert_eq!(ObjectKind::Tree, test_output.kind);
+        assert_eq!(5, test_output.size);
+    }
+
+    #[test]
+    fn object_metadata_try_from_succeeds_with_valid_tag_header() {
+        let test_input = [116u8, 97, 103, 32, 53, 0, 67, 117, 110, 116, 115];
+
+        let test_output = ObjectMetadata::try_from(&test_input[..]).unwrap();
+
+        assert_eq!(ObjectKind::Tag, test_output.kind);
+        assert_eq!(5, test_output.size);
+    }
+
+    #[test]
+    fn object_metadata_try_from_fails_with_invalid_object_type() {
+        let test_input = [98u8, 117, 109, 32, 53, 0, 67, 117, 110, 116, 115];
+
+        ObjectMetadata::try_from(&test_input[..]).unwrap_err();
+    }
+
+    #[test]
+    fn object_metadata_try_from_fails_without_separator_between_type_and_length() {
+        let test_input = [98u8, 108, 111, 98, 53, 0, 67, 117, 110, 116, 115];
+
+        ObjectMetadata::try_from(&test_input[..]).unwrap_err();
+    }
+
+    #[test]
+    fn object_metadata_try_from_fails_without_separator_between_length_and_data() {
+        let test_input = [98u8, 108, 111, 98, 32, 53, 67, 117, 110, 116, 115];
+
+        ObjectMetadata::try_from(&test_input[..]).unwrap_err();
+    }
+
+    #[test]
+    fn object_metadata_try_from_fails_with_less_data_than_declared() {
+        let test_input = [98u8, 108, 111, 98, 32, 54, 0, 67, 117, 110, 116, 115];
+
+        ObjectMetadata::try_from(&test_input[..]).unwrap_err();
+    }
+
+    #[test]
+    fn object_metadata_try_from_fails_with_more_data_than_declared() {
+        let test_input = [98u8, 108, 111, 98, 32, 56, 0, 67, 117, 110, 116, 115];
+
+        ObjectMetadata::try_from(&test_input[..]).unwrap_err();
+    }
+
+    #[test]
+    fn raw_object_data_new() {
+        let test_data = b"Biscuits\n";
+        let test_metadata = ObjectMetadata::new(ObjectKind::Blob, 9);
+
+        let test_output = RawObjectData::new(test_data, test_metadata);
+
+        assert_eq!(test_output.data, b"Biscuits\n");
+        assert_eq!(ObjectKind::Blob, test_output.metadata.kind);
+        assert_eq!(9, test_output.metadata.size);
+    }
+
+    #[test]
+    fn raw_object_data_from_data_with_header_succeeds() {
+        let test_data = [
+            98u8, 108, 111, 98, 32, 56, 0, 66, 105, 115, 99, 117, 105, 116, 115,
+        ];
+
+        let test_output = RawObjectData::from_data_with_header(&test_data).unwrap();
+
+        assert_eq!(test_output.data, b"Biscuits");
+        assert_eq!(ObjectKind::Blob, test_output.metadata.kind);
+        assert_eq!(8, test_output.metadata.size);
+    }
+
+    #[test]
+    fn raw_object_data_from_data_with_header_fails_with_invalid_object_type() {
+        let test_data = [
+            98u8, 108, 105, 98, 32, 56, 0, 66, 105, 115, 99, 117, 105, 116, 115,
+        ];
+
+        RawObjectData::from_data_with_header(&test_data).unwrap_err();
+    }
+
+    #[test]
+    fn raw_object_data_from_data_with_header_fails_without_separator_between_type_and_length() {
+        let test_data = [
+            98u8, 108, 111, 98, 56, 0, 66, 105, 115, 99, 117, 105, 116, 115,
+        ];
+
+        RawObjectData::from_data_with_header(&test_data).unwrap_err();
+    }
+
+    #[test]
+    fn raw_object_data_from_data_with_header_fails_without_separator_between_length_and_data() {
+        let test_data = [
+            98u8, 108, 111, 98, 32, 56, 66, 105, 115, 99, 117, 105, 116, 115,
+        ];
+
+        RawObjectData::from_data_with_header(&test_data).unwrap_err();
+    }
+
+    #[test]
+    fn raw_object_data_from_data_with_header_fails_with_less_data_than_declared() {
+        let test_data = [
+            98u8, 108, 111, 98, 32, 49, 56, 0, 66, 105, 115, 99, 117, 105, 116, 115,
+        ];
+
+        RawObjectData::from_data_with_header(&test_data).unwrap_err();
+    }
+
+    #[test]
+    fn raw_object_data_from_data_with_header_fails_with_more_data_than_declared() {
+        let test_data = [
+            98u8, 108, 111, 98, 32, 55, 0, 66, 105, 115, 99, 117, 105, 116, 115,
+        ];
+
+        RawObjectData::from_data_with_header(&test_data).unwrap_err();
+    }
+
+    #[test]
+    fn raw_object_data_metadata() {
+        let test_data = b"Biscuits\n";
+        let test_metadata = ObjectMetadata::new(ObjectKind::Blob, 9);
+        let test_object = RawObjectData::new(test_data, test_metadata);
+
+        let test_output = test_object.metadata();
+
+        assert_eq!(&test_object.metadata, test_output);
+    }
+
+    #[test]
+    fn raw_object_combine() {
+        let base_object_data = [
+            98u8, 108, 111, 98, 32, 56, 0, 66, 105, 115, 99, 117, 105, 116, 115,
+        ];
+        let base_object =
+            RawObject::from_data_with_header(&base_object_data, "00000000000000000000").unwrap();
+        let test_object_data = [8u8, 7, 0x91, 3, 4, 2, 98, 97, 0x91, 6, 2];
+        let test_object = RawObjectData::new(
+            &test_object_data,
+            ObjectMetadata {
+                kind: ObjectKind::Delta("00000000000000000000".to_string()),
+                size: test_object_data.len(),
+            },
+        );
+
+        let test_output = test_object.combine(&base_object);
+
+        assert_eq!(test_output.data, b"cuitbats");
+        assert_eq!(test_output.metadata.kind, ObjectKind::Blob);
+        assert_eq!(test_output.metadata.size, test_object_data.len());
+    }
+
+    #[test]
+    fn delta_command_from_byte_slice_decodes_add_command() {
+        let test_input = [0x69u8];
+
+        let test_output = DeltaCommand::from(&test_input[..]);
+
+        assert_eq!(DeltaCommandType::Add(0x69), test_output.kind);
+        assert_eq!(0x6a, test_output.len);
+    }
+
+    #[test]
+    fn delta_command_from_byte_slice_decodes_special_case_copy_command() {
+        let test_input = [0x80u8];
+
+        let test_output = DeltaCommand::from(&test_input[..]);
+
+        assert_eq!(
+            DeltaCommandType::Copy {
+                offset: 0,
+                size: 0x10000
+            },
+            test_output.kind
+        );
+        assert_eq!(1, test_output.len);
+    }
+
+    #[test]
+    fn delta_command_from_byte_slice_decodes_copy_command_with_offset() {
+        let test_input = [0x86u8, 0x72, 0x8a];
+
+        let test_output = DeltaCommand::from(&test_input[..]);
+
+        assert_eq!(
+            DeltaCommandType::Copy {
+                offset: 0x8a7200,
+                size: 0x10000
+            },
+            test_output.kind
+        );
+        assert_eq!(3, test_output.len);
+    }
+
+    #[test]
+    fn delta_command_from_byte_slice_decodes_copy_command_with_offset_and_size() {
+        let test_input = [0xf6u8, 0x72, 0x8a, 0x17, 0xff, 0xea];
+
+        let test_output = DeltaCommand::from(&test_input[..]);
+
+        assert_eq!(
+            DeltaCommandType::Copy {
+                offset: 0x8a7200,
+                size: 0xeaff17
+            },
+            test_output.kind
+        );
+        assert_eq!(6, test_output.len);
+    }
+
+    #[test]
+    fn combine_object_delta_data_add_only() {
+        let test_base_data = b"Biscuits";
+        let test_command_data = [8u8, 5, 5, 67, 97, 107, 101, 115];
+
+        let test_output = super::combine_object_delta_data(test_base_data, &test_command_data);
+
+        assert_eq!(test_output, b"Cakes");
+    }
+
+    #[test]
+    fn combine_object_delta_data_copy_only() {
+        let test_base_data = b"Biscuits";
+        let test_command_data = [8u8, 8, 0x90, 8];
+
+        let test_output = super::combine_object_delta_data(test_base_data, &test_command_data);
+
+        assert_eq!(test_output, b"Biscuits");
+    }
+
+    #[test]
+    fn combine_object_delta_data_mixed_ops() {
+        let test_base_data = b"Biscuits";
+        let test_command_data = [8u8, 7, 0x91, 3, 4, 2, 98, 97, 0x91, 6, 2];
+
+        let test_output = super::combine_object_delta_data(test_base_data, &test_command_data);
+
+        assert_eq!(test_output, b"cuitbats");
+    }
+
+    #[test]
+    fn raw_object_from_data_with_header() {
+        let test_data = [
+            98u8, 108, 111, 98, 32, 56, 0, 66, 105, 115, 99, 117, 105, 116, 115,
+        ];
+        let test_id = "8216d33b7e88ed6bf2cb4eea14b3020f54325484";
+
+        let test_output = RawObject::from_data_with_header(&test_data, test_id).unwrap();
+
+        assert_eq!(test_output.content.data, b"Biscuits");
+        assert_eq!(test_output.content.metadata.kind, ObjectKind::Blob);
+        assert_eq!(test_output.content.metadata.size, 8);
+        assert_eq!(test_output.object_id, test_id);
+    }
+
+    #[test]
+    fn raw_object_from_headerless_data() {
+        let test_data = [66u8, 105, 115, 99, 117, 105, 116, 115];
+        let test_metadata = ObjectMetadata::new(ObjectKind::Blob, 8);
+        let test_id = "8216d33b7e88ed6bf2cb4eea14b3020f54325484";
+
+        let test_output = RawObject::from_headerless_data(&test_data, test_id, test_metadata);
+
+        assert_eq!(test_output.content.data, b"Biscuits");
+        assert_eq!(test_output.content.metadata.kind, ObjectKind::Blob);
+        assert_eq!(test_output.content.metadata.size, 8);
+        assert_eq!(test_output.object_id, test_id);
+    }
+
+    #[test]
+    fn raw_object_from_raw_object_data() {
+        let test_data = [66u8, 105, 115, 99, 117, 105, 116, 115];
+        let test_metadata = ObjectMetadata::new(ObjectKind::Blob, 8);
+        let test_id = "8216d33b7e88ed6bf2cb4eea14b3020f54325484";
+        let test_input = RawObjectData::new(&test_data, test_metadata);
+
+        let test_output = RawObject::from_raw_object_data(test_input).unwrap();
+
+        assert_eq!(test_output.content.data, b"Biscuits");
+        assert_eq!(test_output.content.metadata.kind, ObjectKind::Blob);
+        assert_eq!(test_output.content.metadata.size, 8);
+        assert_eq!(test_output.object_id, test_id);
+    }
+
+    #[test]
+    fn raw_object_from_raw_object_data_fails_on_delta_objects() {
+        let test_data = [8u8, 7, 0x91, 3, 4, 2, 98, 97, 0x91, 6, 2];
+        let test_metadata = ObjectMetadata::new(
+            ObjectKind::Delta("8216d33b7e88ed6bf2cb4eea14b3020f54325484".to_string()),
+            11,
+        );
+        let test_input = RawObjectData::new(&test_data, test_metadata);
+
+        RawObject::from_raw_object_data(test_input).unwrap_err();
+    }
+
+    #[test]
+    fn raw_object_from_git_object_succeeds_for_blob() {
+        let test_data = b"Biscuits".to_vec();
+        let test_input = Blob::new_from_read(&mut test_data.as_slice()).unwrap();
+        let expected_test_id = "8216d33b7e88ed6bf2cb4eea14b3020f54325484";
+
+        let test_output = RawObject::from_git_object(&test_input);
+
+        assert_eq!(test_output.content.data, b"Biscuits");
+        assert_eq!(test_output.content.metadata.kind, ObjectKind::Blob);
+        assert_eq!(test_output.content.metadata.size, 8);
+        assert_eq!(test_output.object_id, expected_test_id);
+    }
+
+    #[test]
+    fn raw_object_from_git_object_succeeds_for_commit() {
+        let test_input = Commit::new(
+            "88223311aaeeccff772288223311aaeeccff7722",
+            None,
+            "Caitlin <cait@example.com>",
+            "Caitlin <cait@example.com>",
+            &DateTime::parse_from_rfc3339("2026-05-18T21:13:02+01:00").unwrap(),
+            "Commit message",
+        );
+        let expected_data = [
+            116u8, 114, 101, 101, 32, 56, 56, 50, 50, 51, 51, 49, 49, 97, 97, 101, 101, 99, 99,
+            102, 102, 55, 55, 50, 50, 56, 56, 50, 50, 51, 51, 49, 49, 97, 97, 101, 101, 99, 99,
+            102, 102, 55, 55, 50, 50, 10, 97, 117, 116, 104, 111, 114, 32, 67, 97, 105, 116, 108,
+            105, 110, 32, 60, 99, 97, 105, 116, 64, 101, 120, 97, 109, 112, 108, 101, 46, 99, 111,
+            109, 62, 32, 49, 55, 55, 57, 49, 51, 53, 49, 56, 50, 32, 43, 48, 49, 48, 48, 10, 99,
+            111, 109, 109, 105, 116, 116, 101, 114, 32, 67, 97, 105, 116, 108, 105, 110, 32, 60,
+            99, 97, 105, 116, 64, 101, 120, 97, 109, 112, 108, 101, 46, 99, 111, 109, 62, 32, 49,
+            55, 55, 57, 49, 51, 53, 49, 56, 50, 32, 43, 48, 49, 48, 48, 10, 10, 67, 111, 109, 109,
+            105, 116, 32, 109, 101, 115, 115, 97, 103, 101, 10,
+        ];
+        let expected_id = "2977356f97c83af114be964f85721dc7271a7811";
+
+        let test_output = RawObject::from_git_object(&test_input);
+
+        assert_eq!(test_output.content.metadata.kind, ObjectKind::Commit);
+        assert_eq!(test_output.content.data, expected_data);
+        assert_eq!(test_output.content.metadata.size, 167);
+        assert_eq!(test_output.object_id, expected_id);
+    }
+
+    #[test]
+    fn raw_object_from_git_object_succeeds_for_tree() {
+        let mut test_input = Tree::new();
+        let mut test_input_entries = vec![TreeNode::from_subtree(
+            "src",
+            "88223311aaeeccff772288223311aaeeccff7722",
+        )];
+        test_input.add_entries(&mut test_input_entries);
+        let expected_data = [
+            52, 48, 48, 48, 48, 32, 115, 114, 99, 0, 136, 34, 51, 17, 170, 238, 204, 255, 119, 34,
+            136, 34, 51, 17, 170, 238, 204, 255, 119, 34,
+        ];
+        let expected_id = "9d298423b3547d85ed7b9344ffad4e0c73eb1da2";
+
+        let test_output = RawObject::from_git_object(&test_input);
+
+        assert_eq!(test_output.content.metadata.kind, ObjectKind::Tree);
+        assert_eq!(test_output.content.data, expected_data);
+        assert_eq!(test_output.content.metadata.size, 30);
+        assert_eq!(test_output.object_id, expected_id);
+    }
+
+    #[test]
+    fn raw_object_from_git_object_succeeds_for_tag() {
+        let test_input = Tag::create(
+            "2977356f97c83af114be964f85721dc7271a7811",
+            "test-tag",
+            Some("Tag message"),
+            "Caitlin <cait@example.com>",
+            &DateTime::parse_from_rfc3339("2026-05-19T21:06:41+01:00").unwrap(),
+        );
+        let expected_data = [
+            111, 98, 106, 101, 99, 116, 32, 50, 57, 55, 55, 51, 53, 54, 102, 57, 55, 99, 56, 51,
+            97, 102, 49, 49, 52, 98, 101, 57, 54, 52, 102, 56, 53, 55, 50, 49, 100, 99, 55, 50, 55,
+            49, 97, 55, 56, 49, 49, 10, 116, 121, 112, 101, 32, 99, 111, 109, 109, 105, 116, 10,
+            116, 97, 103, 32, 116, 101, 115, 116, 45, 116, 97, 103, 10, 116, 97, 103, 103, 101,
+            114, 32, 67, 97, 105, 116, 108, 105, 110, 32, 60, 99, 97, 105, 116, 64, 101, 120, 97,
+            109, 112, 108, 101, 46, 99, 111, 109, 62, 32, 49, 55, 55, 57, 50, 50, 49, 50, 48, 49,
+            32, 43, 48, 49, 48, 48, 10, 10, 84, 97, 103, 32, 109, 101, 115, 115, 97, 103, 101, 10,
+        ];
+        let expected_id = "887f3ca1f58a93dd3cc7b19c0c5da705d627d9e6";
+
+        let test_output = RawObject::from_git_object(&test_input);
+
+        assert_eq!(test_output.content.metadata.kind, ObjectKind::Tag);
+        assert_eq!(test_output.content.data, expected_data);
+        assert_eq!(test_output.content.metadata.size, 137);
+        assert_eq!(test_output.object_id, expected_id);
+    }
+
+    #[test]
+    fn raw_object_content_headerless() {
+        let test_data = b"Biscuits";
+        let test_object = RawObject {
+            content: RawObjectData {
+                data: test_data.to_vec(),
+                metadata: ObjectMetadata {
+                    kind: ObjectKind::Blob,
+                    size: test_data.len(),
+                },
+            },
+            object_id: "8216d33b7e88ed6bf2cb4eea14b3020f54325484".to_string(),
+        };
+
+        let test_output = test_object.content_headerless();
+
+        assert_eq!(test_data, test_output);
+    }
+
+    #[test]
+    fn raw_object_content_with_header() {
+        let test_data = b"Biscuits";
+        let test_object = RawObject {
+            content: RawObjectData {
+                data: test_data.to_vec(),
+                metadata: ObjectMetadata {
+                    kind: ObjectKind::Blob,
+                    size: test_data.len(),
+                },
+            },
+            object_id: "8216d33b7e88ed6bf2cb4eea14b3020f54325484".to_string(),
+        };
+        let expected_result = [
+            98u8, 108, 111, 98, 32, 56, 0, 66, 105, 115, 99, 117, 105, 116, 115,
+        ];
+
+        let test_output = test_object.content_with_header();
+
+        assert_eq!(test_output, expected_result);
+    }
+
+    #[test]
+    fn raw_object_object_id() {
+        let test_data = b"Biscuits";
+        let test_object = RawObject {
+            content: RawObjectData {
+                data: test_data.to_vec(),
+                metadata: ObjectMetadata {
+                    kind: ObjectKind::Blob,
+                    size: test_data.len(),
+                },
+            },
+            object_id: "8216d33b7e88ed6bf2cb4eea14b3020f54325484".to_string(),
+        };
+
+        let test_output = test_object.object_id();
+
+        assert_eq!("8216d33b7e88ed6bf2cb4eea14b3020f54325484", test_output);
+    }
+
+    #[test]
+    fn raw_object_metadata() {
+        let test_data = b"Biscuits";
+        let test_object = RawObject {
+            content: RawObjectData {
+                data: test_data.to_vec(),
+                metadata: ObjectMetadata {
+                    kind: ObjectKind::Blob,
+                    size: test_data.len(),
+                },
+            },
+            object_id: "8216d33b7e88ed6bf2cb4eea14b3020f54325484".to_string(),
+        };
+
+        let test_output = test_object.metadata();
+
+        assert_eq!(ObjectKind::Blob, test_output.kind);
+        assert_eq!(8, test_output.size);
+    }
+
+    #[test]
+    fn raw_object_to_stored_object_succeeds_for_valid_blob() {
+        let test_object = RawObject::from_headerless_data(
+            b"Biscuits",
+            "8216d33b7e88ed6bf2cb4eea14b3020f54325484",
+            ObjectMetadata {
+                kind: ObjectKind::Blob,
+                size: 8,
+            },
+        );
+
+        let test_output = test_object.to_stored_object().unwrap();
+
+        let StoredObject::Blob(test_output) = test_output else {
+            panic!();
+        };
+        assert_eq!(test_output.data, b"Biscuits");
+    }
+
+    #[test]
+    fn raw_object_to_stored_object_succeeds_for_valid_commit() {
+        let test_object_data = [
+            116u8, 114, 101, 101, 32, 56, 56, 50, 50, 51, 51, 49, 49, 97, 97, 101, 101, 99, 99,
+            102, 102, 55, 55, 50, 50, 56, 56, 50, 50, 51, 51, 49, 49, 97, 97, 101, 101, 99, 99,
+            102, 102, 55, 55, 50, 50, 10, 97, 117, 116, 104, 111, 114, 32, 67, 97, 105, 116, 108,
+            105, 110, 32, 60, 99, 97, 105, 116, 64, 101, 120, 97, 109, 112, 108, 101, 46, 99, 111,
+            109, 62, 32, 49, 55, 55, 57, 49, 51, 53, 49, 56, 50, 32, 43, 48, 49, 48, 48, 10, 99,
+            111, 109, 109, 105, 116, 116, 101, 114, 32, 67, 97, 105, 116, 108, 105, 110, 32, 60,
+            99, 97, 105, 116, 64, 101, 120, 97, 109, 112, 108, 101, 46, 99, 111, 109, 62, 32, 49,
+            55, 55, 57, 49, 51, 53, 49, 56, 50, 32, 43, 48, 49, 48, 48, 10, 10, 67, 111, 109, 109,
+            105, 116, 32, 109, 101, 115, 115, 97, 103, 101, 10,
+        ];
+        let test_object = RawObject::from_headerless_data(
+            &test_object_data,
+            "2977356f97c83af114be964f85721dc7271a7811",
+            ObjectMetadata {
+                kind: ObjectKind::Commit,
+                size: 167,
+            },
+        );
+
+        let test_output = test_object.to_stored_object().unwrap();
+
+        let StoredObject::Commit(test_output) = test_output else {
+            panic!();
+        };
+        assert_eq!(test_output.message, "Commit message\n");
+    }
+
+    #[test]
+    fn raw_object_to_stored_object_succeeds_for_valid_tag() {
+        let test_object_data = [
+            111, 98, 106, 101, 99, 116, 32, 50, 57, 55, 55, 51, 53, 54, 102, 57, 55, 99, 56, 51,
+            97, 102, 49, 49, 52, 98, 101, 57, 54, 52, 102, 56, 53, 55, 50, 49, 100, 99, 55, 50, 55,
+            49, 97, 55, 56, 49, 49, 10, 116, 121, 112, 101, 32, 99, 111, 109, 109, 105, 116, 10,
+            116, 97, 103, 32, 116, 101, 115, 116, 45, 116, 97, 103, 10, 116, 97, 103, 103, 101,
+            114, 32, 67, 97, 105, 116, 108, 105, 110, 32, 60, 99, 97, 105, 116, 64, 101, 120, 97,
+            109, 112, 108, 101, 46, 99, 111, 109, 62, 32, 49, 55, 55, 57, 50, 50, 49, 50, 48, 49,
+            32, 43, 48, 49, 48, 48, 10, 10, 84, 97, 103, 32, 109, 101, 115, 115, 97, 103, 101, 10,
+        ];
+        let test_object = RawObject::from_headerless_data(
+            &test_object_data,
+            "887f3ca1f58a93dd3cc7b19c0c5da705d627d9e6",
+            ObjectMetadata {
+                kind: ObjectKind::Tag,
+                size: 137,
+            },
+        );
+
+        let test_output = test_object.to_stored_object().unwrap();
+
+        let StoredObject::Tag(test_output) = test_output else {
+            panic!();
+        };
+        assert_eq!("Tag message\n", test_output.message);
+    }
+
+    #[test]
+    fn raw_object_to_stored_object_succeeds_for_valid_tree() {
+        let test_object_data = [
+            52, 48, 48, 48, 48, 32, 115, 114, 99, 0, 136, 34, 51, 17, 170, 238, 204, 255, 119, 34,
+            136, 34, 51, 17, 170, 238, 204, 255, 119, 34,
+        ];
+        let test_object = RawObject::from_headerless_data(
+            &test_object_data,
+            "9d298423b3547d85ed7b9344ffad4e0c73eb1da2",
+            ObjectMetadata {
+                kind: ObjectKind::Tree,
+                size: 30,
+            },
+        );
+
+        let test_output = test_object.to_stored_object().unwrap();
+
+        let StoredObject::Tree(test_output) = test_output else {
+            panic!();
+        };
+        assert_eq!(test_output.entries.len(), 1);
+        assert_eq!(test_output.entries.first().unwrap().mode, 0o40000);
+        assert_eq!(test_output.entries.first().unwrap().name, "src");
+        assert_eq!(
+            test_output.entries.first().unwrap().object_id,
+            "88223311aaeeccff772288223311aaeeccff7722"
+        );
+    }
+
+    #[test]
+    fn raw_object_to_stored_object_fails_for_delta() {
+        let test_object = RawObject::from_headerless_data(
+            &[4, 86, 32, 129, 20],
+            "01020304050607080910a1a2a3a4a5a6a7a8a9a0",
+            ObjectMetadata {
+                kind: ObjectKind::Delta("11121314151617181910c1c2c3c4c5c6c7c8c9c0".to_string()),
+                size: 5,
+            },
+        );
+
+        test_object.to_stored_object().unwrap_err();
     }
 }

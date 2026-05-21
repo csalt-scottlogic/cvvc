@@ -8,7 +8,7 @@ use crate::stores::{
 };
 
 /// A [`RefStore`] implementation which provides a facade over both a [`RefFileStore`] and, optionally, a [`PackedRefStore`]
-/// 
+///
 /// Create and update operations write to the [`RefFileStore`].  Read operations read from both, but the content of the
 /// [`RefFileStore`] takes priority if a ref is present in both stores but has different targets.
 pub struct CombinedRefStore {
