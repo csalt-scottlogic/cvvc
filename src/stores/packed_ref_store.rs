@@ -5,8 +5,8 @@ use anyhow::anyhow;
 use crate::stores::{BranchLocation, BranchSpec, RefSpec, RefStore};
 
 /// The git-compatible "packed refs" store.
-/// 
-/// This store's data is loaded using the [`PackedRefStore::new_from_file()`] function, and is 
+///
+/// This store's data is loaded using the [`PackedRefStore::new_from_file()`] function, and is
 /// kept in memory after loading.
 pub struct PackedRefStore {
     contents: HashMap<String, String>,
@@ -14,13 +14,13 @@ pub struct PackedRefStore {
 
 impl PackedRefStore {
     /// Load a packed-ref file.
-    /// 
-    /// The file is expected to be a text file with lines consisting of an object ID 
+    ///
+    /// The file is expected to be a text file with lines consisting of an object ID
     /// and a ref, separated by a space.  Lines starting with a `#` character, or solely
     /// containing whitespace, are ignored.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// This function returns an error if it encounters any filesystem errors, if the file contains a
     /// non-comment line that does not contain a space character, or if the file contains
     /// an invalid ref name.

@@ -23,7 +23,7 @@ mod raw;
 pub use raw::{combine_object_delta_data, ObjectMetadata, RawObject, RawObjectData};
 
 /// The legal types of repository object.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ObjectKind {
     /// A non-delta blob object.
     Blob,
@@ -76,6 +76,7 @@ impl TryFrom<&[u8]> for ObjectKind {
 }
 
 /// An enumeration that is similar to [`ObjectKind`], but also wraps the object itself.
+#[derive(Debug)]
 pub enum StoredObject {
     /// A blob object.
     Blob(Blob),
@@ -120,6 +121,7 @@ pub trait GitObject {
 }
 
 /// In-memory representation of a repository blob object.
+#[derive(Debug)]
 pub struct Blob {
     data: Vec<u8>,
 }
@@ -183,6 +185,7 @@ impl GitObject for Blob {
 }
 
 /// In-memory representation of a repository commit object.
+#[derive(Debug)]
 pub struct Commit {
     map: IndexMap<String, Vec<String>>,
 
@@ -282,6 +285,7 @@ impl GitObject for Commit {
 }
 
 /// In-memory representation of a tag object, also known as a "chunky tag" or "annotated tag"
+#[derive(Debug)]
 pub struct Tag {
     map: IndexMap<String, Vec<String>>,
 
@@ -362,7 +366,7 @@ impl GitObject for Tag {
 /// An individual entry in a repository tree object.
 ///
 /// The object ID field points to either a tree object or blob object.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TreeNode {
     /// The item's file mode
     pub mode: u32,
@@ -478,6 +482,7 @@ impl Eq for TreeNode {}
 ///
 /// A tree object is the stored representation of a single directory in the worktree,
 /// rather than representing an entire directory tree.
+#[derive(Debug)]
 pub struct Tree {
     entries: Vec<TreeNode>,
 }
