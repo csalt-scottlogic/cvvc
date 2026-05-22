@@ -43,7 +43,7 @@ fn create_chunky_tag(
     target: &str,
     message: Option<&str>,
 ) -> Result<(), anyhow::Error> {
-    let tag = Tag::create(
+    let tag = Tag::new(
         target,
         name,
         message,

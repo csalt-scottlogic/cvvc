@@ -295,7 +295,7 @@ pub struct Tag {
 
 impl Tag {
     /// Create a repository tag object, with a default tagging message.
-    pub fn create<Tz>(
+    pub fn new<Tz>(
         target: &str,
         name: &str,
         message: Option<&str>,
