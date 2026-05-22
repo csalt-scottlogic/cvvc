@@ -834,7 +834,7 @@ mod tests {
 
     #[test]
     fn raw_object_from_git_object_succeeds_for_tag() {
-        let test_input = Tag::create(
+        let test_input = Tag::new(
             "2977356f97c83af114be964f85721dc7271a7811",
             "test-tag",
             Some("Tag message"),
