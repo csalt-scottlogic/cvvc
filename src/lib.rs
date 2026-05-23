@@ -43,6 +43,9 @@ pub mod ignore;
 /// Git index file parsing
 pub mod index;
 
+/// Server communications
+pub mod net;
+
 /// Git object parsing
 pub mod objects;
 
