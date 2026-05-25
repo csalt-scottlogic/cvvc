@@ -1,7 +1,6 @@
 use anyhow::{anyhow, Context};
 use chrono::{DateTime, TimeZone};
 use indexmap::IndexMap;
-use ini::Ini;
 use std::{
     collections::{HashMap, HashSet},
     env,
@@ -12,8 +11,7 @@ use std::{
 };
 
 use crate::{
-    config::default_repo_config,
-    helpers::{
+    config::RepoConfig, helpers::{
         add_parent_dirs_to_map_of_vecs, add_to_map_of_vecs,
         fs::{
             check_and_create_dir,
@@ -21,18 +19,11 @@ use crate::{
             index_path_file, index_path_parent, path_translate, write_single_line,
         },
         timestamped_name,
-    },
-    ignore::IgnoreInfo,
-    index::{Index, IndexEntry},
-    objects::{
-        errors::FindObjectError, Blob, GitObject, ObjectKind, RawObject, RawObjectData,
-        StoredObject, Tree, TreeNode,
-    },
-    ref_log::{RefLog, RefLogEntry},
-    stores::{
-        combined_ref_store::CombinedRefStore, file_store::LooseObjectStore, pack_store::PackStore,
-        BranchLocation, BranchSpec, ObjectStore, RefSpec, RefStore,
-    },
+    }, ignore::IgnoreInfo, index::{Index, IndexEntry}, objects::{
+        Blob, GitObject, ObjectKind, RawObject, RawObjectData, StoredObject, Tree, TreeNode, errors::FindObjectError
+    }, ref_log::{RefLog, RefLogEntry}, stores::{
+        BranchLocation, BranchSpec, ObjectStore, RefSpec, RefStore, combined_ref_store::CombinedRefStore, file_store::LooseObjectStore, pack_store::PackStore
+    }
 };
 
 /// A Git/CVVC repository.
@@ -51,7 +42,7 @@ pub struct Repository {
     packs: Vec<PackStore>,
     ref_store: CombinedRefStore,
     ref_log_store: RefLog,
-    config: Ini,
+    config: RepoConfig,
 }
 
 impl Repository {
@@ -116,49 +107,15 @@ impl Repository {
             return Err(anyhow!("Not a git directory"));
         }
         let config_path = git_dir.join("config");
-        let mut wrapped_config: Option<Ini> = None;
-        if config_path.is_file() {
-            let loaded_config = Ini::load_from_file(config_path);
-            if let Err(lce) = loaded_config {
-                if !allow_invalid {
-                    return Err(
-                        anyhow::Error::from(lce).context("Could not open configuration file")
-                    );
-                }
-            } else {
-                wrapped_config = Some(loaded_config.unwrap());
-            }
-        } else if !allow_invalid {
-            return Err(anyhow!("Configuration file missing"));
+        if (!allow_invalid) && (!config_path.is_file()) {
+            return Err(anyhow!("configuration file missing"));
         }
-
-        let config = wrapped_config.unwrap_or_else(default_repo_config);
-
-        if !allow_invalid {
-            let core_section = match config.section(Some("core")) {
-                Some(s) => s,
-                None => {
-                    return Err(anyhow!(
-                        "Configuration file does not contain a [core] section"
-                    ))
-                }
-            };
-            let format_version_property = match core_section.get("repositoryformatversion") {
-                Some(s) => s,
-                None => {
-                    return Err(anyhow!(
-                        "Configuration file does not have the repository format version set"
-                    ))
-                }
-            };
-            let format_version = format_version_property
-                .parse::<i32>()
-                .context("repositoryformatversion is not an integer")?;
-            if format_version != 0 {
-                return Err(anyhow!("Unsupported repository version {format_version}"));
-            }
+        let config = RepoConfig::new(config_path);
+        let version = config.version()?;
+        if version != 0 {
+            return Err(anyhow!("unsupported repository format version {version}"));
         }
-
+        
         let loose_store_path = git_dir.join("objects");
         let loose_object_store = LooseObjectStore::new(&loose_store_path)?;
         let packed_refs_path = git_dir.join("packed-refs");
@@ -255,7 +212,7 @@ impl Repository {
             &format!("ref: refs/heads/{first_branch}"),
         )?;
 
-        repo.config.write_to_file(repo.file("config")?)?;
+        repo.config.save()?;
 
         Ok(repo)
     }

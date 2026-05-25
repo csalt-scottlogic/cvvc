@@ -1,10 +1,11 @@
-use ini::Ini;
+use ini::Ini; 
 use std::{
     env,
     ffi::OsStr,
     path::{Path, PathBuf},
     str::FromStr,
 };
+use anyhow::{anyhow, Context};
 
 /// Global configuration
 ///
@@ -252,16 +253,60 @@ impl GlobalConfig {
     }
 }
 
-/// Generate a default minimal repository configuration.
-///
-/// The configuration returned is the minimum necessary for Git interoperability.
-pub fn default_repo_config() -> Ini {
-    let mut conf = Ini::new();
-    conf.with_section(Some("core"))
-        .set("repositoryformatversion", "0")
-        .set("filemode", "false")
-        .set("bare", "false");
-    conf
+/// Repository-specific configuration.
+pub struct RepoConfig {
+    path: PathBuf,
+    cf: Ini,
+}
+
+impl RepoConfig {
+    /// Create a new [`RepoConfig`] object.
+    /// 
+    /// If the path does not exist, a basic default config
+    /// will be created in memory, but not saved.  The path's validity
+    /// is not checked, so if the path is invalid, this will only be
+    /// discovered when calls to [`Self::save()`] fail.
+    pub fn new<P: AsRef<Path>>(path: P) -> Self {
+        let pb = path.as_ref().to_path_buf();
+        let cf = if pb.exists() {
+            load_ini_safe(Some(&pb))
+        } else {
+            Self::default_config()
+        };
+        Self {path: pb, cf}
+    }
+
+    /// Save the config.
+    /// 
+    /// # Errors
+    /// 
+    /// This method errors if the config's path (passed in to the [`Self::new()`]) method) is invalid,
+    /// or if other errors occur when writing to the filesystem.
+    pub fn save(&self) -> Result<(), anyhow::Error> {
+        self.cf.write_to_file(&self.path).with_context(|| "failed to write config")
+    }
+
+    /// Get the `core.repositoryformatversion` setting.
+    /// 
+    /// # Errors
+    /// 
+    /// This method errors if the key `core.repositoryformatversion` is not present, or if it is not set to a valid `u32` value.
+    pub fn version(&self) -> Result<u32, anyhow::Error> {
+        let unparsed_version = get_setting_from_ini(&self.cf, "core", "repositoryformatversion");
+        if unparsed_version.is_empty() {
+            return Err(anyhow!("repository version not set"));
+        }
+        u32::from_str(&unparsed_version[0]).with_context(|| "version is not a number")
+    }
+
+    fn default_config() -> Ini {
+        let mut conf = Ini::new();
+        conf.with_section(Some("core"))
+            .set("repositoryformatversion", "0")
+            .set("filemode", "false")
+            .set("bare", "false");
+        conf    
+    }
 }
 
 fn load_ini_safe<T: AsRef<Path>>(path: Option<T>) -> Ini {
