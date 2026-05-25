@@ -11,7 +11,8 @@ use std::{
 };
 
 use crate::{
-    config::RepoConfig, helpers::{
+    config::RepoConfig,
+    helpers::{
         add_parent_dirs_to_map_of_vecs, add_to_map_of_vecs,
         fs::{
             check_and_create_dir,
@@ -19,11 +20,18 @@ use crate::{
             index_path_file, index_path_parent, path_translate, write_single_line,
         },
         timestamped_name,
-    }, ignore::IgnoreInfo, index::{Index, IndexEntry}, objects::{
-        Blob, GitObject, ObjectKind, RawObject, RawObjectData, StoredObject, Tree, TreeNode, errors::FindObjectError
-    }, ref_log::{RefLog, RefLogEntry}, stores::{
-        BranchLocation, BranchSpec, ObjectStore, RefSpec, RefStore, combined_ref_store::CombinedRefStore, file_store::LooseObjectStore, pack_store::PackStore
-    }
+    },
+    ignore::IgnoreInfo,
+    index::{Index, IndexEntry},
+    objects::{
+        errors::FindObjectError, Blob, GitObject, ObjectKind, RawObject, RawObjectData,
+        StoredObject, Tree, TreeNode,
+    },
+    ref_log::{RefLog, RefLogEntry},
+    stores::{
+        combined_ref_store::CombinedRefStore, file_store::LooseObjectStore, pack_store::PackStore,
+        BranchLocation, BranchSpec, ObjectStore, RefSpec, RefStore,
+    },
 };
 
 /// A Git/CVVC repository.
@@ -115,7 +123,7 @@ impl Repository {
         if version != 0 {
             return Err(anyhow!("unsupported repository format version {version}"));
         }
-        
+
         let loose_store_path = git_dir.join("objects");
         let loose_object_store = LooseObjectStore::new(&loose_store_path)?;
         let packed_refs_path = git_dir.join("packed-refs");
@@ -1105,7 +1113,13 @@ impl Repository {
     pub fn list_ref_logs(&self) -> Result<Vec<String>, anyhow::Error> {
         self.ref_log_store.list_ref_logs()
     }
+
+    /// List the names of remotes from the repository's config.
+    pub fn list_remote_names(&self) -> Vec<String> {
+        self.config.remote_names()
+    }
 }
+
 
 /// Determines whether a string is potentially a valid object ID or partial object ID.
 ///

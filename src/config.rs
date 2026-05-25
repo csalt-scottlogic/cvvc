@@ -1,11 +1,11 @@
-use ini::Ini; 
+use anyhow::{anyhow, Context};
+use ini::Ini;
 use std::{
     env,
     ffi::OsStr,
     path::{Path, PathBuf},
     str::FromStr,
 };
-use anyhow::{anyhow, Context};
 
 /// Global configuration
 ///
@@ -261,7 +261,7 @@ pub struct RepoConfig {
 
 impl RepoConfig {
     /// Create a new [`RepoConfig`] object.
-    /// 
+    ///
     /// If the path does not exist, a basic default config
     /// will be created in memory, but not saved.  The path's validity
     /// is not checked, so if the path is invalid, this will only be
@@ -273,23 +273,25 @@ impl RepoConfig {
         } else {
             Self::default_config()
         };
-        Self {path: pb, cf}
+        Self { path: pb, cf }
     }
 
     /// Save the config.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// This method errors if the config's path (passed in to the [`Self::new()`]) method) is invalid,
     /// or if other errors occur when writing to the filesystem.
     pub fn save(&self) -> Result<(), anyhow::Error> {
-        self.cf.write_to_file(&self.path).with_context(|| "failed to write config")
+        self.cf
+            .write_to_file(&self.path)
+            .with_context(|| "failed to write config")
     }
 
     /// Get the `core.repositoryformatversion` setting.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// This method errors if the key `core.repositoryformatversion` is not present, or if it is not set to a valid `u32` value.
     pub fn version(&self) -> Result<u32, anyhow::Error> {
         let unparsed_version = get_setting_from_ini(&self.cf, "core", "repositoryformatversion");
@@ -299,14 +301,40 @@ impl RepoConfig {
         u32::from_str(&unparsed_version[0]).with_context(|| "version is not a number")
     }
 
+    /// List the names of remotes
+    /// 
+    /// This method iterates though all of the config sections named something
+    /// like `[remote "<name>"] and returns the `<name>` part of each.
+    pub fn remote_names(&self) -> Vec<String> {
+        self.cf
+            .sections()
+            .filter_map(|x| {
+                x.map(|y| {
+                    if y.starts_with("remote") {
+                        Some(y[8..(y.len() - 1)].to_string())
+                    } else {
+                        None
+                    }
+                })
+            })
+            .flatten()
+            .collect::<Vec<String>>()
+    }
+
     fn default_config() -> Ini {
         let mut conf = Ini::new();
         conf.with_section(Some("core"))
             .set("repositoryformatversion", "0")
             .set("filemode", "false")
             .set("bare", "false");
-        conf    
+        conf
     }
+}
+
+pub struct RemoteInfo {
+    pub name: String,
+    pub fetch_urls: Vec<String>,
+    pub push_urls: Vec<String>,
 }
 
 fn load_ini_safe<T: AsRef<Path>>(path: Option<T>) -> Ini {
