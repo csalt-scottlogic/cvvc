@@ -11,7 +11,7 @@ use std::{
 };
 
 use crate::{
-    config::RepoConfig,
+    config::{RemoteInfo, RepoConfig},
     helpers::{
         add_parent_dirs_to_map_of_vecs, add_to_map_of_vecs,
         fs::{
@@ -24,13 +24,11 @@ use crate::{
     ignore::IgnoreInfo,
     index::{Index, IndexEntry},
     objects::{
-        errors::FindObjectError, Blob, GitObject, ObjectKind, RawObject, RawObjectData,
-        StoredObject, Tree, TreeNode,
+        Blob, GitObject, ObjectKind, RawObject, RawObjectData, StoredObject, Tree, TreeNode, errors::FindObjectError
     },
     ref_log::{RefLog, RefLogEntry},
     stores::{
-        combined_ref_store::CombinedRefStore, file_store::LooseObjectStore, pack_store::PackStore,
-        BranchLocation, BranchSpec, ObjectStore, RefSpec, RefStore,
+        BranchLocation, BranchSpec, ObjectStore, RefSpec, RefStore, combined_ref_store::CombinedRefStore, file_store::LooseObjectStore, pack_store::PackStore
     },
 };
 
@@ -1115,11 +1113,15 @@ impl Repository {
     }
 
     /// List the names of remotes from the repository's config.
-    pub fn list_remote_names(&self) -> Vec<String> {
+    pub fn list_remote_names(&self) -> Vec<&str> {
         self.config.remote_names()
     }
-}
 
+    /// Get details of a remote, or `None` if the remote does not exist.
+    pub fn get_remote<'a>(&'a self, name: &'a str) -> Option<RemoteInfo<'a>> {
+        self.config.remote_info(name)
+    }
+}
 
 /// Determines whether a string is potentially a valid object ID or partial object ID.
 ///

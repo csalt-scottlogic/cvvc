@@ -1,10 +1,7 @@
 use anyhow::{anyhow, Context};
-use ini::Ini;
+use ini::{Ini, Properties};
 use std::{
-    env,
-    ffi::OsStr,
-    path::{Path, PathBuf},
-    str::FromStr,
+    env, ffi::OsStr, path::{Path, PathBuf}, str::FromStr
 };
 
 /// Global configuration
@@ -302,23 +299,45 @@ impl RepoConfig {
     }
 
     /// List the names of remotes
-    /// 
+    ///
     /// This method iterates though all of the config sections named something
     /// like `[remote "<name>"] and returns the `<name>` part of each.
-    pub fn remote_names(&self) -> Vec<String> {
+    pub fn remote_names(&self) -> Vec<&str> {
         self.cf
             .sections()
             .filter_map(|x| {
                 x.map(|y| {
                     if y.starts_with("remote") {
-                        Some(y[8..(y.len() - 1)].to_string())
+                        Some(&y[8..(y.len() - 1)])
                     } else {
                         None
                     }
                 })
             })
             .flatten()
-            .collect::<Vec<String>>()
+            .collect::<Vec<&str>>()
+    }
+
+    /// Get the details of a named remote, if it exists in the config.
+    /// 
+    /// Returns `None` if the remote `name` does not exist.
+    /// 
+    /// If the remote is configured with fetch URLs but no push URLs, the `push_urls`
+    /// property will be a clone of the contents of the `fetch_urls` property.
+    pub fn remote_info<'a>(&'a self, name: &'a str) -> Option<RemoteInfo<'a>> {
+        let section = self.cf.section(Some(format!("remote \"{name}\"")))?;
+        let fetch_urls = get_str_setting_from_ini_section(section, "url");
+        let push_urls = get_str_setting_from_ini_section(section, "pushurl");
+        let push_urls = if push_urls.is_empty() {
+            fetch_urls.clone()
+        } else {
+            push_urls
+        };
+        Some(RemoteInfo {
+            name: name,
+            fetch_urls,
+            push_urls,
+        })
     }
 
     fn default_config() -> Ini {
@@ -331,10 +350,16 @@ impl RepoConfig {
     }
 }
 
-pub struct RemoteInfo {
-    pub name: String,
-    pub fetch_urls: Vec<String>,
-    pub push_urls: Vec<String>,
+/// The details of a remote repository.
+pub struct RemoteInfo<'a> {
+    /// The name by which the remote is referred to on the command line or in ref paths.
+    pub name: &'a str,
+
+    /// The list of URLs that can be fetched from.
+    pub fetch_urls: Vec<&'a str>,
+
+    /// The list of URLs that can be pushed to.
+    pub push_urls: Vec<&'a str>,
 }
 
 fn load_ini_safe<T: AsRef<Path>>(path: Option<T>) -> Ini {
@@ -344,12 +369,24 @@ fn load_ini_safe<T: AsRef<Path>>(path: Option<T>) -> Ini {
 
 fn get_setting_from_ini(ini: &Ini, section: &str, key: &str) -> Vec<String> {
     if let Some(sec) = ini.section(Some(section)) {
-        sec.get_all(key)
-            .map(|v| v.trim().to_string())
-            .collect::<Vec<String>>()
+        get_setting_from_ini_section(sec, key)
     } else {
         Vec::<String>::new()
     }
+}
+
+fn get_setting_from_ini_section(section: &Properties, key: &str) -> Vec<String> {
+    section
+        .get_all(key)
+        .map(|v| v.trim().to_string())
+        .collect::<Vec<String>>()
+}
+
+fn get_str_setting_from_ini_section<'a>(section: &'a Properties, key: &str) -> Vec<&'a str> {
+    section
+        .get_all(key)
+        .map(|v| v.trim())
+        .collect::<Vec<&str>>()
 }
 
 fn get_setting_from_env<T: AsRef<OsStr>>(key: T) -> Option<String> {
