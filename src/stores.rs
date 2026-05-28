@@ -281,3 +281,393 @@ impl FromStr for BranchSpec {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use crate::stores::errors::InvalidRefNameError;
+
+    use super::{BranchLocation, BranchSpec, RefSpec};
+
+    #[test]
+    fn branch_location_fmt_local() {
+        let test_object = BranchLocation::Local;
+
+        let test_output = test_object.to_string();
+
+        assert_eq!("refs/heads", test_output);
+    }
+
+    #[test]
+    fn branch_location_fmt_remote() {
+        let test_object = BranchLocation::Remote("example-origin".to_string());
+
+        let test_output = test_object.to_string();
+
+        assert_eq!("refs/remotes/example-origin", test_output);
+    }
+
+    #[test]
+    fn branch_location_from_str_succeeds_for_valid_local() {
+        let test_input = "refs/heads/test-branch";
+
+        let test_output = BranchLocation::from_str(test_input).unwrap();
+
+        assert_eq!(BranchLocation::Local, test_output);
+    }
+
+    #[test]
+    fn branch_location_from_str_succeeds_for_valid_remote() {
+        let test_input = "refs/remotes/test-remote/the/remote/branch";
+
+        let test_output = BranchLocation::from_str(test_input).unwrap();
+
+        assert_eq!(
+            BranchLocation::Remote("test-remote".to_string()),
+            test_output
+        );
+    }
+
+    #[test]
+    fn branch_location_from_str_fails_for_partial_remote() {
+        let test_input = "refs/remotes/";
+
+        let test_output = BranchLocation::from_str(test_input).unwrap_err();
+
+        assert_eq!(InvalidRefNameError::new(test_input), test_output);
+    }
+
+    #[test]
+    fn branch_location_from_str_fails_for_tags() {
+        let test_input = "refs/tags/test-tag";
+
+        let test_output = BranchLocation::from_str(test_input).unwrap_err();
+
+        assert_eq!(InvalidRefNameError::new(test_input), test_output);
+    }
+
+    #[test]
+    fn branch_location_from_str_fails_for_refs_alone() {
+        let test_input = "refs";
+
+        let test_output = BranchLocation::from_str(test_input).unwrap_err();
+
+        assert_eq!(InvalidRefNameError::new(test_input), test_output);
+    }
+
+    #[test]
+    fn branch_location_from_str_fails_for_nonsense() {
+        let test_input = "zfymg";
+
+        let test_output = BranchLocation::from_str(test_input).unwrap_err();
+
+        assert_eq!(InvalidRefNameError::new(test_input), test_output);
+    }
+
+    #[test]
+    fn ref_spec_fmt_succeeds_for_tag() {
+        let test_object = RefSpec::Tag("example/tag".to_string());
+
+        let test_output = test_object.to_string();
+
+        assert_eq!("refs/tags/example/tag", test_output);
+    }
+
+    #[test]
+    fn ref_spec_fmt_succeeds_for_local_branch() {
+        let test_object = RefSpec::Branch(BranchSpec {
+            location: BranchLocation::Local,
+            name: "test-branch".to_string(),
+        });
+
+        let test_output = test_object.to_string();
+
+        assert_eq!("refs/heads/test-branch", test_output);
+    }
+
+    #[test]
+    fn ref_spec_fmt_succeeds_for_remote_branch() {
+        let test_object = RefSpec::Branch(BranchSpec {
+            location: BranchLocation::Remote("far".to_string()),
+            name: "branch".to_string(),
+        });
+
+        let test_output = test_object.to_string();
+
+        assert_eq!("refs/remotes/far/branch", test_output);
+    }
+
+    #[test]
+    fn ref_spec_from_str_succeeds_for_valid_tag() {
+        let test_input = "refs/tags/a/valid/tag-name";
+
+        let test_output = RefSpec::from_str(test_input).unwrap();
+
+        assert_eq!(RefSpec::Tag("a/valid/tag-name".to_string()), test_output);
+    }
+
+    #[test]
+    fn ref_spec_from_str_succeeds_for_valid_local_branch() {
+        let test_input = "refs/heads/the-branch";
+
+        let test_output = RefSpec::from_str(test_input).unwrap();
+
+        assert_eq!(
+            RefSpec::Branch(BranchSpec {
+                location: BranchLocation::Local,
+                name: "the-branch".to_string()
+            }),
+            test_output
+        );
+    }
+
+    #[test]
+    fn ref_spec_from_str_succeeds_for_valid_remote_branch() {
+        let test_input = "refs/remotes/test-remote/the/branch";
+
+        let test_output = RefSpec::from_str(test_input).unwrap();
+
+        assert_eq!(
+            RefSpec::Branch(BranchSpec {
+                location: BranchLocation::Remote("test-remote".to_string()),
+                name: "the/branch".to_string()
+            }),
+            test_output
+        );
+    }
+
+    #[test]
+    fn ref_spec_from_str_fails_for_missing_tag_name() {
+        let test_input = "refs/tags/";
+
+        let test_output = RefSpec::from_str(test_input).unwrap_err();
+
+        assert_eq!(InvalidRefNameError::new(test_input), test_output);
+    }
+
+    #[test]
+    fn ref_spec_from_str_fails_for_tag_name_starting_with_slash() {
+        let test_input = "refs/tags//the-tag";
+
+        let test_output = RefSpec::from_str(test_input).unwrap_err();
+
+        assert_eq!(InvalidRefNameError::new(test_input), test_output);
+    }
+
+    #[test]
+    fn ref_spec_from_str_fails_for_tag_name_containing_double_slash() {
+        let test_input = "refs/tags/the//tag";
+
+        let test_output = RefSpec::from_str(test_input).unwrap_err();
+
+        assert_eq!(InvalidRefNameError::new(test_input), test_output);
+    }
+
+    #[test]
+    fn ref_spec_from_str_fails_for_local_branch_with_no_branch_name() {
+        let test_input = "refs/heads/";
+
+        let test_output = RefSpec::from_str(test_input).unwrap_err();
+
+        assert_eq!(InvalidRefNameError::new(test_input), test_output);
+    }
+
+    #[test]
+    fn ref_spec_from_str_fails_for_remote_branch_with_no_remote_name() {
+        let test_input = "refs/remotes/";
+
+        let test_output = RefSpec::from_str(test_input).unwrap_err();
+
+        assert_eq!(InvalidRefNameError::new(test_input), test_output);
+    }
+
+    #[test]
+    fn ref_spec_from_str_fails_for_remote_branch_with_no_branch_name() {
+        let test_input = "refs/remotes/the-remote/";
+
+        let test_output = RefSpec::from_str(test_input).unwrap_err();
+
+        assert_eq!(InvalidRefNameError::new(test_input), test_output);
+    }
+
+    #[test]
+    fn ref_spec_from_str_fails_for_refs_alone() {
+        let test_input = "refs/";
+
+        let test_output = RefSpec::from_str(test_input).unwrap_err();
+
+        assert_eq!(InvalidRefNameError::new(test_input), test_output);
+    }
+
+    #[test]
+    fn ref_spec_from_str_fails_for_refs_something() {
+        let test_input = "refs/anything-invalid";
+
+        let test_output = RefSpec::from_str(test_input).unwrap_err();
+
+        assert_eq!(InvalidRefNameError::new(test_input), test_output);
+    }
+
+    #[test]
+    fn ref_spec_from_str_fails_for_nonsense() {
+        let test_input = "fejofejnmfvoweirtj";
+
+        let test_output = RefSpec::from_str(test_input).unwrap_err();
+
+        assert_eq!(InvalidRefNameError::new(test_input), test_output);
+    }
+
+    #[test]
+    fn branch_spec_new_succeeds_for_local() {
+        let test_branch_name = "test-branch";
+
+        let test_output = BranchSpec::new(test_branch_name, BranchLocation::Local);
+
+        assert_eq!(test_output.name, test_branch_name);
+        assert_eq!(BranchLocation::Local, test_output.location);
+    }
+
+    #[test]
+    fn branch_spec_new_succeeds_for_remote() {
+        let test_remote_name = "the-remote";
+        let test_branch_name = "test-branch";
+
+        let test_output = BranchSpec::new(
+            test_branch_name,
+            BranchLocation::Remote(test_remote_name.to_string()),
+        );
+
+        assert_eq!(test_output.name, test_branch_name);
+        assert_eq!(
+            BranchLocation::Remote(test_remote_name.to_string()),
+            test_output.location
+        );
+    }
+
+    #[test]
+    fn branch_spec_into_ref_spec_succeeds() {
+        let test_object = BranchSpec {
+            name: "test-branch".to_string(),
+            location: BranchLocation::Local,
+        };
+
+        let test_output = test_object.into_ref_spec();
+
+        assert_eq!(
+            RefSpec::Branch(BranchSpec {
+                location: BranchLocation::Local,
+                name: "test-branch".to_string()
+            }),
+            test_output
+        );
+    }
+
+    #[test]
+    fn branch_spec_fmt_succeeds_for_local() {
+        let test_object = BranchSpec {
+            name: "test-branch".to_string(),
+            location: BranchLocation::Local,
+        };
+
+        let test_output = test_object.to_string();
+
+        assert_eq!("refs/heads/test-branch", test_output);
+    }
+
+    #[test]
+    fn branch_spec_fmt_succeeds_for_remote() {
+        let test_object = BranchSpec {
+            name: "the/branch".to_string(),
+            location: BranchLocation::Remote("test-remote".to_string()),
+        };
+
+        let test_output = test_object.to_string();
+
+        assert_eq!("refs/remotes/test-remote/the/branch", test_output);
+    }
+
+    #[test]
+    fn branch_spec_from_str_succeeds_for_valid_local() {
+        let test_input = "refs/heads/some/branch/name";
+
+        let test_output = BranchSpec::from_str(test_input).unwrap();
+
+        assert_eq!(
+            BranchSpec {
+                location: BranchLocation::Local,
+                name: "some/branch/name".to_string()
+            },
+            test_output
+        );
+    }
+
+    #[test]
+    fn branch_spec_from_str_succeeds_for_valid_remote() {
+        let test_input = "refs/remotes/some/branch/name";
+
+        let test_output = BranchSpec::from_str(test_input).unwrap();
+
+        assert_eq!(
+            BranchSpec {
+                location: BranchLocation::Remote("some".to_string()),
+                name: "branch/name".to_string()
+            },
+            test_output
+        );
+    }
+
+    #[test]
+    fn branch_spec_from_str_fails_for_missing_local_branch_name() {
+        let test_input = "refs/heads/";
+
+        let test_output = BranchSpec::from_str(test_input).unwrap_err();
+
+        assert_eq!(InvalidRefNameError::new(test_input), test_output);
+    }
+
+    #[test]
+    fn branch_spec_from_str_fails_for_missing_remote_branch_name() {
+        let test_input = "refs/remotes/server/";
+
+        let test_output = BranchSpec::from_str(test_input).unwrap_err();
+
+        assert_eq!(InvalidRefNameError::new(test_input), test_output);
+    }
+
+    #[test]
+    fn branch_spec_from_str_fails_for_missing_remote_server_name() {
+        let test_input = "refs/remotes/";
+
+        let test_output = BranchSpec::from_str(test_input).unwrap_err();
+
+        assert_eq!(InvalidRefNameError::new(test_input), test_output);
+    }
+
+    #[test]
+    fn branch_spec_from_str_fails_for_valid_tag() {
+        let test_input = "refs/tags/the-tag";
+
+        let test_output = BranchSpec::from_str(test_input).unwrap_err();
+
+        assert_eq!(InvalidRefNameError::new(test_input), test_output);
+    }
+
+    #[test]
+    fn branch_spec_from_str_fails_for_valid_local_branch_with_initial_slash() {
+        let test_input = "/refs/heads/the-branch";
+
+        let test_output = BranchSpec::from_str(test_input).unwrap_err();
+
+        assert_eq!(InvalidRefNameError::new(test_input), test_output);
+    }
+
+    #[test]
+    fn branch_spec_from_str_fails_for_nonsense() {
+        let test_input = "fmewiofjwpvita";
+
+        let test_output = BranchSpec::from_str(test_input).unwrap_err();
+
+        assert_eq!(InvalidRefNameError::new(test_input), test_output);
+    }
+}

@@ -903,8 +903,8 @@ impl Repository {
         };
         for entry in tree.entries() {
             let full_path = match prefix {
-                "" => entry.name.to_string(),
-                _ => format!("{prefix}/{}", entry.name),
+                "" => entry.name().to_string(),
+                _ => format!("{prefix}/{}", entry.name()),
             };
             if entry.mode < 0o100000 {
                 // Directory
