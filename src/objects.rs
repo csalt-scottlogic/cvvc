@@ -700,7 +700,7 @@ mod tests {
 
     use crate::objects::find_without;
 
-use super::kvlm_parse;
+    use super::kvlm_parse;
 
     #[test]
     fn find_without_succeeds() {

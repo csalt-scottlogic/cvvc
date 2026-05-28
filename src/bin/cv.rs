@@ -3,7 +3,7 @@ use std::process::ExitCode;
 use clap::{Args, Parser, Subcommand};
 
 use cvvc::{
-    cli::{branches, init, log, objects, ref_log, refs, staging},
+    cli::{branches, init, log, objects, ref_log, refs, remotes, staging},
     config::GlobalConfig,
 };
 
@@ -126,6 +126,12 @@ enum Commands {
     /// Examine or edit the reference log
     #[command(name = "reflog")]
     RefLog(RefLogArgs),
+    /// View and edit remote information
+    #[command()]
+    Remote {
+        #[arg(short, long)]
+        verbose: bool,
+    },
     /// Remove files from the index and the working tree
     #[command(name = "rm")]
     Remove {
@@ -249,6 +255,7 @@ fn parse_dispatch() -> ExitCode {
                 }
             }
         },
+        Commands::Remote { verbose } => remotes::list_remotes(verbose),
         Commands::Remove {
             index_only,
             ignore_no_matches,

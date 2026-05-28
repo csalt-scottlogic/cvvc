@@ -16,5 +16,8 @@ pub mod ref_log;
 /// Entry point for `cv tag` and `cv show-ref`
 pub mod refs;
 
+/// Entry point for `cv remote`
+pub mod remotes;
+
 /// Entry point for `cv add`, `cv commit` and `cv check-ignore`
 pub mod staging;
