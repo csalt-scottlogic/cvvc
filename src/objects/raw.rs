@@ -1037,11 +1037,11 @@ mod tests {
         let StoredObject::Tree(test_output) = test_output else {
             panic!();
         };
-        assert_eq!(test_output.entries.len(), 1);
-        assert_eq!(test_output.entries.first().unwrap().mode, 0o40000);
-        assert_eq!(test_output.entries.first().unwrap().name, "src");
+        assert_eq!(test_output.entries().len(), 1);
+        assert_eq!(test_output.entries().first().unwrap().mode, 0o40000);
+        assert_eq!(test_output.entries().first().unwrap().name(), "src");
         assert_eq!(
-            test_output.entries.first().unwrap().object_id,
+            test_output.entries().first().unwrap().object_id,
             "88223311aaeeccff772288223311aaeeccff7722"
         );
     }

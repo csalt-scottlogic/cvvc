@@ -96,8 +96,8 @@ fn list_tree_recursive(
         };
         if !(recursive && item_type == "tree") {
             let path_str = match prefix {
-                Some(prefix) => prefix.join(&item.name).to_string_lossy().to_string(),
-                None => item.name.to_string(),
+                Some(prefix) => prefix.join(item.name()).to_string_lossy().to_string(),
+                None => item.name().to_string(),
             };
             println!(
                 "{:06o} {} {}\t{}",
@@ -108,7 +108,7 @@ fn list_tree_recursive(
                 recursive,
                 repo,
                 &item.object_id,
-                Some(&PathBuf::from_str(&item.name)?),
+                Some(&PathBuf::from_str(item.name())?),
             )?;
         }
     }

@@ -22,7 +22,7 @@
 //!
 //! CVVC only supports worktree index version 2
 //!
-//! CVVC does not support unindexed packfiles, and only supports packfile index version 2.
+//! CVVC only supports packfile index version 2.  Unindexed packfiles are quietly re-indexed on startup.
 //!
 //! CVVC does not do any line-ending conversion.
 //!
