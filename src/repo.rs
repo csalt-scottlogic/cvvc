@@ -19,7 +19,7 @@ use crate::{
             errors::{PathError, PathErrorKind},
             index_path_file, index_path_parent, path_translate, write_single_line,
         },
-        timestamp_from_timestamped_name, timestamped_name,
+        timestamped_name,
     },
     ignore::IgnoreInfo,
     index::{Index, IndexEntry},
@@ -1131,11 +1131,23 @@ impl Repository {
         self.config.remote_info(name)
     }
 
+    /// Get an iterator that returns all of the reachable commit IDs in the repository.
+    /// 
+    /// # Errors
+    /// 
+    /// This method returns an error if it encounters any errors reading the repository's 
+    /// refs.
     pub fn commits<'a>(&'a self) -> Result<CommitIterator<'a>, anyhow::Error> {
         CommitIterator::new(self)
     }
 }
 
+/// An iterator which iterates over the valid commit IDs in the repository.  Each commit ID
+/// is guaranteed to only be returned once.
+/// 
+/// This iterator's associated type is `Result<String, Error>`, because at each iteration
+/// it reads the returned commit to determine its parents and potentially queue them for
+/// later output.  If that read fails, it will error.
 pub struct CommitIterator<'a> {
     repo: &'a Repository,
     queue: VecDeque<String>,
@@ -1143,7 +1155,7 @@ pub struct CommitIterator<'a> {
 }
 
 impl<'a> CommitIterator<'a> {
-    pub fn new(repo: &'a Repository) -> Result<CommitIterator<'a>, anyhow::Error> {
+    fn new(repo: &'a Repository) -> Result<CommitIterator<'a>, anyhow::Error> {
         let seen = repo
             .ref_store
             .all_ref_targets()?

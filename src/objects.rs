@@ -206,7 +206,7 @@ impl Commit {
         Ok(target.to_string())
     }
 
-    ///  Gets the parent(s) of this commit.
+    /// Gets the parent(s) of this commit.
     ///
     /// Returns an empty vector if the commit has no parents.
     pub fn parents(&self) -> Vec<String> {
@@ -220,6 +220,12 @@ impl Commit {
         }
     }
 
+    /// Get the timestamp of this commit.
+    /// 
+    /// This method returns the timestamp associated with the `committer` field of the commit,
+    /// not the `author` field.
+    /// 
+    /// This method returns `None` if the `committer` field cannot be parsed as containing a timestamp.
     pub fn timestamp(&self) -> Option<DateTime<FixedOffset>> {
         if self.map.contains_key("committer") {
             let mut timestamps = self.map["committer"]

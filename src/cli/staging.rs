@@ -28,6 +28,7 @@ pub fn current_branch_and_commit() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
+/// Entry point for the `cv ls-commits` command.
 pub fn list_commits() -> Result<(), anyhow::Error> {
     let repo = find_repo_cwd()?;
     let commits = repo.commits()?;
