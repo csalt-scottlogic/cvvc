@@ -184,6 +184,14 @@ pub fn now_here() -> DateTime<Local> {
     Local::now()
 }
 
+/// Determines whether a string is a legal branch or tag name according to Git rules.
+pub fn is_ref_name_legal(name: &str) -> bool {
+    let contains_patterns = ["/.", "..", " ", ":", "~", "^", "?", "*", "[", "\\"];
+    let ends_with_patterns = [".lock", "/", "."];
+    !(contains_patterns.iter().any(|p| name.contains(p))
+        || ends_with_patterns.iter().any(|p| name.ends_with(p)))
+}
+
 #[cfg(test)]
 mod tests {
 

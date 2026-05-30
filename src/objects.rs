@@ -3,9 +3,7 @@ use chrono::{DateTime, FixedOffset, TimeZone};
 use indexmap::IndexMap;
 use std::{fmt::Display, io::Read, path::Path};
 
-use crate::{
-    helpers::{self, timestamp_from_timestamped_name, timestamped_name},
-};
+use crate::helpers::{self, timestamp_from_timestamped_name, timestamped_name};
 
 mod errors;
 pub use errors::{FindObjectError, InvalidObjectIdError};
@@ -220,10 +218,10 @@ impl Commit {
     }
 
     /// Get the timestamp of this commit.
-    /// 
+    ///
     /// This method returns the timestamp associated with the `committer` field of the commit,
     /// not the `author` field.
-    /// 
+    ///
     /// This method returns `None` if the `committer` field cannot be parsed as containing a timestamp.
     pub fn timestamp(&self) -> Option<DateTime<FixedOffset>> {
         if self.map.contains_key("committer") {

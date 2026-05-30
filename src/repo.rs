@@ -15,18 +15,21 @@ use crate::{
     helpers::{
         add_parent_dirs_to_map_of_vecs, add_to_map_of_vecs,
         fs::{
-            PathError, PathErrorKind, check_and_create_dir, index_path_file, index_path_parent, path_translate, write_single_line
+            check_and_create_dir, index_path_file, index_path_parent, path_translate,
+            write_single_line, PathError, PathErrorKind,
         },
         timestamped_name,
     },
     ignore::IgnoreInfo,
     index::{Index, IndexEntry},
     objects::{
-        Blob, FindObjectError, GitObject, ObjectKind, RawObject, RawObjectData, StoredObject, Tree, TreeNode, 
+        Blob, FindObjectError, GitObject, ObjectKind, RawObject, RawObjectData, StoredObject, Tree,
+        TreeNode,
     },
     ref_log::{RefLog, RefLogEntry},
     stores::{
-        BranchLocation, BranchSpec, CombinedRefStore, LooseObjectStore, ObjectStore, PackStore, RefSpec, RefStore
+        BranchLocation, BranchSpec, CombinedRefStore, LooseObjectStore, ObjectStore, PackStore,
+        RefSpec, RefStore,
     },
 };
 
@@ -1128,10 +1131,10 @@ impl Repository {
     }
 
     /// Get an iterator that returns all of the reachable commit IDs in the repository.
-    /// 
+    ///
     /// # Errors
-    /// 
-    /// This method returns an error if it encounters any errors reading the repository's 
+    ///
+    /// This method returns an error if it encounters any errors reading the repository's
     /// refs.
     pub fn commits<'a>(&'a self) -> Result<CommitIterator<'a>, anyhow::Error> {
         CommitIterator::new(self)
@@ -1140,7 +1143,7 @@ impl Repository {
 
 /// An iterator which iterates over the valid commit IDs in the repository.  Each commit ID
 /// is guaranteed to only be returned once.
-/// 
+///
 /// This iterator's associated type is `Result<String, Error>`, because at each iteration
 /// it reads the returned commit to determine its parents and potentially queue them for
 /// later output.  If that read fails, it will error.
@@ -1180,7 +1183,7 @@ impl<'a> CommitIterator<'a> {
                             } else {
                                 None
                             }
-                        },
+                        }
                         _ => None,
                     }
                 } else {
