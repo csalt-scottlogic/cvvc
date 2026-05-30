@@ -506,7 +506,7 @@ impl Repository {
             _ => raw_object_data,
         };
 
-        Ok(Some(RawObject::from_raw_object_data(raw_object_data)?))
+        Ok(Some(RawObject::try_from(raw_object_data)?))
     }
 
     /// Reads an object from the object stores.

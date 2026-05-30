@@ -37,7 +37,7 @@ impl PackIndexEntry {
         if matches!(&raw_object.metadata().kind, ObjectKind::Delta(_)) {
             return Err(anyhow!("we don't support indexing named deltas yet"));
         }
-        let raw_object = RawObject::from_raw_object_data(raw_object)?;
+        let raw_object = RawObject::try_from(raw_object)?;
 
         let mut buf = vec![0u8; packed_length as usize];
         file.seek(SeekFrom::Start(address))?;
