@@ -16,8 +16,8 @@ use chrono::{DateTime, Utc};
 
 use crate::index::{IndexEntryPermissions, IndexEntryType};
 
-/// Filesystem-specific error structs.
-pub mod errors;
+mod errors;
+pub use errors::{PathError, PathErrorKind};
 
 /// Take an OS-specific path and convert it into the Git index format
 ///

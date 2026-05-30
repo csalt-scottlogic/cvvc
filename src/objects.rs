@@ -5,11 +5,10 @@ use std::{fmt::Display, io::Read, path::Path};
 
 use crate::{
     helpers::{self, timestamp_from_timestamped_name, timestamped_name},
-    objects::errors::InvalidObjectIdError,
 };
 
-/// Object-related error structs.
-pub mod errors;
+mod errors;
+pub use errors::{FindObjectError, InvalidObjectIdError};
 
 mod raw;
 pub use raw::{combine_object_delta_data, ObjectMetadata, RawObject, RawObjectData};

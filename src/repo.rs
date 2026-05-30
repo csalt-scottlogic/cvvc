@@ -15,22 +15,18 @@ use crate::{
     helpers::{
         add_parent_dirs_to_map_of_vecs, add_to_map_of_vecs,
         fs::{
-            check_and_create_dir,
-            errors::{PathError, PathErrorKind},
-            index_path_file, index_path_parent, path_translate, write_single_line,
+            PathError, PathErrorKind, check_and_create_dir, index_path_file, index_path_parent, path_translate, write_single_line
         },
         timestamped_name,
     },
     ignore::IgnoreInfo,
     index::{Index, IndexEntry},
     objects::{
-        errors::FindObjectError, Blob, GitObject, ObjectKind, RawObject, RawObjectData,
-        StoredObject, Tree, TreeNode,
+        Blob, FindObjectError, GitObject, ObjectKind, RawObject, RawObjectData, StoredObject, Tree, TreeNode, 
     },
     ref_log::{RefLog, RefLogEntry},
     stores::{
-        combined_ref_store::CombinedRefStore, file_store::LooseObjectStore, pack_store::PackStore,
-        BranchLocation, BranchSpec, ObjectStore, RefSpec, RefStore,
+        BranchLocation, BranchSpec, CombinedRefStore, LooseObjectStore, ObjectStore, PackStore, RefSpec, RefStore
     },
 };
 

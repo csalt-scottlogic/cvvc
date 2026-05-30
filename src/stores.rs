@@ -5,20 +5,23 @@ use crate::{
     stores::errors::InvalidRefNameError,
 };
 
-/// The store that records ref details using the filesystem.
-pub mod ref_file_store;
+// The store that records ref details using the filesystem.
+mod ref_file_store;
 
-/// The store that reads ref details from a packed ref file.
-pub mod packed_ref_store;
+// The store that reads ref details from a packed ref file.
+mod packed_ref_store;
 
-/// The store that can read ref details from either a loose store or a packed store.
-pub mod combined_ref_store;
+// The store that can read ref details from either a loose store or a packed store.
+mod combined_ref_store;
+pub use combined_ref_store::CombinedRefStore;
 
-/// The loose object store.
-pub mod file_store;
+// The loose object store.
+mod file_store;
+pub use file_store::LooseObjectStore;
 
-/// The store which reads objects from packfiles.
-pub mod pack_store;
+// The store which reads objects from packfiles.
+mod pack_store;
+pub use pack_store::PackStore;
 
 /// Standard error types for stores.
 mod errors;
