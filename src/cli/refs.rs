@@ -1,8 +1,9 @@
 use indexmap::IndexMap;
+use anyhow::anyhow;
 
 use crate::{
     config::GlobalConfig,
-    helpers::{self, find_repo_cwd},
+    helpers::{self, find_repo_cwd, is_ref_name_legal},
     objects::Tag,
     repo::Repository,
 };
@@ -28,6 +29,9 @@ pub fn create_tag(
     message: Option<&str>,
 ) -> Result<(), anyhow::Error> {
     let repo = find_repo_cwd()?;
+    if !is_ref_name_legal(name) {
+        return Err(anyhow!("illegal ref name"));
+    }
     let absolute_target = repo.find_object(target, None, true)?;
     if chunky {
         create_chunky_tag(&repo, config, name, &absolute_target, message)
