@@ -992,7 +992,7 @@ mod tests {
         let StoredObject::Commit(test_output) = test_output else {
             panic!();
         };
-        assert_eq!(test_output.message, "Commit message\n");
+        assert_eq!(test_output.message, "Commit message");
     }
 
     #[test]
@@ -1020,7 +1020,7 @@ mod tests {
         let StoredObject::Tag(test_output) = test_output else {
             panic!();
         };
-        assert_eq!("Tag message\n", test_output.message);
+        assert_eq!("Tag message", test_output.message);
     }
 
     #[test]

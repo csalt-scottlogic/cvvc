@@ -391,6 +391,11 @@ fn kvlm_parse(
 
     if space_index.is_none() || nl_index.unwrap_or(usize::MAX) < space_index.unwrap() {
         let message = String::from_utf8(raw_data[1..].to_vec())?;
+        let message = if message.ends_with("\n") {
+            message.strip_suffix("\n").unwrap().to_string()
+        } else {
+            message
+        };
         return Ok(message);
     }
     let space_index = space_index.unwrap();
