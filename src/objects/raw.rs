@@ -303,32 +303,6 @@ impl RawObject {
         header
     }
 
-    /// Create a [`RawObject`] from an existing in-memory object.
-    ///
-    /// The object will be serialised, and its ID will be computed.
-    /// The data in the [`RawObject`] is copied.
-    pub fn from_git_object(obj: &impl GitObject) -> Self {
-        let mut data = Vec::<u8>::new();
-        obj.serialise(&mut data);
-        let size = data.len();
-        let mut content = Self::construct_header(&obj.kind(), size);
-        content.extend(&data);
-
-        let mut hasher = Sha1::new();
-        hasher.update(&content);
-        let object_id = hex::encode(hasher.finalize());
-        Self {
-            content: RawObjectData {
-                data,
-                metadata: ObjectMetadata {
-                    kind: obj.kind(),
-                    size,
-                },
-            },
-            object_id,
-        }
-    }
-
     /// Get the headerless content of a [`RawObject`]
     pub fn content_headerless(&self) -> &[u8] {
         &self.content.data
@@ -372,6 +346,34 @@ impl RawObject {
                 self.content_headerless(),
             )?)),
             _ => Err(anyhow!("Delta objects cannot be parsed")),
+        }
+    }
+}
+
+impl<T: GitObject> From<&T> for RawObject {
+    /// Create a [`RawObject`] from an existing in-memory object.
+    ///
+    /// The object will be serialised, and its ID will be computed.
+    /// The data in the [`RawObject`] is copied.
+    fn from(value: &T) -> Self {
+        let mut data = Vec::<u8>::new();
+        value.serialise(&mut data);
+        let size = data.len();
+        let mut content = Self::construct_header(&value.kind(), size);
+        content.extend(&data);
+
+        let mut hasher = Sha1::new();
+        hasher.update(&content);
+        let object_id = hex::encode(hasher.finalize());
+        Self {
+            content: RawObjectData {
+                data,
+                metadata: ObjectMetadata {
+                    kind: value.kind(),
+                    size,
+                },
+            },
+            object_id,
         }
     }
 }
@@ -775,7 +777,7 @@ mod tests {
         let test_input = Blob::new_from_read(&mut test_data.as_slice()).unwrap();
         let expected_test_id = "8216d33b7e88ed6bf2cb4eea14b3020f54325484";
 
-        let test_output = RawObject::from_git_object(&test_input);
+        let test_output = RawObject::from(&test_input);
 
         assert_eq!(test_output.content.data, b"Biscuits");
         assert_eq!(test_output.content.metadata.kind, ObjectKind::Blob);
@@ -806,7 +808,7 @@ mod tests {
         ];
         let expected_id = "2977356f97c83af114be964f85721dc7271a7811";
 
-        let test_output = RawObject::from_git_object(&test_input);
+        let test_output = RawObject::from(&test_input);
 
         assert_eq!(test_output.content.metadata.kind, ObjectKind::Commit);
         assert_eq!(test_output.content.data, expected_data);
@@ -828,7 +830,7 @@ mod tests {
         ];
         let expected_id = "9d298423b3547d85ed7b9344ffad4e0c73eb1da2";
 
-        let test_output = RawObject::from_git_object(&test_input);
+        let test_output = RawObject::from(&test_input);
 
         assert_eq!(test_output.content.metadata.kind, ObjectKind::Tree);
         assert_eq!(test_output.content.data, expected_data);
@@ -856,7 +858,7 @@ mod tests {
         ];
         let expected_id = "887f3ca1f58a93dd3cc7b19c0c5da705d627d9e6";
 
-        let test_output = RawObject::from_git_object(&test_input);
+        let test_output = RawObject::from(&test_input);
 
         assert_eq!(test_output.content.metadata.kind, ObjectKind::Tag);
         assert_eq!(test_output.content.data, expected_data);

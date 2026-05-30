@@ -56,7 +56,7 @@ fn cat_file_from_repo(
 
 /// Entry point for the `cv object-hash` command.
 pub fn object_hash(write: bool, filename: &str) -> Result<(), anyhow::Error> {
-    let raw_object = RawObject::from_git_object(&Blob::new_from_path(filename)?);
+    let raw_object = RawObject::from(&Blob::new_from_path(filename)?);
     println!("{}", raw_object.object_id());
     if write {
         if let Some(repo) = Repository::find_cwd()? {
