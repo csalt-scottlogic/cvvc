@@ -28,6 +28,16 @@ pub fn current_branch_and_commit() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
+pub fn list_commits() -> Result<(), anyhow::Error> {
+    let repo = find_repo_cwd()?;
+    let commits = repo.commits()?;
+    for commit in commits {
+        let commit = commit?;
+        println!("{commit}");
+    }
+    Ok(())
+}
+
 /// Entry point for the `cv ls-files` command.
 pub fn list_files(verbose: bool) -> Result<(), anyhow::Error> {
     let repo = find_repo_cwd()?;

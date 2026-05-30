@@ -60,6 +60,9 @@ enum Commands {
         #[arg(value_name = "COMMIT-OR-TREE")]
         target: String,
     },
+    /// List all reachable commits
+    #[command(name = "ls-commits")]
+    CommitList,
     /// Create a new commit object
     #[command(name = "commit-tree", arg_required_else_help = true)]
     CommitTree {
@@ -227,6 +230,7 @@ fn parse_dispatch() -> ExitCode {
             }
         }
         Commands::Commit { message } => staging::full_commit(&config, message),
+        Commands::CommitList => staging::list_commits(),
         Commands::CommitTree {
             tree_id,
             parents,

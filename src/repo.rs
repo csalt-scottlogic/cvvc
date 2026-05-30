@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Context};
-use chrono::{DateTime, TimeZone};
+use chrono::{DateTime, TimeZone, Utc};
 use indexmap::IndexMap;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     env,
     fmt::Display,
     fs,
@@ -19,16 +19,18 @@ use crate::{
             errors::{PathError, PathErrorKind},
             index_path_file, index_path_parent, path_translate, write_single_line,
         },
-        timestamped_name,
+        timestamp_from_timestamped_name, timestamped_name,
     },
     ignore::IgnoreInfo,
     index::{Index, IndexEntry},
     objects::{
-        Blob, GitObject, ObjectKind, RawObject, RawObjectData, StoredObject, Tree, TreeNode, errors::FindObjectError
+        errors::FindObjectError, Blob, GitObject, ObjectKind, RawObject, RawObjectData,
+        StoredObject, Tree, TreeNode,
     },
     ref_log::{RefLog, RefLogEntry},
     stores::{
-        BranchLocation, BranchSpec, ObjectStore, RefSpec, RefStore, combined_ref_store::CombinedRefStore, file_store::LooseObjectStore, pack_store::PackStore
+        combined_ref_store::CombinedRefStore, file_store::LooseObjectStore, pack_store::PackStore,
+        BranchLocation, BranchSpec, ObjectStore, RefSpec, RefStore,
     },
 };
 
@@ -454,6 +456,13 @@ impl Repository {
             }
         }
         Ok(None)
+    }
+
+    /// Determine if an object is present in the repository.
+    ///
+    /// The parameter should be the full ID of an object.
+    pub fn has_object(&self, object_id: &str) -> Result<bool, anyhow::Error> {
+        Ok(self.find_store_for_object(object_id)?.is_some())
     }
 
     fn read_raw_object_data(
@@ -1120,6 +1129,105 @@ impl Repository {
     /// Get details of a remote, or `None` if the remote does not exist.
     pub fn get_remote<'a>(&'a self, name: &'a str) -> Option<RemoteInfo<'a>> {
         self.config.remote_info(name)
+    }
+
+    pub fn commits<'a>(&'a self) -> Result<CommitIterator<'a>, anyhow::Error> {
+        CommitIterator::new(self)
+    }
+}
+
+pub struct CommitIterator<'a> {
+    repo: &'a Repository,
+    queue: VecDeque<String>,
+    seen: HashSet<String>,
+}
+
+impl<'a> CommitIterator<'a> {
+    pub fn new(repo: &'a Repository) -> Result<CommitIterator<'a>, anyhow::Error> {
+        let seen = repo
+            .ref_store
+            .all_ref_targets()?
+            .into_iter()
+            .filter_map(|r| {
+                if r.1.starts_with("ref:")
+                    && repo.has_object(&r.1).unwrap_or(true)
+                    && repo
+                        .read_raw_object(&r.1)
+                        .map(|c| c.unwrap().metadata().kind != ObjectKind::Commit)
+                        .unwrap_or(true)
+                {
+                    None
+                } else {
+                    Some(r.1)
+                }
+            })
+            .filter_map(|id| {
+                let raw_obj = repo.read_raw_object(&id);
+                if let Ok(Some(raw_obj)) = raw_obj {
+                    match raw_obj.metadata().kind {
+                        ObjectKind::Commit => Some(id),
+                        ObjectKind::Tag => {
+                            if let Ok(StoredObject::Tag(tag)) = raw_obj.to_stored_object() {
+                                tag.target().ok()
+                            } else {
+                                None
+                            }
+                        },
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect::<HashSet<String>>();
+
+        let queue = Self::generate_queue(repo, &seen);
+        Ok(CommitIterator { repo, queue, seen })
+    }
+
+    fn generate_queue(repo: &Repository, set: &HashSet<String>) -> VecDeque<String> {
+        let mut ref_commits = set.iter().map(|x| x.as_str()).collect::<Vec<&str>>();
+        ref_commits.sort_by_key(|id| {
+            let commit = repo.read_object(&id);
+            let Ok(Some(StoredObject::Commit(commit))) = commit else {
+                return Utc::now().into();
+            };
+            if let Some(timestamp) = commit.timestamp() {
+                timestamp
+            } else {
+                Utc::now().into()
+            }
+        });
+        ref_commits.reverse();
+        let mut queue = VecDeque::<String>::new();
+        for commit in ref_commits {
+            queue.push_back(commit.to_string());
+        }
+        queue
+    }
+}
+
+impl<'a> Iterator for CommitIterator<'a> {
+    type Item = Result<String, anyhow::Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let Some(next_val) = self.queue.pop_front() else {
+            return None;
+        };
+        let commit = self.repo.read_object(&next_val);
+        let Ok(commit) = commit else {
+            return Some(Err(anyhow!("error loading commit")));
+        };
+        let Some(StoredObject::Commit(commit)) = commit else {
+            return Some(Err(anyhow!("error loading commit, or ID is not a commit")));
+        };
+        for parent in commit.parents() {
+            if !self.seen.contains(&parent) {
+                self.queue.push_back(parent.clone());
+                self.seen.insert(parent);
+            }
+        }
+        Some(Ok(next_val))
     }
 }
 

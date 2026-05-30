@@ -1,7 +1,7 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use std::{collections::HashMap, fmt::Display, str::FromStr};
 
-use chrono::{DateTime, Local, TimeZone, Utc};
+use chrono::{DateTime, FixedOffset, Local, TimeZone, Utc};
 
 use crate::{helpers::fs::index_path_parent, repo::Repository};
 
@@ -118,6 +118,29 @@ where
     Tz::Offset: Display,
 {
     format!("{} {}", name, timestamp.format("%s %z"))
+}
+
+/// Takes a string in the "user timestamp" format used in commits and tags, and extracts the timestamp.
+///
+/// The input string format is `Real Name <user@example.com> nnnnnnn +zzzz` where nnnnnnn is the number of seconds
+/// since the Unix datum and +zzzz is the explicitly-signed timezone offset in hours and minutes.
+///
+/// # Errors
+///
+/// This function returns an error if it cannot find the start of the timestamp, or if the timestamp cannot be
+/// correctly parsed.
+pub fn timestamp_from_timestamped_name(
+    timestamped_name: &str,
+) -> Result<DateTime<FixedOffset>, anyhow::Error> {
+    let input = timestamped_name.trim();
+    let Some(idx) = input.rfind(" ") else {
+        return Err(anyhow!("string contains no spaces"));
+    };
+    let Some(idx) = input[..idx].rfind(" ") else {
+        return Err(anyhow!("string contains only one space"));
+    };
+    DateTime::parse_from_str(&input[idx..], " %s %z")
+        .context("could not parse final part of string")
 }
 
 /// Returns an owned string consisting of a prefix string, a colon, and the first line of a second "message" string.

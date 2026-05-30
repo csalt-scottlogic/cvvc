@@ -1,10 +1,10 @@
 use anyhow::{anyhow, Context};
-use chrono::{DateTime, TimeZone};
+use chrono::{DateTime, FixedOffset, TimeZone};
 use indexmap::IndexMap;
 use std::{fmt::Display, io::Read, path::Path};
 
 use crate::{
-    helpers::{self, timestamped_name},
+    helpers::{self, timestamp_from_timestamped_name, timestamped_name},
     objects::errors::InvalidObjectIdError,
 };
 
@@ -217,6 +217,25 @@ impl Commit {
                 .collect::<Vec<String>>()
         } else {
             vec![]
+        }
+    }
+
+    pub fn timestamp(&self) -> Option<DateTime<FixedOffset>> {
+        if self.map.contains_key("committer") {
+            let mut timestamps = self.map["committer"]
+                .iter()
+                .filter_map(|x| timestamp_from_timestamped_name(x).ok())
+                .collect::<Vec<DateTime<FixedOffset>>>();
+            if timestamps.len() > 1 {
+                timestamps.sort();
+            }
+            if timestamps.is_empty() {
+                None
+            } else {
+                Some(timestamps[0])
+            }
+        } else {
+            None
         }
     }
 
