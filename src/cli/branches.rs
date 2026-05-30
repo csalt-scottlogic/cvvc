@@ -1,5 +1,5 @@
 use crate::{
-    config::GlobalConfig, helpers::find_repo_cwd, objects::StoredObject, repo::Repository,
+    config::GlobalConfig, helpers::find_repo_cwd, objects::StoredObject, repo::Repository, stores::BranchLocation,
 };
 use anyhow::anyhow;
 use chrono::{Local, Utc};
@@ -29,7 +29,7 @@ pub fn list_branches() -> Result<(), anyhow::Error> {
 fn list_branches_in_repo(repo: &Repository) -> Result<(), anyhow::Error> {
     let branches = repo.branches()?;
     let cb = repo.current_branch()?;
-    for branch in branches {
+    for branch in branches.into_iter().filter(|b| b.location == BranchLocation::Local) {
         let cb_flag = if cb.as_ref().map(|b| &b.name) == Some(&branch.name) {
             "*"
         } else {
