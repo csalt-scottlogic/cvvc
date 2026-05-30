@@ -1,9 +1,8 @@
 use anyhow::{anyhow, Context};
-use chrono::{DateTime, TimeZone};
+use chrono::{DateTime, TimeZone, Utc};
 use indexmap::IndexMap;
-use ini::Ini;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     env,
     fmt::Display,
     fs,
@@ -12,26 +11,25 @@ use std::{
 };
 
 use crate::{
-    config::default_repo_config,
+    config::{RemoteInfo, RepoConfig},
     helpers::{
         add_parent_dirs_to_map_of_vecs, add_to_map_of_vecs,
         fs::{
-            check_and_create_dir,
-            errors::{PathError, PathErrorKind},
-            index_path_file, index_path_parent, path_translate, write_single_line,
+            check_and_create_dir, index_path_file, index_path_parent, path_translate,
+            write_single_line, PathError, PathErrorKind,
         },
         timestamped_name,
     },
     ignore::IgnoreInfo,
     index::{Index, IndexEntry},
     objects::{
-        errors::FindObjectError, Blob, GitObject, ObjectKind, RawObject, RawObjectData,
-        StoredObject, Tree, TreeNode,
+        Blob, FindObjectError, GitObject, ObjectKind, RawObject, RawObjectData, StoredObject, Tree,
+        TreeNode,
     },
     ref_log::{RefLog, RefLogEntry},
     stores::{
-        combined_ref_store::CombinedRefStore, file_store::LooseObjectStore, pack_store::PackStore,
-        BranchLocation, BranchSpec, ObjectStore, RefSpec, RefStore,
+        BranchLocation, BranchSpec, CombinedRefStore, LooseObjectStore, ObjectStore, PackStore,
+        RefSpec, RefStore,
     },
 };
 
@@ -51,7 +49,7 @@ pub struct Repository {
     packs: Vec<PackStore>,
     ref_store: CombinedRefStore,
     ref_log_store: RefLog,
-    config: Ini,
+    config: RepoConfig,
 }
 
 impl Repository {
@@ -116,47 +114,13 @@ impl Repository {
             return Err(anyhow!("Not a git directory"));
         }
         let config_path = git_dir.join("config");
-        let mut wrapped_config: Option<Ini> = None;
-        if config_path.is_file() {
-            let loaded_config = Ini::load_from_file(config_path);
-            if let Err(lce) = loaded_config {
-                if !allow_invalid {
-                    return Err(
-                        anyhow::Error::from(lce).context("Could not open configuration file")
-                    );
-                }
-            } else {
-                wrapped_config = Some(loaded_config.unwrap());
-            }
-        } else if !allow_invalid {
-            return Err(anyhow!("Configuration file missing"));
+        if (!allow_invalid) && (!config_path.is_file()) {
+            return Err(anyhow!("configuration file missing"));
         }
-
-        let config = wrapped_config.unwrap_or_else(default_repo_config);
-
-        if !allow_invalid {
-            let core_section = match config.section(Some("core")) {
-                Some(s) => s,
-                None => {
-                    return Err(anyhow!(
-                        "Configuration file does not contain a [core] section"
-                    ))
-                }
-            };
-            let format_version_property = match core_section.get("repositoryformatversion") {
-                Some(s) => s,
-                None => {
-                    return Err(anyhow!(
-                        "Configuration file does not have the repository format version set"
-                    ))
-                }
-            };
-            let format_version = format_version_property
-                .parse::<i32>()
-                .context("repositoryformatversion is not an integer")?;
-            if format_version != 0 {
-                return Err(anyhow!("Unsupported repository version {format_version}"));
-            }
+        let config = RepoConfig::new(config_path);
+        let version = config.version()?;
+        if version != 0 {
+            return Err(anyhow!("unsupported repository format version {version}"));
         }
 
         let loose_store_path = git_dir.join("objects");
@@ -255,7 +219,7 @@ impl Repository {
             &format!("ref: refs/heads/{first_branch}"),
         )?;
 
-        repo.config.write_to_file(repo.file("config")?)?;
+        repo.config.save()?;
 
         Ok(repo)
     }
@@ -493,6 +457,13 @@ impl Repository {
         Ok(None)
     }
 
+    /// Determine if an object is present in the repository.
+    ///
+    /// The parameter should be the full ID of an object.
+    pub fn has_object(&self, object_id: &str) -> Result<bool, anyhow::Error> {
+        Ok(self.find_store_for_object(object_id)?.is_some())
+    }
+
     fn read_raw_object_data(
         &self,
         object_id: &str,
@@ -538,7 +509,7 @@ impl Repository {
             _ => raw_object_data,
         };
 
-        Ok(Some(RawObject::from_raw_object_data(raw_object_data)?))
+        Ok(Some(RawObject::try_from(raw_object_data)?))
     }
 
     /// Reads an object from the object stores.
@@ -903,8 +874,8 @@ impl Repository {
         };
         for entry in tree.entries() {
             let full_path = match prefix {
-                "" => entry.name.to_string(),
-                _ => format!("{prefix}/{}", entry.name),
+                "" => entry.name().to_string(),
+                _ => format!("{prefix}/{}", entry.name()),
             };
             if entry.mode < 0o100000 {
                 // Directory
@@ -1147,6 +1118,127 @@ impl Repository {
     /// This method returns an error if it encounters any errors reading from the filesystem.
     pub fn list_ref_logs(&self) -> Result<Vec<String>, anyhow::Error> {
         self.ref_log_store.list_ref_logs()
+    }
+
+    /// List the names of remotes from the repository's config.
+    pub fn list_remote_names(&self) -> Vec<&str> {
+        self.config.remote_names()
+    }
+
+    /// Get details of a remote, or `None` if the remote does not exist.
+    pub fn get_remote<'a>(&'a self, name: &'a str) -> Option<RemoteInfo<'a>> {
+        self.config.remote_info(name)
+    }
+
+    /// Get an iterator that returns all of the reachable commit IDs in the repository.
+    ///
+    /// # Errors
+    ///
+    /// This method returns an error if it encounters any errors reading the repository's
+    /// refs.
+    pub fn commits<'a>(&'a self) -> Result<CommitIterator<'a>, anyhow::Error> {
+        CommitIterator::new(self)
+    }
+}
+
+/// An iterator which iterates over the valid commit IDs in the repository.  Each commit ID
+/// is guaranteed to only be returned once.
+///
+/// This iterator's associated type is `Result<String, Error>`, because at each iteration
+/// it reads the returned commit to determine its parents and potentially queue them for
+/// later output.  If that read fails, it will error.
+pub struct CommitIterator<'a> {
+    repo: &'a Repository,
+    queue: VecDeque<String>,
+    seen: HashSet<String>,
+}
+
+impl<'a> CommitIterator<'a> {
+    fn new(repo: &'a Repository) -> Result<CommitIterator<'a>, anyhow::Error> {
+        let seen = repo
+            .ref_store
+            .all_ref_targets()?
+            .into_iter()
+            .filter_map(|r| {
+                if r.1.starts_with("ref:")
+                    && repo.has_object(&r.1).unwrap_or(true)
+                    && repo
+                        .read_raw_object(&r.1)
+                        .map(|c| c.unwrap().metadata().kind != ObjectKind::Commit)
+                        .unwrap_or(true)
+                {
+                    None
+                } else {
+                    Some(r.1)
+                }
+            })
+            .filter_map(|id| {
+                let raw_obj = repo.read_raw_object(&id);
+                if let Ok(Some(raw_obj)) = raw_obj {
+                    match raw_obj.metadata().kind {
+                        ObjectKind::Commit => Some(id),
+                        ObjectKind::Tag => {
+                            if let Ok(StoredObject::Tag(tag)) = raw_obj.to_stored_object() {
+                                tag.target().ok()
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect::<HashSet<String>>();
+
+        let queue = Self::generate_queue(repo, &seen);
+        Ok(CommitIterator { repo, queue, seen })
+    }
+
+    fn generate_queue(repo: &Repository, set: &HashSet<String>) -> VecDeque<String> {
+        let mut ref_commits = set.iter().map(|x| x.as_str()).collect::<Vec<&str>>();
+        ref_commits.sort_by_key(|id| {
+            let commit = repo.read_object(&id);
+            let Ok(Some(StoredObject::Commit(commit))) = commit else {
+                return Utc::now().into();
+            };
+            if let Some(timestamp) = commit.timestamp() {
+                timestamp
+            } else {
+                Utc::now().into()
+            }
+        });
+        ref_commits.reverse();
+        let mut queue = VecDeque::<String>::new();
+        for commit in ref_commits {
+            queue.push_back(commit.to_string());
+        }
+        queue
+    }
+}
+
+impl<'a> Iterator for CommitIterator<'a> {
+    type Item = Result<String, anyhow::Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let Some(next_val) = self.queue.pop_front() else {
+            return None;
+        };
+        let commit = self.repo.read_object(&next_val);
+        let Ok(commit) = commit else {
+            return Some(Err(anyhow!("error loading commit")));
+        };
+        let Some(StoredObject::Commit(commit)) = commit else {
+            return Some(Err(anyhow!("error loading commit, or ID is not a commit")));
+        };
+        for parent in commit.parents() {
+            if !self.seen.contains(&parent) {
+                self.queue.push_back(parent.clone());
+                self.seen.insert(parent);
+            }
+        }
+        Some(Ok(next_val))
     }
 }
 

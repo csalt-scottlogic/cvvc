@@ -3,7 +3,7 @@ use std::process::ExitCode;
 use clap::{Args, Parser, Subcommand};
 
 use cvvc::{
-    cli::{branches, init, log, objects, ref_log, refs, staging},
+    cli::{branches, init, log, objects, ref_log, refs, remotes, staging},
     config::GlobalConfig,
 };
 
@@ -60,6 +60,9 @@ enum Commands {
         #[arg(value_name = "COMMIT-OR-TREE")]
         target: String,
     },
+    /// List all reachable commits
+    #[command(name = "ls-commits")]
+    CommitList,
     /// Create a new commit object
     #[command(name = "commit-tree", arg_required_else_help = true)]
     CommitTree {
@@ -126,6 +129,12 @@ enum Commands {
     /// Examine or edit the reference log
     #[command(name = "reflog")]
     RefLog(RefLogArgs),
+    /// View and edit remote information
+    #[command()]
+    Remote {
+        #[arg(short, long)]
+        verbose: bool,
+    },
     /// Remove files from the index and the working tree
     #[command(name = "rm")]
     Remove {
@@ -221,6 +230,7 @@ fn parse_dispatch() -> ExitCode {
             }
         }
         Commands::Commit { message } => staging::full_commit(&config, message),
+        Commands::CommitList => staging::list_commits(),
         Commands::CommitTree {
             tree_id,
             parents,
@@ -249,6 +259,7 @@ fn parse_dispatch() -> ExitCode {
                 }
             }
         },
+        Commands::Remote { verbose } => remotes::list_remotes(verbose),
         Commands::Remove {
             index_only,
             ignore_no_matches,

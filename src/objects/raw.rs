@@ -295,63 +295,12 @@ impl RawObject {
         }
     }
 
-    /// Create a [`RawObject`] from data loaded without an object ID.
-    ///
-    /// The object ID will be computed by hashing the data, prepending the appropriate header first.
-    ///
-    /// # Errors
-    ///
-    /// If the data consists of diff commands for a "named delta" object, this function will return an error,
-    /// as the object ID cannot be computed.  The `data` should be combined with its base object first using
-    /// the [`RawObjectData::combine()`] method.
-    pub fn from_raw_object_data(data: RawObjectData) -> Result<Self, anyhow::Error> {
-        if matches!(data.metadata.kind, ObjectKind::Delta(_)) {
-            return Err(anyhow!("cannot construct raw object from delta data"));
-        }
-        let mut headery_data = Self::construct_header(&data.metadata.kind, data.metadata.size);
-        headery_data.append(&mut data.data.to_vec());
-        let mut hasher = Sha1::new();
-        hasher.update(&headery_data);
-        let object_id = hex::encode(hasher.finalize());
-
-        Ok(Self {
-            content: data,
-            object_id,
-        })
-    }
-
     fn construct_header(kind: &ObjectKind, size: usize) -> Vec<u8> {
         let mut header = kind.bytes().to_vec();
         header.extend(b" ");
         header.extend(size.to_string().into_bytes());
         header.extend(b"\x00");
         header
-    }
-
-    /// Create a [`RawObject`] from an existing in-memory object.
-    ///
-    /// The object will be serialised, and its ID will be computed.
-    /// The data in the [`RawObject`] is copied.
-    pub fn from_git_object(obj: &impl GitObject) -> Self {
-        let mut data = Vec::<u8>::new();
-        obj.serialise(&mut data);
-        let size = data.len();
-        let mut content = Self::construct_header(&obj.kind(), size);
-        content.extend(&data);
-
-        let mut hasher = Sha1::new();
-        hasher.update(&content);
-        let object_id = hex::encode(hasher.finalize());
-        Self {
-            content: RawObjectData {
-                data,
-                metadata: ObjectMetadata {
-                    kind: obj.kind(),
-                    size,
-                },
-            },
-            object_id,
-        }
     }
 
     /// Get the headerless content of a [`RawObject`]
@@ -398,6 +347,63 @@ impl RawObject {
             )?)),
             _ => Err(anyhow!("Delta objects cannot be parsed")),
         }
+    }
+}
+
+impl<T: GitObject> From<&T> for RawObject {
+    /// Create a [`RawObject`] from an existing in-memory object.
+    ///
+    /// The object will be serialised, and its ID will be computed.
+    /// The data in the [`RawObject`] is copied.
+    fn from(value: &T) -> Self {
+        let mut data = Vec::<u8>::new();
+        value.serialise(&mut data);
+        let size = data.len();
+        let mut content = Self::construct_header(&value.kind(), size);
+        content.extend(&data);
+
+        let mut hasher = Sha1::new();
+        hasher.update(&content);
+        let object_id = hex::encode(hasher.finalize());
+        Self {
+            content: RawObjectData {
+                data,
+                metadata: ObjectMetadata {
+                    kind: value.kind(),
+                    size,
+                },
+            },
+            object_id,
+        }
+    }
+}
+
+impl TryFrom<RawObjectData> for RawObject {
+    type Error = anyhow::Error;
+
+    /// Create a [`RawObject`] from data loaded without an object ID.
+    ///
+    /// The object ID will be computed by hashing the data, prepending the appropriate header first.
+    ///
+    /// # Errors
+    ///
+    /// If the data consists of diff commands for a "named delta" object, this function will return an error,
+    /// as the object ID cannot be computed.  The `data` should be combined with its base object first using
+    /// the [`RawObjectData::combine()`] method.
+    fn try_from(value: RawObjectData) -> Result<Self, Self::Error> {
+        if matches!(value.metadata.kind, ObjectKind::Delta(_)) {
+            return Err(anyhow!("cannot construct raw object from delta data"));
+        }
+        let mut headery_data = Self::construct_header(&value.metadata.kind, value.metadata.size);
+        headery_data.append(&mut value.data.to_vec());
+        let mut hasher = Sha1::new();
+        hasher.update(&headery_data);
+        let object_id = hex::encode(hasher.finalize());
+
+        Ok(Self {
+            content: value,
+            object_id,
+        })
     }
 }
 
@@ -745,7 +751,7 @@ mod tests {
         let test_id = "8216d33b7e88ed6bf2cb4eea14b3020f54325484";
         let test_input = RawObjectData::new(&test_data, test_metadata);
 
-        let test_output = RawObject::from_raw_object_data(test_input).unwrap();
+        let test_output = RawObject::try_from(test_input).unwrap();
 
         assert_eq!(test_output.content.data, b"Biscuits");
         assert_eq!(test_output.content.metadata.kind, ObjectKind::Blob);
@@ -762,7 +768,7 @@ mod tests {
         );
         let test_input = RawObjectData::new(&test_data, test_metadata);
 
-        RawObject::from_raw_object_data(test_input).unwrap_err();
+        RawObject::try_from(test_input).unwrap_err();
     }
 
     #[test]
@@ -771,7 +777,7 @@ mod tests {
         let test_input = Blob::new_from_read(&mut test_data.as_slice()).unwrap();
         let expected_test_id = "8216d33b7e88ed6bf2cb4eea14b3020f54325484";
 
-        let test_output = RawObject::from_git_object(&test_input);
+        let test_output = RawObject::from(&test_input);
 
         assert_eq!(test_output.content.data, b"Biscuits");
         assert_eq!(test_output.content.metadata.kind, ObjectKind::Blob);
@@ -802,7 +808,7 @@ mod tests {
         ];
         let expected_id = "2977356f97c83af114be964f85721dc7271a7811";
 
-        let test_output = RawObject::from_git_object(&test_input);
+        let test_output = RawObject::from(&test_input);
 
         assert_eq!(test_output.content.metadata.kind, ObjectKind::Commit);
         assert_eq!(test_output.content.data, expected_data);
@@ -824,7 +830,7 @@ mod tests {
         ];
         let expected_id = "9d298423b3547d85ed7b9344ffad4e0c73eb1da2";
 
-        let test_output = RawObject::from_git_object(&test_input);
+        let test_output = RawObject::from(&test_input);
 
         assert_eq!(test_output.content.metadata.kind, ObjectKind::Tree);
         assert_eq!(test_output.content.data, expected_data);
@@ -852,7 +858,7 @@ mod tests {
         ];
         let expected_id = "887f3ca1f58a93dd3cc7b19c0c5da705d627d9e6";
 
-        let test_output = RawObject::from_git_object(&test_input);
+        let test_output = RawObject::from(&test_input);
 
         assert_eq!(test_output.content.metadata.kind, ObjectKind::Tag);
         assert_eq!(test_output.content.data, expected_data);
@@ -986,7 +992,7 @@ mod tests {
         let StoredObject::Commit(test_output) = test_output else {
             panic!();
         };
-        assert_eq!(test_output.message, "Commit message\n");
+        assert_eq!(test_output.message, "Commit message");
     }
 
     #[test]
@@ -1014,7 +1020,7 @@ mod tests {
         let StoredObject::Tag(test_output) = test_output else {
             panic!();
         };
-        assert_eq!("Tag message\n", test_output.message);
+        assert_eq!("Tag message", test_output.message);
     }
 
     #[test]
@@ -1037,11 +1043,11 @@ mod tests {
         let StoredObject::Tree(test_output) = test_output else {
             panic!();
         };
-        assert_eq!(test_output.entries.len(), 1);
-        assert_eq!(test_output.entries.first().unwrap().mode, 0o40000);
-        assert_eq!(test_output.entries.first().unwrap().name, "src");
+        assert_eq!(test_output.entries().len(), 1);
+        assert_eq!(test_output.entries().first().unwrap().mode, 0o40000);
+        assert_eq!(test_output.entries().first().unwrap().name(), "src");
         assert_eq!(
-            test_output.entries.first().unwrap().object_id,
+            test_output.entries().first().unwrap().object_id,
             "88223311aaeeccff772288223311aaeeccff7722"
         );
     }

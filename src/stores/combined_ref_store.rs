@@ -7,10 +7,10 @@ use crate::stores::{
     packed_ref_store::PackedRefStore, ref_file_store::RefFileStore, BranchSpec, RefSpec, RefStore,
 };
 
-/// A [`RefStore`] implementation which provides a facade over both a [`RefFileStore`] and, optionally, a [`PackedRefStore`]
+/// A [`RefStore`] implementation which provides a facade over both a loose ref store and, optionally, a packed ref store.
 ///
-/// Create and update operations write to the [`RefFileStore`].  Read operations read from both, but the content of the
-/// [`RefFileStore`] takes priority if a ref is present in both stores but has different targets.
+/// Create and update operations write to the loose ref store.  Read operations read from both, but the content of the
+/// loose ref store takes priority if a ref is present in both stores but has different targets.
 pub struct CombinedRefStore {
     loose_store: RefFileStore,
     packed_store: Option<PackedRefStore>,

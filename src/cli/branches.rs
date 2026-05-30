@@ -1,5 +1,6 @@
 use crate::{
-    config::GlobalConfig, helpers::find_repo_cwd, objects::StoredObject, repo::Repository,
+    config::GlobalConfig, helpers::{find_repo_cwd, is_ref_name_legal}, objects::StoredObject, repo::Repository,
+    stores::BranchLocation,
 };
 use anyhow::anyhow;
 use chrono::{Local, Utc};
@@ -29,7 +30,10 @@ pub fn list_branches() -> Result<(), anyhow::Error> {
 fn list_branches_in_repo(repo: &Repository) -> Result<(), anyhow::Error> {
     let branches = repo.branches()?;
     let cb = repo.current_branch()?;
-    for branch in branches {
+    for branch in branches
+        .into_iter()
+        .filter(|b| b.location == BranchLocation::Local)
+    {
         let cb_flag = if cb.as_ref().map(|b| &b.name) == Some(&branch.name) {
             "*"
         } else {
@@ -58,6 +62,9 @@ fn new_branch_in_repo(
     checkout: bool,
     config: &GlobalConfig,
 ) -> Result<(), anyhow::Error> {
+    if !is_ref_name_legal(&branch_name) {
+        return Err(anyhow!("illegal ref name"));
+    }
     if ILLEGAL_BRANCH_NAMES.contains(&branch_name) {
         return Err(anyhow!("reserved branch name {branch_name}"));
     }

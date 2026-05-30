@@ -56,7 +56,7 @@ fn cat_file_from_repo(
 
 /// Entry point for the `cv object-hash` command.
 pub fn object_hash(write: bool, filename: &str) -> Result<(), anyhow::Error> {
-    let raw_object = RawObject::from_git_object(&Blob::new_from_path(filename)?);
+    let raw_object = RawObject::from(&Blob::new_from_path(filename)?);
     println!("{}", raw_object.object_id());
     if write {
         if let Some(repo) = Repository::find_cwd()? {
@@ -96,8 +96,8 @@ fn list_tree_recursive(
         };
         if !(recursive && item_type == "tree") {
             let path_str = match prefix {
-                Some(prefix) => prefix.join(&item.name).to_string_lossy().to_string(),
-                None => item.name.to_string(),
+                Some(prefix) => prefix.join(item.name()).to_string_lossy().to_string(),
+                None => item.name().to_string(),
             };
             println!(
                 "{:06o} {} {}\t{}",
@@ -108,7 +108,7 @@ fn list_tree_recursive(
                 recursive,
                 repo,
                 &item.object_id,
-                Some(&PathBuf::from_str(&item.name)?),
+                Some(&PathBuf::from_str(item.name())?),
             )?;
         }
     }

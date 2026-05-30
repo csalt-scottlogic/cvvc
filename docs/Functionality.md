@@ -101,6 +101,10 @@ This command takes the form `cv init [<path>]`, with `path` defaulting to the wo
 
 This command creates an initial `main` branch, and does not honour the `init.defaultbranch` setting (see issue #28).
 
+### `cv ls-commits`
+
+This command is not present in Git.  It takes no options, and (at present) outputs the IDs of all reachable commits in the repo.
+
 ### `cv ls-files`
 
 This command only lists files in the index, and takes a `--verbose` or `-v` option which lists all fields present in the index for each file, similar to the `-v` option in `wyag ls-files`.  It takes no other options.

@@ -1,7 +1,7 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use std::{collections::HashMap, fmt::Display, str::FromStr};
 
-use chrono::{DateTime, Local, TimeZone, Utc};
+use chrono::{DateTime, FixedOffset, Local, TimeZone, Utc};
 
 use crate::{helpers::fs::index_path_parent, repo::Repository};
 
@@ -29,7 +29,7 @@ pub fn u16_from_be_bytes_unchecked(data: &[u8], start_idx: usize) -> u16 {
 
 /// Convert a [`DateTime`] to a byte sequence.
 ///
-/// The iterator will return a sequence of 12 bytes encoding the timestamp value; the first 8 bytes are the number of
+/// The iterator will return a sequence of 8 bytes encoding the timestamp value; the first 4 bytes are the number of
 /// seconds since datum in network order, and the final 4 bytes are the number of nanoseconds since then, also
 /// in network order.
 pub fn datetime_to_bytes<Z>(dt: &DateTime<Z>) -> impl Iterator<Item = u8>
@@ -120,6 +120,29 @@ where
     format!("{} {}", name, timestamp.format("%s %z"))
 }
 
+/// Takes a string in the "user timestamp" format used in commits and tags, and extracts the timestamp.
+///
+/// The input string format is `Real Name <user@example.com> nnnnnnn +zzzz` where nnnnnnn is the number of seconds
+/// since the Unix datum and +zzzz is the explicitly-signed timezone offset in hours and minutes.
+///
+/// # Errors
+///
+/// This function returns an error if it cannot find the start of the timestamp, or if the timestamp cannot be
+/// correctly parsed.
+pub fn timestamp_from_timestamped_name(
+    timestamped_name: &str,
+) -> Result<DateTime<FixedOffset>, anyhow::Error> {
+    let input = timestamped_name.trim();
+    let Some(idx) = input.rfind(" ") else {
+        return Err(anyhow!("string contains no spaces"));
+    };
+    let Some(idx) = input[..idx].rfind(" ") else {
+        return Err(anyhow!("string contains only one space"));
+    };
+    DateTime::parse_from_str(&input[idx..], " %s %z")
+        .context("could not parse final part of string")
+}
+
 /// Returns an owned string consisting of a prefix string, a colon, and the first line of a second "message" string.
 ///
 /// This is used to create a ref log message from a commit.
@@ -159,4 +182,138 @@ pub fn now() -> DateTime<Utc> {
 /// Gets the current local date and time, as a [`DateTime<Local>`]
 pub fn now_here() -> DateTime<Local> {
     Local::now()
+}
+
+/// Determines whether a string is a legal branch or tag name according to Git rules.
+pub fn is_ref_name_legal(name: &str) -> bool {
+    let contains_patterns = ["/.", "..", " ", ":", "~", "^", "?", "*", "[", "\\"];
+    let ends_with_patterns = [".lock", "/", "."];
+    !(contains_patterns.iter().any(|p| name.contains(p))
+        || ends_with_patterns.iter().any(|p| name.ends_with(p)))
+}
+
+#[cfg(test)]
+mod tests {
+
+    use std::collections::HashMap;
+
+    use chrono::DateTime;
+
+    use super::{
+        add_to_map_of_vecs, datetime_to_bytes, shorten_and_prefix_message, timestamped_name,
+        u16_from_be_bytes_unchecked, u32_from_be_bytes_unchecked,
+    };
+
+    #[test]
+    fn u32_from_be_bytes_unchecked_succeeds_if_at_start() {
+        let test_data = [56, 72, 129, 24, 216, 87, 25, 1];
+        let expected_result = 944275736;
+
+        let test_output = u32_from_be_bytes_unchecked(&test_data, 0);
+
+        assert_eq!(expected_result, test_output);
+    }
+
+    #[test]
+    fn u32_from_be_bytes_unchecked_succeeds_if_at_middle() {
+        let test_data = [56, 72, 129, 24, 216, 87, 25, 1];
+        let expected_result = 2165889111;
+
+        let test_output = u32_from_be_bytes_unchecked(&test_data, 2);
+
+        assert_eq!(expected_result, test_output);
+    }
+
+    #[test]
+    fn u32_from_be_bytes_unchecked_succeeds_if_at_end() {
+        let test_data = [56, 72, 129, 24, 216, 87, 25, 1];
+        let expected_result = 3629586689;
+
+        let test_output = u32_from_be_bytes_unchecked(&test_data, 4);
+
+        assert_eq!(expected_result, test_output);
+    }
+
+    #[test]
+    fn u16_from_be_bytes_unchecked_succeeds_if_at_start() {
+        let test_data = [56, 72, 129, 24, 216, 25, 1];
+        let expected_result = 14408;
+
+        let test_output = u16_from_be_bytes_unchecked(&test_data, 0);
+
+        assert_eq!(expected_result, test_output);
+    }
+
+    #[test]
+    fn u16_from_be_bytes_unchecked_succeeds_if_at_middle() {
+        let test_data = [56, 72, 129, 24, 216, 25, 1];
+        let expected_result = 55321;
+
+        let test_output = u16_from_be_bytes_unchecked(&test_data, 4);
+
+        assert_eq!(expected_result, test_output);
+    }
+
+    #[test]
+    fn u16_from_be_bytes_unchecked_succeeds_if_at_end() {
+        let test_data = [56, 72, 129, 24, 216, 25, 1];
+        let expected_result = 6401;
+
+        let test_output = u16_from_be_bytes_unchecked(&test_data, 5);
+
+        assert_eq!(expected_result, test_output);
+    }
+
+    #[test]
+    fn datetime_to_bytes_succeeds() {
+        let test_data = DateTime::parse_from_rfc3339("2026-05-18T21:13:02.598+01:00").unwrap();
+        let expected_result = [106, 11, 114, 206, 35, 164, 193, 128];
+
+        let test_output = datetime_to_bytes(&test_data).collect::<Vec<u8>>();
+
+        assert_eq!(test_output, expected_result);
+    }
+
+    #[test]
+    fn add_to_map_of_vecs_succeeds_when_key_present() {
+        let mut test_map = HashMap::<String, Vec<String>>::new();
+        test_map.insert("test_key".to_string(), vec!["existing value".to_string()]);
+        let new_data = "new data".to_string();
+
+        add_to_map_of_vecs(&mut test_map, "test_key", new_data);
+
+        let test_output = &test_map["test_key"];
+        assert_eq!(*test_output, vec!["existing value", "new data"]);
+    }
+
+    #[test]
+    fn add_to_map_of_vecs_succeeds_when_key_not_present() {
+        let mut test_map = HashMap::<String, Vec<String>>::new();
+        let test_data = "test data".to_string();
+
+        add_to_map_of_vecs(&mut test_map, "data key", test_data);
+
+        let test_output = &test_map["data key"];
+        assert_eq!(*test_output, vec!["test data"]);
+    }
+
+    #[test]
+    fn timestamped_name_succeeds() {
+        let test_name = "Caitlin <cait@example.com>";
+        let test_timestamp = DateTime::parse_from_rfc3339("2026-05-18T21:13:02.598+01:00").unwrap();
+
+        let test_output = timestamped_name(test_name, &test_timestamp);
+
+        assert_eq!("Caitlin <cait@example.com> 1779135182 +0100", test_output);
+    }
+
+    #[test]
+    fn shorten_and_prefix_message_succeeds() {
+        let test_message = "This is a message\nwith multiple\nlines in it\n\n";
+        let test_prefix = "(flag)";
+
+        let test_output = shorten_and_prefix_message(test_prefix, test_message);
+
+        assert_eq!("(flag): This is a message", test_output);
+    }
 }

@@ -28,6 +28,17 @@ pub fn current_branch_and_commit() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
+/// Entry point for the `cv ls-commits` command.
+pub fn list_commits() -> Result<(), anyhow::Error> {
+    let repo = find_repo_cwd()?;
+    let commits = repo.commits()?;
+    for commit in commits {
+        let commit = commit?;
+        println!("{commit}");
+    }
+    Ok(())
+}
+
 /// Entry point for the `cv ls-files` command.
 pub fn list_files(verbose: bool) -> Result<(), anyhow::Error> {
     let repo = find_repo_cwd()?;
@@ -271,7 +282,7 @@ fn status_worktree(repo: &Repository) -> Result<bool, anyhow::Error> {
             };
             if ctimes_differ || entry.mtime != file_mtime {
                 // Timestamps differ; check content.
-                let raw_obj = RawObject::from_git_object(&Blob::new_from_path(&entry_full_path)?);
+                let raw_obj = RawObject::from(&Blob::new_from_path(&entry_full_path)?);
                 if raw_obj.object_id() != entry.object_id {
                     to_print.push(format!("\tmodified:   {}", entry.object_name));
                 }

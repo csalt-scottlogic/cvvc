@@ -1,19 +1,16 @@
 use chrono::{DateTime, Utc};
 use std::{cmp::Ordering, fmt::Display, iter::repeat_n, path::Path};
 
-use self::errors::{
-    InvalidIndexEntryError, InvalidIndexEntryKind, InvalidIndexError, InvalidIndexKind,
-};
-use crate::{
-    helpers::{
-        self, datetime_to_bytes,
-        fs::{index_path_file, index_path_parent, path_translate, FileMetadata},
-    },
-    index::errors::{InvalidIndexEntryPermissions, InvalidIndexEntryType},
+use crate::helpers::{
+    self, datetime_to_bytes,
+    fs::{index_path_file, index_path_parent, path_translate, FileMetadata},
 };
 
-/// Index parse errors
-pub mod errors;
+mod errors;
+pub use errors::{
+    InvalidIndexEntryError, InvalidIndexEntryKind, InvalidIndexEntryPermissions,
+    InvalidIndexEntryType, InvalidIndexError, InvalidIndexKind,
+};
 
 /// The file type of an index entry.
 #[derive(Debug, PartialEq)]
