@@ -62,7 +62,7 @@ pub trait ObjectStore {
     /// The default implementation is a convenience method which calls [`RawObject::from_git_object`]
     /// followed by [`Self::write_raw_object`].
     fn write_object(&self, obj: &impl GitObject) -> Result<String, anyhow::Error> {
-        self.write_raw_object(&RawObject::from_git_object(obj))
+        self.write_raw_object(&RawObject::from(obj))
     }
 }
 
