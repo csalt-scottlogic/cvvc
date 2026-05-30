@@ -295,31 +295,6 @@ impl RawObject {
         }
     }
 
-    /// Create a [`RawObject`] from data loaded without an object ID.
-    ///
-    /// The object ID will be computed by hashing the data, prepending the appropriate header first.
-    ///
-    /// # Errors
-    ///
-    /// If the data consists of diff commands for a "named delta" object, this function will return an error,
-    /// as the object ID cannot be computed.  The `data` should be combined with its base object first using
-    /// the [`RawObjectData::combine()`] method.
-    pub fn from_raw_object_data(data: RawObjectData) -> Result<Self, anyhow::Error> {
-        if matches!(data.metadata.kind, ObjectKind::Delta(_)) {
-            return Err(anyhow!("cannot construct raw object from delta data"));
-        }
-        let mut headery_data = Self::construct_header(&data.metadata.kind, data.metadata.size);
-        headery_data.append(&mut data.data.to_vec());
-        let mut hasher = Sha1::new();
-        hasher.update(&headery_data);
-        let object_id = hex::encode(hasher.finalize());
-
-        Ok(Self {
-            content: data,
-            object_id,
-        })
-    }
-
     fn construct_header(kind: &ObjectKind, size: usize) -> Vec<u8> {
         let mut header = kind.bytes().to_vec();
         header.extend(b" ");
@@ -398,6 +373,35 @@ impl RawObject {
             )?)),
             _ => Err(anyhow!("Delta objects cannot be parsed")),
         }
+    }
+}
+
+impl TryFrom<RawObjectData> for RawObject {
+    type Error = anyhow::Error;
+
+    /// Create a [`RawObject`] from data loaded without an object ID.
+    ///
+    /// The object ID will be computed by hashing the data, prepending the appropriate header first.
+    ///
+    /// # Errors
+    ///
+    /// If the data consists of diff commands for a "named delta" object, this function will return an error,
+    /// as the object ID cannot be computed.  The `data` should be combined with its base object first using
+    /// the [`RawObjectData::combine()`] method.
+    fn try_from(value: RawObjectData) -> Result<Self, Self::Error> {
+        if matches!(value.metadata.kind, ObjectKind::Delta(_)) {
+            return Err(anyhow!("cannot construct raw object from delta data"));
+        }
+        let mut headery_data = Self::construct_header(&value.metadata.kind, value.metadata.size);
+        headery_data.append(&mut value.data.to_vec());
+        let mut hasher = Sha1::new();
+        hasher.update(&headery_data);
+        let object_id = hex::encode(hasher.finalize());
+
+        Ok(Self {
+            content: value,
+            object_id,
+        })
     }
 }
 
@@ -745,7 +749,7 @@ mod tests {
         let test_id = "8216d33b7e88ed6bf2cb4eea14b3020f54325484";
         let test_input = RawObjectData::new(&test_data, test_metadata);
 
-        let test_output = RawObject::from_raw_object_data(test_input).unwrap();
+        let test_output = RawObject::try_from(test_input).unwrap();
 
         assert_eq!(test_output.content.data, b"Biscuits");
         assert_eq!(test_output.content.metadata.kind, ObjectKind::Blob);
@@ -762,7 +766,7 @@ mod tests {
         );
         let test_input = RawObjectData::new(&test_data, test_metadata);
 
-        RawObject::from_raw_object_data(test_input).unwrap_err();
+        RawObject::try_from(test_input).unwrap_err();
     }
 
     #[test]
