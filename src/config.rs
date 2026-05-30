@@ -304,7 +304,7 @@ impl RepoConfig {
     /// List the names of remotes
     ///
     /// This method iterates though all of the config sections named something
-    /// like `[remote "<name>"] and returns the `<name>` part of each.
+    /// like `[remote "<name>"]` and returns the `<name>` part of each.
     pub fn remote_names(&self) -> Vec<&str> {
         self.cf
             .sections()
