@@ -1,10 +1,10 @@
 use anyhow::{anyhow, Context};
-use chrono::{DateTime, TimeZone};
+use chrono::{DateTime, FixedOffset, TimeZone};
 use indexmap::IndexMap;
 use std::{fmt::Display, io::Read, path::Path};
 
 use crate::{
-    helpers::{self, timestamped_name},
+    helpers::{self, timestamp_from_timestamped_name, timestamped_name},
     objects::errors::InvalidObjectIdError,
 };
 
@@ -206,7 +206,7 @@ impl Commit {
         Ok(target.to_string())
     }
 
-    ///  Gets the parent(s) of this commit.
+    /// Gets the parent(s) of this commit.
     ///
     /// Returns an empty vector if the commit has no parents.
     pub fn parents(&self) -> Vec<String> {
@@ -217,6 +217,31 @@ impl Commit {
                 .collect::<Vec<String>>()
         } else {
             vec![]
+        }
+    }
+
+    /// Get the timestamp of this commit.
+    /// 
+    /// This method returns the timestamp associated with the `committer` field of the commit,
+    /// not the `author` field.
+    /// 
+    /// This method returns `None` if the `committer` field cannot be parsed as containing a timestamp.
+    pub fn timestamp(&self) -> Option<DateTime<FixedOffset>> {
+        if self.map.contains_key("committer") {
+            let mut timestamps = self.map["committer"]
+                .iter()
+                .filter_map(|x| timestamp_from_timestamped_name(x).ok())
+                .collect::<Vec<DateTime<FixedOffset>>>();
+            if timestamps.len() > 1 {
+                timestamps.sort();
+            }
+            if timestamps.is_empty() {
+                None
+            } else {
+                Some(timestamps[0])
+            }
+        } else {
+            None
         }
     }
 

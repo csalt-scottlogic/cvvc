@@ -1,7 +1,10 @@
 use anyhow::{anyhow, Context};
 use ini::{Ini, Properties};
 use std::{
-    env, ffi::OsStr, path::{Path, PathBuf}, str::FromStr
+    env,
+    ffi::OsStr,
+    path::{Path, PathBuf},
+    str::FromStr,
 };
 
 /// Global configuration
@@ -319,9 +322,9 @@ impl RepoConfig {
     }
 
     /// Get the details of a named remote, if it exists in the config.
-    /// 
+    ///
     /// Returns `None` if the remote `name` does not exist.
-    /// 
+    ///
     /// If the remote is configured with fetch URLs but no push URLs, the `push_urls`
     /// property will be a clone of the contents of the `fetch_urls` property.
     pub fn remote_info<'a>(&'a self, name: &'a str) -> Option<RemoteInfo<'a>> {
