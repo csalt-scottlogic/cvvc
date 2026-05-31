@@ -29,7 +29,7 @@ use crate::{
     ref_log::{RefLog, RefLogEntry},
     stores::{
         BranchLocation, BranchSpec, CombinedRefStore, LooseObjectStore, ObjectStore, PackStore,
-        RefSpec, RefStore,
+        RefSpec, RefStore, TagSpec,
     },
 };
 
@@ -417,7 +417,7 @@ impl Repository {
 
         let potential_tag = self
             .ref_store
-            .resolve_target(&RefSpec::Tag(name.to_string()))?;
+            .resolve_target(&RefSpec::Tag(TagSpec::new(name, false)))?;
         if let Some(potential_tag) = potential_tag {
             collected.insert(potential_tag);
         }
@@ -1199,7 +1199,7 @@ impl<'a> CommitIterator<'a> {
     fn generate_queue(repo: &Repository, set: &HashSet<String>) -> VecDeque<String> {
         let mut ref_commits = set.iter().map(|x| x.as_str()).collect::<Vec<&str>>();
         ref_commits.sort_by_key(|id| {
-            let commit = repo.read_object(&id);
+            let commit = repo.read_object(id);
             let Ok(Some(StoredObject::Commit(commit))) = commit else {
                 return Utc::now().into();
             };
@@ -1222,9 +1222,7 @@ impl<'a> Iterator for CommitIterator<'a> {
     type Item = Result<String, anyhow::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let Some(next_val) = self.queue.pop_front() else {
-            return None;
-        };
+        let next_val = self.queue.pop_front()?;
         let commit = self.repo.read_object(&next_val);
         let Ok(commit) = commit else {
             return Some(Err(anyhow!("error loading commit")));

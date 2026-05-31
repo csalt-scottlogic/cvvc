@@ -338,7 +338,7 @@ impl RepoConfig {
         };
         let fetch_defs = get_str_setting_from_ini_section(section, "fetch");
         Some(RemoteInfo {
-            name: name,
+            name,
             fetch_urls,
             push_urls,
             fetch_defs,

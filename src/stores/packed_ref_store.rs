@@ -79,8 +79,8 @@ impl RefStore for PackedRefStore {
         Ok(self
             .get_specs()
             .filter_map(|r| match r {
-                RefSpec::Branch(_) => None,
                 RefSpec::Tag(_) => Some(r),
+                _ => None,
             })
             .collect::<Vec<RefSpec>>())
     }
