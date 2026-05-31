@@ -337,7 +337,7 @@ impl RepoConfig {
             push_urls
         };
         Some(RemoteInfo {
-            name: name,
+            name,
             fetch_urls,
             push_urls,
         })

@@ -1,5 +1,8 @@
 use crate::{
-    config::GlobalConfig, helpers::{find_repo_cwd, is_ref_name_legal}, objects::StoredObject, repo::Repository,
+    config::GlobalConfig,
+    helpers::{find_repo_cwd, is_ref_name_legal},
+    objects::StoredObject,
+    repo::Repository,
     stores::BranchLocation,
 };
 use anyhow::anyhow;
@@ -62,7 +65,7 @@ fn new_branch_in_repo(
     checkout: bool,
     config: &GlobalConfig,
 ) -> Result<(), anyhow::Error> {
-    if !is_ref_name_legal(&branch_name) {
+    if !is_ref_name_legal(branch_name) {
         return Err(anyhow!("illegal ref name"));
     }
     if ILLEGAL_BRANCH_NAMES.contains(&branch_name) {

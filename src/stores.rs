@@ -189,6 +189,9 @@ pub enum RefSpec {
 
     /// A tag ref.
     Tag(String),
+
+    /// A symbolic reference to HEAD
+    Head,
 }
 
 impl Display for RefSpec {
@@ -196,6 +199,7 @@ impl Display for RefSpec {
         match self {
             RefSpec::Tag(tag_name) => write!(f, "refs/tags/{tag_name}"),
             RefSpec::Branch(branch_spec) => branch_spec.fmt(f),
+            RefSpec::Head => write!(f, "HEAD"),
         }
     }
 }
@@ -204,7 +208,9 @@ impl FromStr for RefSpec {
     type Err = InvalidRefNameError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.starts_with("refs/tags/")
+        if s == "HEAD" {
+            Ok(Self::Head)
+        } else if s.starts_with("refs/tags/")
             && s.len() > 10
             && !s[10..].starts_with("/")
             && !s.contains("//")
