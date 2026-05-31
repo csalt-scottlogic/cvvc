@@ -559,7 +559,7 @@ impl Repository {
             .ref_store
             .all_ref_targets()?
             .iter()
-            .map(|x| (x.0.to_string(), x.1.clone()))
+            .map(|x| (x.spec.to_string(), x.target_id.clone()))
             .collect::<Vec<(String, String)>>();
         refs.sort_by(|a, b| a.0.cmp(&b.0));
         let mut result = IndexMap::<String, String>::new();
@@ -577,8 +577,8 @@ impl Repository {
         let mut result = IndexMap::<String, String>::new();
         for item in refs
             .iter()
-            .filter(|x| matches!(x.0, RefSpec::Tag(_)))
-            .map(|x| (x.0.to_string(), x.1.clone()))
+            .filter(|x| matches!(x.spec, RefSpec::Tag(_)))
+            .map(|x| (x.spec.to_string(), x.target_id.clone()))
         {
             result.insert(item.0, item.1);
         }
@@ -1160,16 +1160,16 @@ impl<'a> CommitIterator<'a> {
             .all_ref_targets()?
             .into_iter()
             .filter_map(|r| {
-                if r.1.starts_with("ref:")
-                    && repo.has_object(&r.1).unwrap_or(true)
+                if r.target_id.starts_with("ref:")
+                    && repo.has_object(&r.target_id).unwrap_or(true)
                     && repo
-                        .read_raw_object(&r.1)
+                        .read_raw_object(&r.target_id)
                         .map(|c| c.unwrap().metadata().kind != ObjectKind::Commit)
                         .unwrap_or(true)
                 {
                     None
                 } else {
-                    Some(r.1)
+                    Some(r.target_id)
                 }
             })
             .filter_map(|id| {

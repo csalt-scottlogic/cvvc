@@ -336,10 +336,12 @@ impl RepoConfig {
         } else {
             push_urls
         };
+        let fetch_defs = get_str_setting_from_ini_section(section, "fetch");
         Some(RemoteInfo {
             name: name,
             fetch_urls,
             push_urls,
+            fetch_defs,
         })
     }
 
@@ -363,6 +365,9 @@ pub struct RemoteInfo<'a> {
 
     /// The list of URLs that can be pushed to.
     pub push_urls: Vec<&'a str>,
+
+    /// THe list of refs that should be copied to this repository during a fetch operation.
+    pub fetch_defs: Vec<&'a str>,
 }
 
 fn load_ini_safe<T: AsRef<Path>>(path: Option<T>) -> Ini {

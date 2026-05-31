@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::Path, str::FromStr};
 
 use anyhow::anyhow;
 
-use crate::stores::{BranchLocation, BranchSpec, RefSpec, RefStore};
+use crate::stores::{BranchLocation, BranchSpec, RefSpec, RefStore, TargetedRef};
 
 /// The git-compatible "packed refs" store.
 ///
@@ -89,12 +89,15 @@ impl RefStore for PackedRefStore {
         Ok(self.get_specs().collect::<Vec<RefSpec>>())
     }
 
-    fn all_ref_targets(&self) -> Result<Vec<(RefSpec, String)>, anyhow::Error> {
+    fn all_ref_targets(&self) -> Result<Vec<TargetedRef>, anyhow::Error> {
         Ok(self
             .contents
             .iter()
-            .map(|x| (RefSpec::from_str(x.0).unwrap(), x.1.to_string()))
-            .collect::<Vec<(RefSpec, String)>>())
+            .map(|x| TargetedRef {
+                spec: RefSpec::from_str(x.0).unwrap(),
+                target_id: x.1.to_string(),
+            })
+            .collect())
     }
 
     fn resolve_target(&self, r: &RefSpec) -> Result<Option<String>, anyhow::Error> {

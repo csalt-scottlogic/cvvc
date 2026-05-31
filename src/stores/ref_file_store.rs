@@ -12,7 +12,7 @@ use crate::{
     helpers::fs::{
         check_and_create_dir, path_translate, path_translate_rev, walk_fs, write_single_line,
     },
-    stores::{BranchLocation, BranchSpec, RefSpec, RefStore},
+    stores::{BranchLocation, BranchSpec, RefSpec, RefStore, TargetedRef},
 };
 
 /// The git-compatible filesystem store for local and remote branch information.
@@ -192,14 +192,17 @@ impl RefStore for RefFileStore {
         Ok(results)
     }
 
-    fn all_ref_targets(&self) -> Result<Vec<(RefSpec, String)>, anyhow::Error> {
+    fn all_ref_targets(&self) -> Result<Vec<TargetedRef>, anyhow::Error> {
         let refs = self.all_refs()?;
-        let mut results: Vec<(RefSpec, String)> = vec![];
+        let mut results: Vec<TargetedRef> = vec![];
         for item in refs {
-            let Some(target) = self.resolve_target(&item)? else {
+            let Some(target_id) = self.resolve_target(&item)? else {
                 return Err(anyhow!("ref has disappeared"));
             };
-            results.push((item, target));
+            results.push(TargetedRef {
+                spec: item,
+                target_id,
+            });
         }
         Ok(results)
     }

@@ -1,5 +1,5 @@
-use indexmap::IndexMap;
 use anyhow::anyhow;
+use indexmap::IndexMap;
 
 use crate::{
     config::GlobalConfig,

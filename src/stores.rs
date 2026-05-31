@@ -92,7 +92,7 @@ pub trait RefStore {
     /// the object it points to.
     ///
     /// This method should peel symbolic refs until it gets an object ID, but does not unpeel annotated tags.
-    fn all_ref_targets(&self) -> Result<Vec<(RefSpec, String)>, anyhow::Error>;
+    fn all_ref_targets(&self) -> Result<Vec<TargetedRef>, anyhow::Error>;
 
     /// Return the ID of the ref (the tip of the branch, or the tag).
     ///
@@ -282,6 +282,22 @@ impl FromStr for BranchSpec {
                 location,
             })
         }
+    }
+}
+
+/// Contains a [`RefSpec`] and its current target.
+#[derive(Eq, Hash, PartialEq)]
+pub struct TargetedRef {
+    /// The target of the [`RefSpec`].
+    pub target_id: String,
+
+    /// A [`RefSpec`] of any kind.
+    pub spec: RefSpec,
+}
+
+impl Display for TargetedRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {}", self.target_id, self.spec)
     }
 }
 

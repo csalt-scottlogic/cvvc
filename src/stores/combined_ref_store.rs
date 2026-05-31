@@ -5,6 +5,7 @@ use std::{
 
 use crate::stores::{
     packed_ref_store::PackedRefStore, ref_file_store::RefFileStore, BranchSpec, RefSpec, RefStore,
+    TargetedRef,
 };
 
 /// A [`RefStore`] implementation which provides a facade over both a loose ref store and, optionally, a packed ref store.
@@ -88,17 +89,23 @@ impl RefStore for CombinedRefStore {
         Ok(results.into_iter().collect())
     }
 
-    fn all_ref_targets(&self) -> Result<Vec<(RefSpec, String)>, anyhow::Error> {
+    fn all_ref_targets(&self) -> Result<Vec<TargetedRef>, anyhow::Error> {
         let mut results = HashMap::<RefSpec, String>::new();
         for r in self.loose_store.all_ref_targets()? {
-            results.insert(r.0, r.1);
+            results.insert(r.spec, r.target_id);
         }
         if let Some(packed_store) = &self.packed_store {
             for r in packed_store.all_ref_targets()? {
-                results.insert(r.0, r.1);
+                results.insert(r.spec, r.target_id);
             }
         }
-        Ok(results.into_iter().collect())
+        Ok(results
+            .into_iter()
+            .map(|(k, v)| TargetedRef {
+                target_id: v,
+                spec: k,
+            })
+            .collect())
     }
 
     fn resolve_target(&self, r: &super::RefSpec) -> Result<Option<String>, anyhow::Error> {

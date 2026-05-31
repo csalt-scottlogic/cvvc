@@ -1,5 +1,8 @@
 use crate::{
-    config::GlobalConfig, helpers::{find_repo_cwd, is_ref_name_legal}, objects::StoredObject, repo::Repository,
+    config::GlobalConfig,
+    helpers::{find_repo_cwd, is_ref_name_legal},
+    objects::StoredObject,
+    repo::Repository,
     stores::BranchLocation,
 };
 use anyhow::anyhow;
