@@ -12,7 +12,7 @@ use crate::{
     helpers::fs::{
         check_and_create_dir, path_translate, path_translate_rev, walk_fs, write_single_line,
     },
-    stores::{BranchLocation, BranchSpec, RefSpec, RefStore},
+    stores::{BranchLocation, BranchSpec, RefSpec, RefStore, TagSpec},
 };
 
 /// The git-compatible filesystem store for local and remote branch information.
@@ -171,8 +171,9 @@ impl RefStore for RefFileStore {
         let mut results = Vec::<RefSpec>::new();
         for dir_entry in walk_fs(&self.tag_path)? {
             let dir_entry = dir_entry?;
-            results.push(RefSpec::Tag(path_translate(
-                dir_entry.strip_prefix(&self.local_branch_path)?,
+            results.push(RefSpec::Tag(TagSpec::new(
+                &path_translate(dir_entry.strip_prefix(&self.local_branch_path)?),
+                false,
             )));
         }
         Ok(results)
@@ -233,7 +234,7 @@ impl From<&RefSpec> for PathBuf {
     fn from(value: &RefSpec) -> Self {
         match value {
             RefSpec::Branch(branch_spec) => PathBuf::from(branch_spec),
-            RefSpec::Tag(name) => PathBuf::from("refs").join("tags").join(name),
+            RefSpec::Tag(tag_spec) => PathBuf::from("refs").join("tags").join(&tag_spec.name),
             RefSpec::Head => PathBuf::from("HEAD"),
         }
     }

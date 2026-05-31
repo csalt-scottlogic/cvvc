@@ -29,7 +29,7 @@ use crate::{
     ref_log::{RefLog, RefLogEntry},
     stores::{
         BranchLocation, BranchSpec, CombinedRefStore, LooseObjectStore, ObjectStore, PackStore,
-        RefSpec, RefStore,
+        RefSpec, RefStore, TagSpec,
     },
 };
 
@@ -417,7 +417,7 @@ impl Repository {
 
         let potential_tag = self
             .ref_store
-            .resolve_target(&RefSpec::Tag(name.to_string()))?;
+            .resolve_target(&RefSpec::Tag(TagSpec::new(name, false)))?;
         if let Some(potential_tag) = potential_tag {
             collected.insert(potential_tag);
         }

@@ -188,7 +188,7 @@ pub enum RefSpec {
     Branch(BranchSpec),
 
     /// A tag ref.
-    Tag(String),
+    Tag(TagSpec),
 
     /// A symbolic reference to HEAD
     Head,
@@ -197,7 +197,7 @@ pub enum RefSpec {
 impl Display for RefSpec {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RefSpec::Tag(tag_name) => write!(f, "refs/tags/{tag_name}"),
+            RefSpec::Tag(tag_name) => tag_name.fmt(f),
             RefSpec::Branch(branch_spec) => branch_spec.fmt(f),
             RefSpec::Head => write!(f, "HEAD"),
         }
@@ -210,12 +210,8 @@ impl FromStr for RefSpec {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s == "HEAD" {
             Ok(Self::Head)
-        } else if s.starts_with("refs/tags/")
-            && s.len() > 10
-            && !s[10..].starts_with("/")
-            && !s.contains("//")
-        {
-            Ok(Self::Tag(s[10..].to_string()))
+        } else if s.starts_with("refs/tags/") {
+            Ok(Self::Tag(TagSpec::from_str(s)?))
         } else if s.starts_with("refs/heads/") || s.starts_with("refs/remotes/") {
             Ok(Self::Branch(BranchSpec::from_str(s)?))
         } else {
@@ -291,13 +287,75 @@ impl FromStr for BranchSpec {
     }
 }
 
+/// The definition of a tag.
+#[derive(Debug, Eq, Hash, PartialEq)]
+pub struct TagSpec {
+    /// The name of the tag.
+    pub name: String,
+
+    /// Whether or not this tag is peeled.
+    ///
+    /// This only really makes sense in the context of whether or not the tag is targeted,
+    /// but in Git, this is part of the tag name, and therefore needs to be considered
+    /// when the [`TagSpec`] is parsed.
+    pub peeled: bool,
+}
+
+impl TagSpec {
+    /// Create a new [`TagSpec`]
+    pub fn new(name: &str, peeled: bool) -> Self {
+        TagSpec {
+            name: name.to_string(),
+            peeled,
+        }
+    }
+
+    /// Convert this [`TagSpec`] into a [`RefSpec`], consuming it.
+    pub fn into_ref_spec(self) -> RefSpec {
+        RefSpec::Tag(self)
+    }
+}
+
+impl Display for TagSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let peeled_suffix = if self.peeled { "^{}" } else { "" };
+        write!(f, "refs/tags/{}{}", self.name, peeled_suffix)
+    }
+}
+
+impl FromStr for TagSpec {
+    type Err = InvalidRefNameError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.starts_with("refs/tags/")
+            && s.len() > 10
+            && !s[10..].starts_with("/")
+            && !s.contains("//")
+        {
+            let stripped_name = s[10..].strip_suffix("^{}");
+            match stripped_name {
+                Some(n) => Ok(Self {
+                    name: n.to_string(),
+                    peeled: true,
+                }),
+                None => Ok(Self {
+                    name: s[10..].to_string(),
+                    peeled: false,
+                }),
+            }
+        } else {
+            Err(InvalidRefNameError::new(s))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
 
     use crate::stores::errors::InvalidRefNameError;
 
-    use super::{BranchLocation, BranchSpec, RefSpec};
+    use super::{BranchLocation, BranchSpec, RefSpec, TagSpec};
 
     #[test]
     fn branch_location_fmt_local() {
@@ -376,7 +434,10 @@ mod tests {
 
     #[test]
     fn ref_spec_fmt_succeeds_for_tag() {
-        let test_object = RefSpec::Tag("example/tag".to_string());
+        let test_object = RefSpec::Tag(TagSpec {
+            name: "example/tag".to_string(),
+            peeled: false,
+        });
 
         let test_output = test_object.to_string();
 
@@ -413,7 +474,13 @@ mod tests {
 
         let test_output = RefSpec::from_str(test_input).unwrap();
 
-        assert_eq!(RefSpec::Tag("a/valid/tag-name".to_string()), test_output);
+        assert_eq!(
+            RefSpec::Tag(TagSpec {
+                name: "a/valid/tag-name".to_string(),
+                peeled: false
+            }),
+            test_output
+        );
     }
 
     #[test]
