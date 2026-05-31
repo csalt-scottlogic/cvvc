@@ -234,6 +234,7 @@ impl From<&RefSpec> for PathBuf {
         match value {
             RefSpec::Branch(branch_spec) => PathBuf::from(branch_spec),
             RefSpec::Tag(name) => PathBuf::from("refs").join("tags").join(name),
+            RefSpec::Head => PathBuf::from("HEAD"),
         }
     }
 }

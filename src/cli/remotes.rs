@@ -10,13 +10,13 @@ pub fn list_remotes(verbose: bool) -> Result<(), anyhow::Error> {
         }
     } else {
         for remote in remotes {
-            let remote_details = repo.get_remote(&remote);
+            let remote_details = repo.get_remote(remote);
             if let Some(remote_details) = remote_details {
                 for fetch in remote_details.fetch_urls {
-                    println!("{}", remote_formatter(&remote_details.name, fetch, "fetch"));
+                    println!("{}", remote_formatter(remote_details.name, fetch, "fetch"));
                 }
                 for push in remote_details.push_urls {
-                    println!("{}", remote_formatter(&remote_details.name, push, "push"));
+                    println!("{}", remote_formatter(remote_details.name, push, "push"));
                 }
             };
         }
