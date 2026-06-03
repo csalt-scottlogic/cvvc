@@ -140,11 +140,11 @@ pub fn fetch_remote_refs(base_url: &str) -> Result<RemoteServerInfo, anyhow::Err
             }
             seen_header = true;
         } else if let PktLine::Line(line_contents) = line {
-            if line_contents[40] != 32 {
+            let Some(id_len) = line_contents.iter().position(|x| *x == 32) else {
                 return Err(anyhow!("line format: could not find space"));
-            }
+            };
             let target_id =
-                String::from_utf8(line_contents[..40].to_vec()).context("invalid target ID")?;
+                String::from_utf8(line_contents[..id_len].to_vec()).context("invalid target ID")?;
             if !is_partial_object_id(&target_id) {
                 return Err(anyhow!("invalid target id {}", target_id));
             }
@@ -160,13 +160,9 @@ pub fn fetch_remote_refs(base_url: &str) -> Result<RemoteServerInfo, anyhow::Err
                 capabilities.append(&mut cap_list.split(" ").map(|x| x.to_string()).collect());
                 line_end = cap_list_start;
             }
-            let refspec = String::from_utf8(line_contents[41..line_end].to_vec())?;
-            if refspec != "HEAD" && !refspec.ends_with("^{}") {
-                let spec = RefSpec::from_str(&refspec)?;
-                refs.push(TargetedRef { target_id, spec });
-            } else {
-                println!("Skipping ref '{refspec}' (this is a to-do)");
-            }
+            let refspec = String::from_utf8(line_contents[(id_len + 1)..line_end].to_vec())?;
+            let spec = RefSpec::from_str(&refspec)?;
+            refs.push(TargetedRef { target_id, spec });
         }
     }
     Ok(RemoteServerInfo { refs, capabilities })

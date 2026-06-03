@@ -24,7 +24,14 @@ fn fetch_remote(remote: &RemoteInfo) -> Result<(), anyhow::Error> {
         }
         println!("Refs:");
         for rem_ref in remote_info.refs {
-            println!("\t{rem_ref}");
+            let mapped_refs = rem_ref.map_fetch(&remote.fetch_defs);
+            if mapped_refs.is_empty() {
+                println!("\t[{rem_ref} ignored]");
+            } else {
+                for mapped_ref in mapped_refs {
+                    println!("\t{} maps to {}", rem_ref, mapped_ref.dest);
+                }
+            }
         }
     }
     Ok(())

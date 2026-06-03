@@ -3,9 +3,12 @@ use ini::{Ini, Properties};
 use std::{
     env,
     ffi::OsStr,
+    fmt::Display,
     path::{Path, PathBuf},
     str::FromStr,
 };
+
+use crate::stores::{RefSpec, TargetedRef};
 
 /// Global configuration
 ///
@@ -336,7 +339,11 @@ impl RepoConfig {
         } else {
             push_urls
         };
-        let fetch_defs = get_str_setting_from_ini_section(section, "fetch");
+        let fetch_defs = get_str_setting_from_ini_section(section, "fetch")
+            .into_iter()
+            .map(|s| FetchRefSpec::from_str(s).ok())
+            .flatten()
+            .collect();
         Some(RemoteInfo {
             name,
             fetch_urls,
@@ -367,7 +374,308 @@ pub struct RemoteInfo<'a> {
     pub push_urls: Vec<&'a str>,
 
     /// THe list of refs that should be copied to this repository during a fetch operation.
-    pub fetch_defs: Vec<&'a str>,
+    pub fetch_defs: Vec<FetchRefSpec>,
+}
+
+/// The information in a remote configuration which describes which refs should
+/// (or should not) be synced between this repository and a remote.
+///
+/// In the configuration they take the format `fetch = [+]source:dest` or `fetch = ^source` where `source` is a pattern matching refs in the
+/// remote repository and `dest` shows what they map to in this repository.  `source` may contain at most one `*` character,
+/// meaning match any string, and if it does, `dest` must also contain one `*` character.  When a ref matches, the part
+/// matched by the `*` in the source is mapped to the `*` in the destination.
+///
+/// The optional `^` means that this pattern is negated, and therefore the destination is not required.
+///
+/// The optional `+` means that refs matching this pattern should be force-updated.  Note: this applies to the remote-tracking
+/// ref only, not the local branch tracking it.
+///
+/// Having said all the above: 99.9% of Git repositories out there in the world leave this set to the default value of
+/// `+refs/heads/*:refs/remotes/origin/*`
+#[derive(Debug, PartialEq)]
+pub enum FetchRefSpec {
+    /// This pattern is an exclusion pattern, meaning that branches on the remote matching the pattern should not be synchronised.
+    Exclusion(FetchRefSpecExclusionPattern),
+
+    /// This pattern is an inclusion mattern, meaning that branches on the remote matching the pattern should be synchronised with remote-tracking
+    /// branches in this repo.
+    Inclusion(FetchRefSpecInclusionPattern),
+}
+
+impl Display for FetchRefSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Exclusion(p) => write!(f, "^{}", p),
+            Self::Inclusion(p) => p.fmt(f)
+        }
+        // let force_flag = if self.force { "+" } else { "" };
+        // let exclude_flag = if self.exclude { "^" } else { "" };
+        // match &self.dest_pattern {
+        //     Some(p) => write!(
+        //         f,
+        //         "{}{}{}:{}",
+        //         exclude_flag, force_flag, self.source_pattern, p
+        //     ),
+        //     None => write!(f, "{}{}{}", exclude_flag, force_flag, self.source_pattern),
+        // }
+    }
+}
+
+impl FromStr for FetchRefSpec {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.starts_with("^") {
+            Ok(Self::Exclusion(FetchRefSpecExclusionPattern::from_str(&s[1..])?))
+        } else {
+            Ok(Self::Inclusion(FetchRefSpecInclusionPattern::from_str(s)?))
+        }
+    }
+}
+
+/// A fetch refspec pattern which specifies an inclusion pattern mapping between branches on a remote server 
+/// and remote-tracking branches on this server.
+#[derive(Debug, PartialEq)]
+pub struct FetchRefSpecInclusionPattern {
+    force: bool,
+
+    patterns: FetchRefSpecInclusionPatternPair,
+}
+
+impl Display for FetchRefSpecInclusionPattern {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let force_flag = if self.force { "+" } else { "" };
+        write!(f, "{}{}", force_flag, self.patterns)
+    }
+}
+
+impl FromStr for FetchRefSpecInclusionPattern {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let start = if s.starts_with("+") { 1 } else { 0 };
+        let patterns = FetchRefSpecInclusionPatternPair::from_str(&s[start..])?;
+        Ok(FetchRefSpecInclusionPattern {
+            force: start == 1,
+            patterns
+        })
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum FetchRefSpecInclusionPatternPair {
+    Exact(String, String),
+    Glob(FetchRefMapGlobPattern, FetchRefMapGlobPattern)
+}
+
+impl Display for FetchRefSpecInclusionPatternPair {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Exact(s, d) => write!(f, "{}:{}", s, d),
+            Self::Glob(s, d) => write!(f, "{}:{}", s, d),
+        }
+    }
+}
+
+impl FromStr for FetchRefSpecInclusionPatternPair {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let Some(split_pos) = s.bytes().position(|x| x == 0x3a) else {
+             return Err(anyhow!("No colon in fetch-ref pattern"));
+        };
+        if s[..split_pos].contains("*") != s[split_pos..].contains("*") {
+            return Err(anyhow!("If the left side of a fetch-ref pattern contains *, the right side must contain * and vice-versa"));
+        }
+        if !s.contains("*") {
+            Ok(Self::Exact(s[..split_pos].to_string(), s[(split_pos + 1)..].to_string()))
+        } else {
+            Ok(Self::Glob(FetchRefMapGlobPattern::from_str(&s[..split_pos])?, FetchRefMapGlobPattern::from_str(&s[(split_pos + 1)..])?))
+        }
+    }
+}
+
+impl FetchRefSpecInclusionPatternPair {
+    fn match_pattern(&self, r: &str) -> Option<String> {
+        match self {
+            Self::Exact(s, d) => {
+                if r == s {
+                    Some(d.to_string())
+                } else {
+                    None
+                }
+            },
+            Self::Glob(s, d) => {
+                let match_result = s.match_pattern(r)?;
+                Some(d.replace(&match_result))
+            }
+        }
+    }
+}
+
+/// A pattern which matches a single ref name, for use when specifying branches to exclude from synchronisation.
+#[derive(Debug, PartialEq)]
+pub enum FetchRefSpecExclusionPattern {
+    /// This pattern is an exact match to a ref name.
+    Exact(String),
+
+    /// This pattern is a glob pattern (containing exactly one `*` metacharacter).
+    Glob(FetchRefMapGlobPattern),
+}
+
+impl FetchRefSpecExclusionPattern {
+    fn match_pattern(&self, s: &str) -> bool {
+        match self {
+            FetchRefSpecExclusionPattern::Exact(p) => s == p,
+            FetchRefSpecExclusionPattern::Glob(p) => p.match_pattern(s).is_some(),
+        }
+    }
+}
+
+impl Display for FetchRefSpecExclusionPattern {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FetchRefSpecExclusionPattern::Exact(s) => write!(f, "{}", s),
+            FetchRefSpecExclusionPattern::Glob(p) => p.fmt(f),
+        }
+    }
+}
+
+impl FromStr for FetchRefSpecExclusionPattern {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.contains("*") {
+            Ok(Self::Glob(FetchRefMapGlobPattern::from_str(s)?))
+        } else {
+            Ok(Self::Exact(s.to_string()))
+        }
+    }
+}
+
+/// A fetch refspec "glob pattern".  This specifies a simplified version of a file glob pattern containing
+/// exactly one `*` metacharacter, and no other metacharacters.
+#[derive(Debug, PartialEq)]
+pub struct FetchRefMapGlobPattern {
+    start: Option<String>,
+    end: Option<String>,
+}
+
+impl FetchRefMapGlobPattern {
+    fn replace(&self, replace: &str) -> String {
+        format!("{}{}{}", self.start.as_ref().map_or("", |x| x.as_str()), replace, self.end.as_ref().map_or("", |x| x.as_str()),)
+    }
+
+    fn match_pattern(&self, s: &str) -> Option<String> {
+        let mut remainder = s;
+                if let Some(start) = &self.start {
+                    remainder = remainder.strip_prefix(start)?;
+                }
+                if let Some(end) = &self.end {
+                    remainder = remainder.strip_suffix(end)?;
+                }
+                Some(remainder.to_string())
+    }
+}
+
+impl Display for FetchRefMapGlobPattern {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}*{}",
+            self.start.as_ref().map_or("", |x| x.as_str()),
+            self.end.as_ref().map_or("", |x| x.as_str())
+        )
+    }
+}
+
+impl FromStr for FetchRefMapGlobPattern {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if string_has_multitudes(s, '*') {
+            return Err(anyhow!(
+                "fetch ref patterns can only contain a single * on each side"
+            ));
+        }
+        let Some(pos) = s.bytes().position(|x| x == 0x2a) else {
+            return Err(anyhow!("glob pattern must contain *"));
+        };
+        let start = if pos == 0 {
+            None
+        } else {
+            Some(s[..pos].to_string())
+        };
+        let end = if pos == s.len() - 1 {
+            None
+        } else {
+            Some(s[(pos + 1)..].to_string())
+        };
+        Ok(FetchRefMapGlobPattern { start, end })
+    }
+}
+
+/// A fetch mapping between a source ref (on a remote server) and a destination ref (in this repo).
+/// 
+/// The mapping includes the current ref target on the remote server.
+pub struct FetchRefMap<'a> {
+    /// The source ref on the remote server, and its current target.
+    pub source: &'a TargetedRef,
+
+    /// The destination ref on this server.  This will normally be a remote-tracking branch 
+    /// (eg a branch under `refs/remotes/<remote-name>`).
+    pub dest: RefSpec,
+
+    /// Whether or not to force-update the destination ref.  If this is `false`, the destination ref
+    /// should only be updated if its current value is an ancestor of the new value.
+    pub force: bool,
+}
+
+impl TargetedRef {
+    /// Map a set of fetch ref specs against this ref, producing a set of ref maps.
+    /// 
+    /// If any of the matching fetch specs are *exclusionary*, this method will return an
+    /// empty vector.
+    /// 
+    /// If there are no matching exclusionary fetch specs, and there is one or more matching
+    /// inclusionary fetch specs, this method returns a `Vec` containing the matching mappings.
+    /// 
+    /// # Examples
+    /// 
+    /// ```
+    /// # use crate::cvvc::{config::FetchRefSpec, stores::{RefSpec, TargetedRef}};
+    /// # use std::str::FromStr;
+    /// let fetch_specs = vec![FetchRefSpec::from_str("+refs/heads/*:refs/remotes/origin/*").unwrap()];
+    /// let target = TargetedRef { spec: RefSpec::from_str("refs/heads/example").unwrap(), target_id: "0000000000000000000000000000000000000000".to_string() };
+    /// 
+    /// let maps = target.map_fetch(&fetch_specs);
+    /// 
+    /// assert_eq!(maps.len(), 1);
+    /// assert_eq!(maps[0].dest.to_string(), "refs/remotes/origin/example");
+    /// ```
+    pub fn map_fetch(&'_ self, map_specs: &[FetchRefSpec]) -> Vec<FetchRefMap<'_>> {
+        let mut results: Vec<FetchRefMap<'_>> = vec![];
+        let test_string = self.spec.to_string();
+        for spec in map_specs {
+            match spec {
+                FetchRefSpec::Exclusion(p) => {
+                    if p.match_pattern(&test_string) {
+                        return vec![];
+                    }
+                },
+                FetchRefSpec::Inclusion(p) => {
+                    if let Some(match_target) = p.patterns.match_pattern(&test_string) {
+                        results.push(FetchRefMap { source: self, dest: RefSpec::from_str(&match_target).unwrap(), force: p.force })
+                    }
+                }
+            }
+        }
+        results
+    }
+}
+
+fn string_has_multitudes(s: &str, c: char) -> bool {
+    s.chars().filter(|x| *x == c).count() > 1
 }
 
 fn load_ini_safe<T: AsRef<Path>>(path: Option<T>) -> Ini {
@@ -399,4 +707,24 @@ fn get_str_setting_from_ini_section<'a>(section: &'a Properties, key: &str) -> V
 
 fn get_setting_from_env<T: AsRef<OsStr>>(key: T) -> Option<String> {
     env::var(key).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use super::{FetchRefMapGlobPattern, FetchRefSpecInclusionPattern, FetchRefSpec};
+
+    #[test]
+    fn fetch_ref_spec_from_str_works_for_that_one_fetch_ref_spec_that_every_repo_has() {
+        let test_input = "+refs/heads/*:refs/remotes/origin/*";
+        let expected_result = FetchRefSpec::Inclusion(FetchRefSpecInclusionPattern {
+            force: true,
+            patterns: crate::config::FetchRefSpecInclusionPatternPair::Glob(FetchRefMapGlobPattern { start: Some("refs/heads/".to_string()), end: None}, FetchRefMapGlobPattern { start: Some("refs/remotes/origin/".to_string()), end: None })
+        });
+
+        let test_output = FetchRefSpec::from_str(test_input).unwrap();
+
+        assert_eq!(expected_result, test_output);
+    }
 }
