@@ -233,7 +233,9 @@ fn parse_dispatch() -> ExitCode {
             }
         }
         Commands::Commit { message } => staging::full_commit(&config, message),
-        Commands::CommitList { starting_commit} => staging::list_commits(starting_commit.as_ref().map(String::as_str)),
+        Commands::CommitList { starting_commit } => {
+            staging::list_commits(starting_commit.as_deref())
+        }
         Commands::CommitTree {
             tree_id,
             parents,

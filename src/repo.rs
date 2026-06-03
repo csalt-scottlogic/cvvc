@@ -1159,56 +1159,59 @@ impl<'a> CommitIterator<'a> {
             Some(sid) => {
                 if let Some(raw_obj) = repo.read_raw_object(sid)? {
                     match raw_obj.metadata().kind {
-                        ObjectKind::Commit => vec![start.expect("internal error").to_string()].into_iter().collect::<HashSet<String>>(),
+                        ObjectKind::Commit => vec![start.expect("internal error").to_string()]
+                            .into_iter()
+                            .collect::<HashSet<String>>(),
                         ObjectKind::Tag => {
                             if let StoredObject::Tag(tag) = raw_obj.to_stored_object()? {
                                 vec![tag.target()?].into_iter().collect::<HashSet<String>>()
                             } else {
-                                return Err(anyhow!("internal error"))
+                                return Err(anyhow!("internal error"));
                             }
-                        },
+                        }
                         _ => return Err(anyhow!("object id is not a commit or tag")),
                     }
                 } else {
                     HashSet::new()
                 }
-            },
-            None => { repo
-            .ref_store
-            .all_ref_targets()?
-            .into_iter()
-            .filter_map(|r| {
-                if r.1.starts_with("ref:")
-                    && repo.has_object(&r.1).unwrap_or(true)
-                    && repo
-                        .read_raw_object(&r.1)
-                        .map(|c| c.unwrap().metadata().kind != ObjectKind::Commit)
-                        .unwrap_or(true)
-                {
-                    None
-                } else {
-                    Some(r.1)
-                }
-            })
-            .filter_map(|id| {
-                let raw_obj = repo.read_raw_object(&id);
-                if let Ok(Some(raw_obj)) = raw_obj {
-                    match raw_obj.metadata().kind {
-                        ObjectKind::Commit => Some(id),
-                        ObjectKind::Tag => {
-                            if let Ok(StoredObject::Tag(tag)) = raw_obj.to_stored_object() {
-                                tag.target().ok()
-                            } else {
-                                None
-                            }
-                        }
-                        _ => None,
+            }
+            None => repo
+                .ref_store
+                .all_ref_targets()?
+                .into_iter()
+                .filter_map(|r| {
+                    if r.1.starts_with("ref:")
+                        && repo.has_object(&r.1).unwrap_or(true)
+                        && repo
+                            .read_raw_object(&r.1)
+                            .map(|c| c.unwrap().metadata().kind != ObjectKind::Commit)
+                            .unwrap_or(true)
+                    {
+                        None
+                    } else {
+                        Some(r.1)
                     }
-                } else {
-                    None
-                }
-            })
-            .collect::<HashSet<String>>()}};
+                })
+                .filter_map(|id| {
+                    let raw_obj = repo.read_raw_object(&id);
+                    if let Ok(Some(raw_obj)) = raw_obj {
+                        match raw_obj.metadata().kind {
+                            ObjectKind::Commit => Some(id),
+                            ObjectKind::Tag => {
+                                if let Ok(StoredObject::Tag(tag)) = raw_obj.to_stored_object() {
+                                    tag.target().ok()
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect::<HashSet<String>>(),
+        };
 
         let queue = Self::generate_queue(repo, &seen);
         Ok(CommitIterator { repo, queue, seen })
