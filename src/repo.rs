@@ -1136,8 +1136,8 @@ impl Repository {
     ///
     /// This method returns an error if it encounters any errors reading the repository's
     /// refs.
-    pub fn commits<'a>(&'a self) -> Result<CommitIterator<'a>, anyhow::Error> {
-        CommitIterator::new(self)
+    pub fn commits<'a>(&'a self, start: Option<&str>) -> Result<CommitIterator<'a>, anyhow::Error> {
+        CommitIterator::new(self, start)
     }
 }
 
@@ -1154,8 +1154,26 @@ pub struct CommitIterator<'a> {
 }
 
 impl<'a> CommitIterator<'a> {
-    fn new(repo: &'a Repository) -> Result<CommitIterator<'a>, anyhow::Error> {
-        let seen = repo
+    fn new(repo: &'a Repository, start: Option<&str>) -> Result<CommitIterator<'a>, anyhow::Error> {
+        let seen = match start {
+            Some(sid) => {
+                if let Some(raw_obj) = repo.read_raw_object(sid)? {
+                    match raw_obj.metadata().kind {
+                        ObjectKind::Commit => vec![start.expect("internal error").to_string()].into_iter().collect::<HashSet<String>>(),
+                        ObjectKind::Tag => {
+                            if let StoredObject::Tag(tag) = raw_obj.to_stored_object()? {
+                                vec![tag.target()?].into_iter().collect::<HashSet<String>>()
+                            } else {
+                                return Err(anyhow!("internal error"))
+                            }
+                        },
+                        _ => return Err(anyhow!("object id is not a commit or tag")),
+                    }
+                } else {
+                    HashSet::new()
+                }
+            },
+            None => { repo
             .ref_store
             .all_ref_targets()?
             .into_iter()
@@ -1190,7 +1208,7 @@ impl<'a> CommitIterator<'a> {
                     None
                 }
             })
-            .collect::<HashSet<String>>();
+            .collect::<HashSet<String>>()}};
 
         let queue = Self::generate_queue(repo, &seen);
         Ok(CommitIterator { repo, queue, seen })
