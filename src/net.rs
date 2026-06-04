@@ -3,8 +3,7 @@ use std::{fmt::Display, io::Read, str::FromStr};
 use url::{self, Url};
 
 use crate::{
-    repo::is_partial_object_id,
-    stores::{RefSpec, TargetedRef},
+    helpers::escaped_byte_string, repo::is_partial_object_id, stores::{RefSpec, TargetedRef}
 };
 
 /// A Git pkt-line, sent or received over the network.
@@ -21,7 +20,7 @@ impl Display for PktLine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             PktLine::Flush => write!(f, "0000"),
-            PktLine::Line(x) => write!(f, "{:04x} {}", x.len() + 4, String::from_utf8_lossy(x)),
+            PktLine::Line(x) => write!(f, "{:04x}{}", x.len() + 4, escaped_byte_string(x)),
         }
     }
 }
@@ -111,7 +110,7 @@ pub struct RemoteServerInfo {
 /// Load the advertised capabilities and refs of a remote server
 ///
 /// The `base_url` parameter should be the server URL entered by the user, without `info/refs` added.
-pub fn fetch_remote_refs(base_url: &str) -> Result<RemoteServerInfo, anyhow::Error> {
+pub fn fetch_remote_refs(base_url: &str, net_dump: bool) -> Result<RemoteServerInfo, anyhow::Error> {
     let base_url = if base_url.ends_with("/") {
         base_url.to_string()
     } else {
@@ -134,6 +133,9 @@ pub fn fetch_remote_refs(base_url: &str) -> Result<RemoteServerInfo, anyhow::Err
     let mut refs: Vec<TargetedRef> = vec![];
     for line in lines {
         let line = line.context("couldn't parse pkt-line")?;
+        if net_dump {
+            println!("R:{line}");
+        }
         if !seen_header {
             if !matches!(line, PktLine::Flush) {
                 continue;

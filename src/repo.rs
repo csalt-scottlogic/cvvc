@@ -585,6 +585,10 @@ impl Repository {
         Ok(result)
     }
 
+    pub fn resolve_ref(&self, ref_spec: &RefSpec) -> Result<Option<String>, anyhow::Error> {
+        self.ref_store.resolve_target(ref_spec)
+    }
+
     /// Creates a thin reference to an object.
     ///
     /// The `target_id` parameter should be a valid object ID, but is not validated.
