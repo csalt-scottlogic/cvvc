@@ -1,4 +1,9 @@
-use crate::{config::{FetchRefMap, RemoteInfo}, helpers::find_repo_cwd, net::fetch_remote_refs, repo::Repository};
+use crate::{
+    config::{FetchRefMap, RemoteInfo},
+    helpers::find_repo_cwd,
+    net::fetch_remote_refs,
+    repo::Repository,
+};
 
 /// Entry point for `cv fetch`.  Fetches from all remotes.
 pub fn fetch() -> Result<(), anyhow::Error> {
@@ -28,13 +33,16 @@ fn fetch_remote(repo: &Repository, remote: &RemoteInfo) -> Result<(), anyhow::Er
             let mut mapped_refs = rem_ref.map_fetch(&remote.fetch_defs);
             ref_maps.append(&mut mapped_refs);
         }
-        let updates_needed = ref_maps.iter().filter(|m| {
-            if let Ok(Some(current_target)) = repo.resolve_ref(&m.dest) {
-                current_target != m.source.target_id
-            } else {
-                true
-            }
-        }).collect::<Vec<&FetchRefMap>>();
+        let updates_needed = ref_maps
+            .iter()
+            .filter(|m| {
+                if let Ok(Some(current_target)) = repo.resolve_ref(&m.dest) {
+                    current_target != m.source.target_id
+                } else {
+                    true
+                }
+            })
+            .collect::<Vec<&FetchRefMap>>();
         if !updates_needed.is_empty() {
             println!("Branches to update:");
             for update_spec in updates_needed.iter() {
@@ -44,13 +52,16 @@ fn fetch_remote(repo: &Repository, remote: &RemoteInfo) -> Result<(), anyhow::Er
             println!("Nothing to update");
             return Ok(());
         }
-        let objects_needed: Vec<String> = updates_needed.iter().filter_map(|m| {
-            if repo.has_object(&m.source.target_id).unwrap_or(false) {
-                None
-            } else {
-                Some(m.source.target_id.to_string())
-            }
-        }).collect();
+        let objects_needed: Vec<String> = updates_needed
+            .iter()
+            .filter_map(|m| {
+                if repo.has_object(&m.source.target_id).unwrap_or(false) {
+                    None
+                } else {
+                    Some(m.source.target_id.to_string())
+                }
+            })
+            .collect();
         if !objects_needed.is_empty() {
             println!("Comits needed:");
             for obj in objects_needed.iter() {

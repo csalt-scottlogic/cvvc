@@ -3,7 +3,9 @@ use std::{fmt::Display, io::Read, str::FromStr};
 use url::{self, Url};
 
 use crate::{
-    helpers::escaped_byte_string, repo::is_partial_object_id, stores::{RefSpec, TargetedRef}
+    helpers::escaped_byte_string,
+    repo::is_partial_object_id,
+    stores::{RefSpec, TargetedRef},
 };
 
 /// A Git pkt-line, sent or received over the network.
@@ -110,7 +112,10 @@ pub struct RemoteServerInfo {
 /// Load the advertised capabilities and refs of a remote server
 ///
 /// The `base_url` parameter should be the server URL entered by the user, without `info/refs` added.
-pub fn fetch_remote_refs(base_url: &str, net_dump: bool) -> Result<RemoteServerInfo, anyhow::Error> {
+pub fn fetch_remote_refs(
+    base_url: &str,
+    net_dump: bool,
+) -> Result<RemoteServerInfo, anyhow::Error> {
     let base_url = if base_url.ends_with("/") {
         base_url.to_string()
     } else {
@@ -170,8 +175,25 @@ pub fn fetch_remote_refs(base_url: &str, net_dump: bool) -> Result<RemoteServerI
     Ok(RemoteServerInfo { refs, capabilities })
 }
 
+enum PackFetchCommand {
+    Want(String),
+    Have(String),
+}
+
+impl From<&PackFetchCommand> for PktLine {
+    fn from(value: &PackFetchCommand) -> Self {
+        let command = match value {
+            PackFetchCommand::Want(id) => format!("want {id}\x0a"),
+            PackFetchCommand::Have(id) => format!("have {id}\x0a"),
+        };
+        Self::Line(command.bytes().collect())
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use crate::net::PackFetchCommand;
+
     use super::{PktLine, PktLineIterator};
 
     #[test]
@@ -204,6 +226,40 @@ mod tests {
                 PktLine::Flush,
                 PktLine::Line(b"Cakes\x0a".to_vec())
             ]
+        );
+    }
+
+    #[test]
+    fn pkt_line_from_pack_fetch_command_succeeds_for_have() {
+        let test_input =
+            PackFetchCommand::Have("1234123412341234123412341234123412341234".to_string());
+
+        let test_output = PktLine::from(&test_input);
+
+        assert_eq!(
+            PktLine::Line(vec![
+                104, 97, 118, 101, 32, 49, 50, 51, 52, 49, 50, 51, 52, 49, 50, 51, 52, 49, 50, 51,
+                52, 49, 50, 51, 52, 49, 50, 51, 52, 49, 50, 51, 52, 49, 50, 51, 52, 49, 50, 51, 52,
+                49, 50, 51, 52, 10
+            ]),
+            test_output
+        );
+    }
+
+    #[test]
+    fn pkt_line_from_pack_fetch_command_succeeds_for_want() {
+        let test_input =
+            PackFetchCommand::Want("1234123412341234123412341234123412341234".to_string());
+
+        let test_output = PktLine::from(&test_input);
+
+        assert_eq!(
+            PktLine::Line(vec![
+                119, 97, 110, 116, 32, 49, 50, 51, 52, 49, 50, 51, 52, 49, 50, 51, 52, 49, 50, 51,
+                52, 49, 50, 51, 52, 49, 50, 51, 52, 49, 50, 51, 52, 49, 50, 51, 52, 49, 50, 51, 52,
+                49, 50, 51, 52, 10
+            ]),
+            test_output
         );
     }
 }
