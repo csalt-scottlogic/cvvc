@@ -4,7 +4,7 @@ use url::{self, Url};
 
 use crate::{
     repo::is_partial_object_id,
-    stores::{RefSpec, TargetedRef},
+    stores::{RefSpec, RefTarget, TargetedRef},
 };
 
 /// A Git pkt-line, sent or received over the network.
@@ -162,7 +162,10 @@ pub fn fetch_remote_refs(base_url: &str) -> Result<RemoteServerInfo, anyhow::Err
             }
             let refspec = String::from_utf8(line_contents[(id_len + 1)..line_end].to_vec())?;
             let spec = RefSpec::from_str(&refspec)?;
-            refs.push(TargetedRef { target_id, spec });
+            refs.push(TargetedRef {
+                target: RefTarget::from_str(&target_id)?,
+                spec,
+            });
         }
     }
     Ok(RemoteServerInfo { refs, capabilities })

@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::Path, str::FromStr};
 
 use anyhow::anyhow;
 
-use crate::stores::{BranchLocation, BranchSpec, RefSpec, RefStore, TargetedRef};
+use crate::stores::{BranchLocation, BranchSpec, RefSpec, RefStore, RefTarget, TargetedRef};
 
 /// The git-compatible "packed refs" store.
 ///
@@ -95,7 +95,7 @@ impl RefStore for PackedRefStore {
             .iter()
             .map(|x| TargetedRef {
                 spec: RefSpec::from_str(x.0).unwrap(),
-                target_id: x.1.to_string(),
+                target: RefTarget::from_str(x.1).unwrap(),
             })
             .collect())
     }

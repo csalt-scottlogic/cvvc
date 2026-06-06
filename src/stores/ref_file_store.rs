@@ -12,7 +12,7 @@ use crate::{
     helpers::fs::{
         check_and_create_dir, path_translate, path_translate_rev, walk_fs, write_single_line,
     },
-    stores::{BranchLocation, BranchSpec, RefSpec, RefStore, TagSpec, TargetedRef},
+    stores::{BranchLocation, BranchSpec, RefSpec, RefStore, RefTarget, TagSpec, TargetedRef},
 };
 
 /// The git-compatible filesystem store for local and remote branch information.
@@ -202,7 +202,7 @@ impl RefStore for RefFileStore {
             };
             results.push(TargetedRef {
                 spec: item,
-                target_id,
+                target: RefTarget::Object(target_id),
             });
         }
         Ok(results)
