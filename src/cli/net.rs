@@ -1,26 +1,36 @@
 use crate::{
     config::{FetchRefMap, RemoteInfo},
     helpers::find_repo_cwd,
-    net::fetch_remote_refs,
+    net::{HttpFetchClient, ProtocolVersion},
     repo::Repository,
 };
 
 /// Entry point for `cv fetch`.  Fetches from all remotes.
-pub fn fetch() -> Result<(), anyhow::Error> {
+pub fn fetch(version: Option<u32>) -> Result<(), anyhow::Error> {
     println!("Stop trying to make fetch happen!");
     let repo = find_repo_cwd()?;
     for remote in repo.list_remote_names() {
         if let Some(remote) = repo.get_remote(remote) {
-            fetch_remote(&repo, &remote)?;
+            fetch_remote(&repo, &remote, version)?;
         }
     }
     Ok(())
 }
 
-fn fetch_remote(repo: &Repository, remote: &RemoteInfo) -> Result<(), anyhow::Error> {
+fn fetch_remote(
+    repo: &Repository,
+    remote: &RemoteInfo,
+    version: Option<u32>,
+) -> Result<(), anyhow::Error> {
     for url in remote.fetch_urls.iter() {
+        let version = match version {
+            Some(x) => Some(ProtocolVersion::try_from(x)?),
+            None => None,
+        };
         println!("Fetching from {} ({})", remote.name, url);
-        let remote_info = fetch_remote_refs(url, true)?;
+        let mut fetch_client_engine = HttpFetchClient::new(url, version)?;
+        println!("Protocol version {}", fetch_client_engine.version());
+        let remote_info = fetch_client_engine.fetch_refs_capabilities(true)?;
         if !remote_info.capabilities.is_empty() {
             println!("Server capabilities:");
             for cap in remote_info.capabilities {
