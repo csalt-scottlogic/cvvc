@@ -100,7 +100,7 @@ pub trait RefStore {
     /// responsibiity to peel it.
     ///
     /// This function should return `Ok(None)` if the branch does not exist rather than erroring.
-    fn resolve_target(&self, r: &RefSpec) -> Result<Option<String>, anyhow::Error>;
+    fn resolve_target(&self, r: &RefSpec) -> Result<Option<RefTarget>, anyhow::Error>;
 
     /// Return all of the remote branches with the matching name.
     ///
@@ -117,7 +117,7 @@ pub trait RefStore {
 }
 
 /// Specifies if a branch or tag is local, or if it is remote, which remote it belongs to.
-#[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum BranchLocation {
     /// A local branch or tag
     Local,
@@ -182,7 +182,7 @@ impl FromStr for BranchLocation {
 }
 
 /// The specification of a ref.
-#[derive(Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum RefSpec {
     /// A branch ref, either a local branch or a remote branch.
     Branch(BranchSpec),
@@ -221,7 +221,7 @@ impl FromStr for RefSpec {
 }
 
 /// The definition of a branch.
-#[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BranchSpec {
     // Correct behaviour of the branch-list command depends on the
     // ordering of members of this struct, so that the derived
@@ -287,11 +287,44 @@ impl FromStr for BranchSpec {
     }
 }
 
+/// The target of a reference.  This can be either an object ID, or a symbolic reference to another reference.
+/// 
+/// For example, the `HEAD` reference is normally a symbolic reference to a branch, but can be an object ID
+/// when in "detached HEAD" mode.
+#[derive(Clone, Eq, Hash, PartialEq)]
+pub enum RefTarget {
+    /// The reference target is a specific object ID.
+    Object(String),
+
+    /// The reference target is another reference.
+    SymbolicRef(RefSpec),
+}
+
+impl Display for RefTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Object(id) => id.fmt(f),
+            Self::SymbolicRef(spec) => write!(f, "ref: {spec}"),
+        }
+    }
+}
+
+impl FromStr for RefTarget {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.strip_prefix("ref: ") {
+            Some(rs) => Ok(Self::SymbolicRef(RefSpec::from_str(rs)?)),
+            None => Ok(Self::Object(s.to_string())),
+        }
+    }
+}
+
 /// Contains a [`RefSpec`] and its current target.
 #[derive(Eq, Hash, PartialEq)]
 pub struct TargetedRef {
     /// The target of the [`RefSpec`].
-    pub target_id: String,
+    pub target: RefTarget,
 
     /// A [`RefSpec`] of any kind.
     pub spec: RefSpec,
@@ -299,12 +332,12 @@ pub struct TargetedRef {
 
 impl Display for TargetedRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} {}", self.target_id, self.spec)
+        write!(f, "{} {}", self.target, self.spec)
     }
 }
 
 /// The definition of a tag.
-#[derive(Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct TagSpec {
     /// The name of the tag.
     pub name: String,

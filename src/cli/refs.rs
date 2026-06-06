@@ -5,7 +5,7 @@ use crate::{
     config::GlobalConfig,
     helpers::{self, find_repo_cwd, is_ref_name_legal},
     objects::Tag,
-    repo::Repository,
+    repo::Repository, stores::RefTarget,
 };
 
 /// Entry point for the `cv show-ref` coommand
@@ -71,7 +71,7 @@ fn show_tags_in_repo(repo: &Repository) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-fn print_refs(ref_map: IndexMap<String, String>, with_hash: bool, prefix: &str) {
+fn print_refs(ref_map: IndexMap<String, RefTarget>, with_hash: bool, prefix: &str) {
     for item in ref_map {
         if with_hash {
             println!("{} {}{}", item.1, prefix, item.0);

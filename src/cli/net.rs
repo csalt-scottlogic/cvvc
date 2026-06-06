@@ -47,7 +47,7 @@ fn fetch_remote(
             .iter()
             .filter(|m| {
                 if let Ok(Some(current_target)) = repo.resolve_ref(&m.dest) {
-                    current_target != m.source.target_id
+                    current_target != m.source.target
                 } else {
                     true
                 }
@@ -56,7 +56,7 @@ fn fetch_remote(
         if !updates_needed.is_empty() {
             println!("Branches to update:");
             for update_spec in updates_needed.iter() {
-                println!("\t{} to {}", update_spec.dest, update_spec.source.target_id);
+                println!("\t{} to {}", update_spec.dest, update_spec.source.target);
             }
         } else {
             println!("Nothing to update");
@@ -65,10 +65,10 @@ fn fetch_remote(
         let objects_needed: Vec<String> = updates_needed
             .iter()
             .filter_map(|m| {
-                if repo.has_object(&m.source.target_id).unwrap_or(false) {
+                if repo.has_object(&m.source.target.to_string()).unwrap_or(false) {
                     None
                 } else {
-                    Some(m.source.target_id.to_string())
+                    Some(m.source.target.to_string())
                 }
             })
             .collect();

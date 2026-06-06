@@ -6,7 +6,7 @@ use url::{self, Url};
 use crate::{
     helpers::escaped_byte_string,
     repo::is_partial_object_id,
-    stores::{RefSpec, TargetedRef},
+    stores::{RefSpec, RefTarget, TargetedRef},
 };
 
 /// A Git pkt-line, sent or received over the network.
@@ -364,7 +364,7 @@ impl HttpFetchClient {
         }
         let refspec = String::from_utf8(line_contents[(id_len + 1)..line_end].to_vec())?;
         let spec = RefSpec::from_str(&refspec)?;
-        Ok(TargetedRef { target_id, spec })
+        Ok(TargetedRef { target: RefTarget::Object(target_id), spec })
     }
 
     fn load_capabilities_body_v2(

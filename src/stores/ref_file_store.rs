@@ -12,7 +12,7 @@ use crate::{
     helpers::fs::{
         check_and_create_dir, path_translate, path_translate_rev, walk_fs, write_single_line,
     },
-    stores::{BranchLocation, BranchSpec, RefSpec, RefStore, TagSpec, TargetedRef},
+    stores::{BranchLocation, BranchSpec, RefSpec, RefStore, RefTarget, TagSpec, TargetedRef},
 };
 
 /// The git-compatible filesystem store for local and remote branch information.
@@ -98,6 +98,9 @@ impl RefStore for RefFileStore {
     /// On success, if the parameter is a valid branch, this method returns the commit ID at the
     /// head of that branch.  The branch may be local or remote.  If it is a pointer to another
     /// branch (as is normal for the special `HEAD` reference), it unpeels that pointer.
+    /// 
+    /// This method follows symbolic references to return an object ID, but will throw an error 
+    /// if the symbolic reference is to an unborn branch.
     ///
     /// If the parameter is a thin tag, this method returns its target, but it does not unpeel
     /// chunky tags.
@@ -108,7 +111,7 @@ impl RefStore for RefFileStore {
     /// If the parameter does not represent a valid branch or tag, this method returns `Ok(None)`.
     ///
     /// This method may return an error, if any filesystem errors were encountered.
-    fn resolve_target(&self, r: &RefSpec) -> Result<Option<String>, anyhow::Error> {
+    fn resolve_target(&self, r: &RefSpec) -> Result<Option<RefTarget>, anyhow::Error> {
         let ref_path = self.base_path.join(PathBuf::from(r));
         if !(ref_path.exists() && ref_path.is_file()) {
             return Ok(None);
@@ -117,7 +120,7 @@ impl RefStore for RefFileStore {
         if let Some(nested_ref) = ref_conts.strip_prefix("ref: ") {
             self.resolve_target(&RefSpec::from_str(nested_ref.trim())?)
         } else {
-            Ok(Some(ref_conts))
+            Ok(Some(RefTarget::Object(ref_conts)))
         }
     }
 
@@ -197,12 +200,12 @@ impl RefStore for RefFileStore {
         let refs = self.all_refs()?;
         let mut results: Vec<TargetedRef> = vec![];
         for item in refs {
-            let Some(target_id) = self.resolve_target(&item)? else {
+            let Some(target) = self.resolve_target(&item)? else {
                 return Err(anyhow!("ref has disappeared"));
             };
             results.push(TargetedRef {
                 spec: item,
-                target_id,
+                target,
             });
         }
         Ok(results)
