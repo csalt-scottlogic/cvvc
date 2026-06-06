@@ -100,7 +100,7 @@ pub trait RefStore {
     /// responsibiity to peel it.
     ///
     /// This function should return `Ok(None)` if the branch does not exist rather than erroring.
-    fn resolve_target(&self, r: &RefSpec) -> Result<Option<String>, anyhow::Error>;
+    fn resolve_target(&self, r: &RefSpec) -> Result<Option<RefTarget>, anyhow::Error>;
 
     /// Return all of the remote branches with the matching name.
     ///

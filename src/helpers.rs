@@ -192,6 +192,20 @@ pub fn is_ref_name_legal(name: &str) -> bool {
         || ends_with_patterns.iter().any(|p| name.ends_with(p)))
 }
 
+pub fn escaped_byte_string(b: &[u8]) -> String {
+    let it = b
+        .iter()
+        .flat_map(|v| {
+            if *v >= 32 && *v < 127 {
+                vec![*v]
+            } else {
+                format!("\\{:x}", v).bytes().collect::<Vec<u8>>()
+            }
+        })
+        .collect();
+    String::from_utf8(it).unwrap()
+}
+
 #[cfg(test)]
 mod tests {
 

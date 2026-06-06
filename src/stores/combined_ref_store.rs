@@ -105,7 +105,7 @@ impl RefStore for CombinedRefStore {
             .collect())
     }
 
-    fn resolve_target(&self, r: &super::RefSpec) -> Result<Option<String>, anyhow::Error> {
+    fn resolve_target(&self, r: &super::RefSpec) -> Result<Option<RefTarget>, anyhow::Error> {
         let result = self.loose_store.resolve_target(r)?;
         if result.is_some() {
             return Ok(result);

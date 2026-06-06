@@ -341,8 +341,7 @@ impl RepoConfig {
         };
         let fetch_defs = get_str_setting_from_ini_section(section, "fetch")
             .into_iter()
-            .map(|s| FetchRefSpec::from_str(s).ok())
-            .flatten()
+            .filter_map(|s| FetchRefSpec::from_str(s).ok())
             .collect();
         Some(RemoteInfo {
             name,
@@ -408,16 +407,6 @@ impl Display for FetchRefSpec {
             Self::Exclusion(p) => write!(f, "^{}", p),
             Self::Inclusion(p) => p.fmt(f),
         }
-        // let force_flag = if self.force { "+" } else { "" };
-        // let exclude_flag = if self.exclude { "^" } else { "" };
-        // match &self.dest_pattern {
-        //     Some(p) => write!(
-        //         f,
-        //         "{}{}{}:{}",
-        //         exclude_flag, force_flag, self.source_pattern, p
-        //     ),
-        //     None => write!(f, "{}{}{}", exclude_flag, force_flag, self.source_pattern),
-        // }
     }
 }
 
@@ -425,9 +414,9 @@ impl FromStr for FetchRefSpec {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.starts_with("^") {
+        if let Some(s) = s.strip_prefix("^") {
             Ok(Self::Exclusion(FetchRefSpecExclusionPattern::from_str(
-                &s[1..],
+                s,
             )?))
         } else {
             Ok(Self::Inclusion(FetchRefSpecInclusionPattern::from_str(s)?))

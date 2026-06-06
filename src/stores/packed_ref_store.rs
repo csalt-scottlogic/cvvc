@@ -100,12 +100,12 @@ impl RefStore for PackedRefStore {
             .collect())
     }
 
-    fn resolve_target(&self, r: &RefSpec) -> Result<Option<String>, anyhow::Error> {
+    fn resolve_target(&self, r: &RefSpec) -> Result<Option<RefTarget>, anyhow::Error> {
         let key = r.to_string();
         if !self.contents.contains_key(&key) {
             Ok(None)
         } else {
-            Ok(Some(self.contents[&key].to_string()))
+            Ok(Some(RefTarget::from_str(&self.contents[&key])?))
         }
     }
 

@@ -418,19 +418,19 @@ impl Repository {
         let potential_tag = self
             .ref_store
             .resolve_target(&RefSpec::Tag(TagSpec::new(name, false)))?;
-        if let Some(potential_tag) = potential_tag {
+        if let Some(RefTarget::Object(potential_tag)) = potential_tag {
             collected.insert(potential_tag);
         }
 
         let potential_branch = self
             .ref_store
             .resolve_target(&BranchSpec::new(name, BranchLocation::Local).into_ref_spec())?;
-        if let Some(potential_branch) = potential_branch {
+        if let Some(RefTarget::Object(potential_branch)) = potential_branch {
             collected.insert(potential_branch);
         } else {
             let potential_remote_branches = self.ref_store.search_remotes_for_branch(name)?;
             for remote_branch in potential_remote_branches {
-                if let Some(remote_branch_target) = self
+                if let Some(RefTarget::Object(remote_branch_target)) = self
                     .ref_store
                     .resolve_target(&remote_branch.into_ref_spec())?
                 {
@@ -583,6 +583,10 @@ impl Repository {
             result.insert(item.0, item.1);
         }
         Ok(result)
+    }
+
+    pub fn resolve_ref(&self, ref_spec: &RefSpec) -> Result<Option<RefTarget>, anyhow::Error> {
+        self.ref_store.resolve_target(ref_spec)
     }
 
     /// Creates a thin reference to an object.
@@ -748,11 +752,10 @@ impl Repository {
             return Ok(None);
         }
         let head_conts = fs::read_to_string(path)?;
-        if let Some(ref_target) = head_conts.strip_prefix("ref: ").map(|x| x.trim()) {
-            self.ref_store
-                .resolve_target(&RefSpec::from_str(ref_target)?)
-        } else {
-            Ok(Some(head_conts.trim().to_string()))
+        let head_target = RefTarget::from_str(&head_conts)?;
+        match head_target {
+            RefTarget::SymbolicRef(r) => Ok(self.ref_store.resolve_target(&r)?.map(|t| t.to_string())),
+            RefTarget::Object(id) => Ok(Some(id))
         }
     }
 
