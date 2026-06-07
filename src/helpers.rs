@@ -192,6 +192,11 @@ pub fn is_ref_name_legal(name: &str) -> bool {
         || ends_with_patterns.iter().any(|p| name.ends_with(p)))
 }
 
+/// Convert a byte slice into an ASCII string, displaying any non-ASCII characters as hex escape sequences.
+/// 
+/// For brevity, the escape sequences are shown in a more concise format than Rust literals; they consist of a 
+/// backslash followed by an unpadded hex number.  For example, in this representation, the `LF` character will
+/// be displayed as `\a`, rather than the `\x0a` of a Rust literal.
 pub fn escaped_byte_string(b: &[u8]) -> String {
     let it = b
         .iter()

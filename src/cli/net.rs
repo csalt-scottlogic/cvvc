@@ -65,7 +65,10 @@ fn fetch_remote(
         let objects_needed: Vec<String> = updates_needed
             .iter()
             .filter_map(|m| {
-                if repo.has_object(&m.source.target.to_string()).unwrap_or(false) {
+                if repo
+                    .has_object(&m.source.target.to_string())
+                    .unwrap_or(false)
+                {
                     None
                 } else {
                     Some(m.source.target.to_string())

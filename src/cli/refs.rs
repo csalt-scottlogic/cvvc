@@ -5,7 +5,8 @@ use crate::{
     config::GlobalConfig,
     helpers::{self, find_repo_cwd, is_ref_name_legal},
     objects::Tag,
-    repo::Repository, stores::RefTarget,
+    repo::Repository,
+    stores::RefTarget,
 };
 
 /// Entry point for the `cv show-ref` coommand

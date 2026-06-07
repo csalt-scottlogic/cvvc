@@ -98,8 +98,8 @@ impl RefStore for RefFileStore {
     /// On success, if the parameter is a valid branch, this method returns the commit ID at the
     /// head of that branch.  The branch may be local or remote.  If it is a pointer to another
     /// branch (as is normal for the special `HEAD` reference), it unpeels that pointer.
-    /// 
-    /// This method follows symbolic references to return an object ID, but will throw an error 
+    ///
+    /// This method follows symbolic references to return an object ID, but will throw an error
     /// if the symbolic reference is to an unborn branch.
     ///
     /// If the parameter is a thin tag, this method returns its target, but it does not unpeel
@@ -203,10 +203,7 @@ impl RefStore for RefFileStore {
             let Some(target) = self.resolve_target(&item)? else {
                 return Err(anyhow!("ref has disappeared"));
             };
-            results.push(TargetedRef {
-                spec: item,
-                target,
-            });
+            results.push(TargetedRef { spec: item, target });
         }
         Ok(results)
     }
