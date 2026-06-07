@@ -558,12 +558,12 @@ impl Repository {
         let mut refs = self
             .ref_store
             .all_ref_targets()?
-            .iter()
-            .map(|x| (x.spec.to_string(), x.target.clone()))
+            .into_iter()
+            .map(|x| (x.spec.to_string(), x.target))
             .collect::<Vec<(String, RefTarget)>>();
         refs.sort_by(|a, b| a.0.cmp(&b.0));
         let mut result = IndexMap::<String, RefTarget>::new();
-        for item in refs.into_iter() {
+        for item in refs {
             result.insert(item.0, item.1);
         }
         Ok(result)
@@ -576,15 +576,16 @@ impl Repository {
         let refs = self.ref_store.all_ref_targets()?;
         let mut result = IndexMap::<String, RefTarget>::new();
         for item in refs
-            .iter()
+            .into_iter()
             .filter(|x| matches!(x.spec, RefSpec::Tag(_)))
-            .map(|x| (x.spec.to_string(), x.target.clone()))
+            .map(|x| (x.spec.to_string(), x.target))
         {
             result.insert(item.0, item.1);
         }
         Ok(result)
     }
 
+    /// Resolve a reference to its target.
     pub fn resolve_ref(&self, ref_spec: &RefSpec) -> Result<Option<RefTarget>, anyhow::Error> {
         self.ref_store.resolve_target(ref_spec)
     }
@@ -754,8 +755,10 @@ impl Repository {
         let head_conts = fs::read_to_string(path)?;
         let head_target = RefTarget::from_str(&head_conts)?;
         match head_target {
-            RefTarget::SymbolicRef(r) => Ok(self.ref_store.resolve_target(&r)?.map(|t| t.to_string())),
-            RefTarget::Object(id) => Ok(Some(id))
+            RefTarget::SymbolicRef(r) => {
+                Ok(self.ref_store.resolve_target(&r)?.map(|t| t.to_string()))
+            }
+            RefTarget::Object(id) => Ok(Some(id)),
         }
     }
 

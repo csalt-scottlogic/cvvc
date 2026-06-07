@@ -415,9 +415,7 @@ impl FromStr for FetchRefSpec {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Some(s) = s.strip_prefix("^") {
-            Ok(Self::Exclusion(FetchRefSpecExclusionPattern::from_str(
-                s,
-            )?))
+            Ok(Self::Exclusion(FetchRefSpecExclusionPattern::from_str(s)?))
         } else {
             Ok(Self::Inclusion(FetchRefSpecInclusionPattern::from_str(s)?))
         }
@@ -648,9 +646,9 @@ impl TargetedRef {
     /// # use crate::cvvc::{config::FetchRefSpec, stores::{RefSpec, RefTarget, TargetedRef}};
     /// # use std::str::FromStr;
     /// let fetch_specs = vec![FetchRefSpec::from_str("+refs/heads/*:refs/remotes/origin/*").unwrap()];
-    /// let target = TargetedRef { 
-    ///     spec: RefSpec::from_str("refs/heads/example").unwrap(), 
-    ///     target: RefTarget::Object("0000000000000000000000000000000000000000".to_string()) 
+    /// let target = TargetedRef {
+    ///     spec: RefSpec::from_str("refs/heads/example").unwrap(),
+    ///     target: RefTarget::Object("0000000000000000000000000000000000000000".to_string())
     /// };
     ///
     /// let maps = target.map_fetch(&fetch_specs);

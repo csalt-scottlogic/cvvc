@@ -117,7 +117,48 @@ pub struct RemoteServerInfo {
     pub refs: Vec<TargetedRef>,
 
     /// A list of the advertised capabilities of this server.
-    pub capabilities: Vec<String>,
+    pub capabilities: Vec<RemoteCapability>,
+}
+
+/// A capability of a remote server, consisting either of a single string, or a key and a number of values.
+/// 
+/// In the version 1 protocol, most capabilities are a single string without additional values.  In the version 
+/// 2 protocol, most capabilities are keys and values, with the key being a command the server accepts and
+/// the values specifying the individual capabilities of that command.
+#[derive(Clone)]
+pub struct RemoteCapability {
+    key: String,
+    values: Vec<String>,
+}
+
+impl Display for RemoteCapability {
+    // Allowed because we need to ensure we always write a LF, not a platform-dependent EOL
+    #[allow(clippy::write_with_newline)]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.values.len() {
+            0 => self.key.fmt(f),
+            _ => write!(f, "{}={}\x0a", self.key, self.values.join(" ")),
+        }
+    }
+}
+
+impl FromStr for RemoteCapability {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        let sep = s.bytes().position(|x| x == 0xa);
+        match sep {
+            None => Ok(Self {
+                key: s.to_string(),
+                values: vec![],
+            }),
+            Some(x) => Ok(Self {
+                key: s[..x].to_string(),
+                values: s[(x + 1)..].split(" ").map(|v| v.to_string()).collect(),
+            }),
+        }
+    }
 }
 
 /// The version of the Git protocol in use.
@@ -162,22 +203,22 @@ pub struct HttpFetchClient {
     client: Client,
     base_url: Url,
     version: Option<ProtocolVersion>,
-    capabilities: Vec<String>,
+    capabilities: Vec<RemoteCapability>,
 }
 
 impl HttpFetchClient {
     /// Create a new fetch client.
-    /// 
+    ///
     /// The `base_url` parameter is normalised to end in a slash, if it does not already.
-    /// 
+    ///
     /// If the `version` parameter is `None`, the client will attempt to sniff the supported
     /// server protocol, starting by making a Version 2 connection and switching to Version 1
-    /// if it gets a Version 1 response.  If the `version` parameter is `Some(x)`, the client will 
-    /// only use the specified protocol version, and will error if the client does not appear to 
+    /// if it gets a Version 1 response.  If the `version` parameter is `Some(x)`, the client will
+    /// only use the specified protocol version, and will error if the client does not appear to
     /// support it.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// This function returns an error if the `base_url` parameter cannot be parsed as a [`Url`].
     pub fn new(base_url: &str, version: Option<ProtocolVersion>) -> Result<Self, anyhow::Error> {
         let client = Client::new();
@@ -200,6 +241,20 @@ impl HttpFetchClient {
         self.version.as_ref().unwrap_or(&ProtocolVersion::V2)
     }
 
+    /// Fetch the server's capabilities and refs.
+    /// 
+    /// These are grouped together in the API, because they are a single network request in the
+    /// version 1 protocol.
+    /// 
+    /// If the client's protocol has already been set, that protocol will be used.  If not, the code will
+    /// send a protocol version 2 request, and determine whether it gets a version 1 or version 2 response
+    /// in return.  If it gets a version 2 request, it will send a second network request to get the remote
+    /// refs; and it will use version 2 requests for all operations from that point.
+    /// 
+    /// # Errors
+    /// 
+    /// This method can return an error if there are any issues with the network connection, or if there is
+    /// an unexpected or unparseable response from the server.
     pub fn fetch_refs_capabilities(
         &mut self,
         net_dump: bool,
@@ -274,7 +329,7 @@ impl HttpFetchClient {
         Ok(line == *test_line)
     }
 
-    fn fetch_capabilities_v2(&mut self, net_dump: bool) -> Result<Vec<String>, anyhow::Error> {
+    fn fetch_capabilities_v2(&mut self, net_dump: bool) -> Result<Vec<RemoteCapability>, anyhow::Error> {
         let (protocol_version, _, lines) = self.make_initial_fetch_request(net_dump)?;
         if protocol_version != ProtocolVersion::V2 {
             return Err(anyhow!("wrong protocol version"));
@@ -314,7 +369,7 @@ impl HttpFetchClient {
         lines: PktLineIterator<Response>,
         net_dump: bool,
     ) -> Result<RemoteServerInfo, anyhow::Error> {
-        let mut capabilities: Vec<String> = vec![];
+        let mut capabilities: Vec<RemoteCapability> = vec![];
         let mut refs: Vec<TargetedRef> = vec![];
         if let PktLine::Line(line_contents) = first_line {
             refs.push(Self::load_single_v1_refs_capabilities_line(
@@ -340,7 +395,7 @@ impl HttpFetchClient {
 
     fn load_single_v1_refs_capabilities_line(
         line_contents: Vec<u8>,
-        capabilities: &mut Vec<String>,
+        capabilities: &mut Vec<RemoteCapability>,
     ) -> Result<TargetedRef, anyhow::Error> {
         let Some(id_len) = line_contents.iter().position(|x| *x == 32) else {
             return Err(anyhow!("line format: could not find space"));
@@ -359,19 +414,24 @@ impl HttpFetchClient {
         if let Some(cap_list_start) = cap_list_start {
             let cap_list =
                 String::from_utf8(line_contents[(cap_list_start + 1)..line_end].to_vec())?;
-            capabilities.append(&mut cap_list.split(" ").map(|x| x.to_string()).collect());
+            for cap in cap_list.split(" ") {
+                capabilities.push(RemoteCapability::from_str(cap)?);
+            }
             line_end = cap_list_start;
         }
         let refspec = String::from_utf8(line_contents[(id_len + 1)..line_end].to_vec())?;
         let spec = RefSpec::from_str(&refspec)?;
-        Ok(TargetedRef { target: RefTarget::Object(target_id), spec })
+        Ok(TargetedRef {
+            target: RefTarget::Object(target_id),
+            spec,
+        })
     }
 
     fn load_capabilities_body_v2(
         &mut self,
         lines: PktLineIterator<Response>,
         net_dump: bool,
-    ) -> Result<Vec<String>, anyhow::Error> {
+    ) -> Result<Vec<RemoteCapability>, anyhow::Error> {
         let mut results = vec![];
         for line in lines {
             let line = line?;
@@ -379,7 +439,7 @@ impl HttpFetchClient {
                 println!("R: {line}");
             }
             if let PktLine::Line(content) = line {
-                results.push(String::from_utf8_lossy(&content).trim().to_string());
+                results.push(RemoteCapability::from_str(&String::from_utf8_lossy(&content))?);
             }
         }
         Ok(results)

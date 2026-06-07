@@ -117,7 +117,7 @@ pub trait RefStore {
 }
 
 /// Specifies if a branch or tag is local, or if it is remote, which remote it belongs to.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum BranchLocation {
     /// A local branch or tag
     Local,
@@ -182,7 +182,7 @@ impl FromStr for BranchLocation {
 }
 
 /// The specification of a ref.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Debug, Eq, Hash, PartialEq)]
 pub enum RefSpec {
     /// A branch ref, either a local branch or a remote branch.
     Branch(BranchSpec),
@@ -221,7 +221,7 @@ impl FromStr for RefSpec {
 }
 
 /// The definition of a branch.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BranchSpec {
     // Correct behaviour of the branch-list command depends on the
     // ordering of members of this struct, so that the derived
@@ -288,10 +288,10 @@ impl FromStr for BranchSpec {
 }
 
 /// The target of a reference.  This can be either an object ID, or a symbolic reference to another reference.
-/// 
+///
 /// For example, the `HEAD` reference is normally a symbolic reference to a branch, but can be an object ID
 /// when in "detached HEAD" mode.
-#[derive(Clone, Eq, Hash, PartialEq)]
+#[derive(Eq, Hash, PartialEq)]
 pub enum RefTarget {
     /// The reference target is a specific object ID.
     Object(String),
