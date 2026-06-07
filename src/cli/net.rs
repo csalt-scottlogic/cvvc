@@ -1,26 +1,36 @@
 use crate::{
     config::{FetchRefMap, RemoteInfo},
     helpers::find_repo_cwd,
-    net::fetch_remote_refs,
+    net::{HttpFetchClient, ProtocolVersion},
     repo::Repository,
 };
 
 /// Entry point for `cv fetch`.  Fetches from all remotes.
-pub fn fetch() -> Result<(), anyhow::Error> {
+pub fn fetch(version: Option<u32>) -> Result<(), anyhow::Error> {
     println!("Stop trying to make fetch happen!");
     let repo = find_repo_cwd()?;
     for remote in repo.list_remote_names() {
         if let Some(remote) = repo.get_remote(remote) {
-            fetch_remote(&repo, &remote)?;
+            fetch_remote(&repo, &remote, version)?;
         }
     }
     Ok(())
 }
 
-fn fetch_remote(repo: &Repository, remote: &RemoteInfo) -> Result<(), anyhow::Error> {
+fn fetch_remote(
+    repo: &Repository,
+    remote: &RemoteInfo,
+    version: Option<u32>,
+) -> Result<(), anyhow::Error> {
     for url in remote.fetch_urls.iter() {
+        let version = match version {
+            Some(x) => Some(ProtocolVersion::try_from(x)?),
+            None => None,
+        };
         println!("Fetching from {} ({})", remote.name, url);
-        let remote_info = fetch_remote_refs(url, true)?;
+        let mut fetch_client_engine = HttpFetchClient::new(url, version)?;
+        println!("Protocol version {}", fetch_client_engine.version());
+        let remote_info = fetch_client_engine.fetch_refs_capabilities(true)?;
         if !remote_info.capabilities.is_empty() {
             println!("Server capabilities:");
             for cap in remote_info.capabilities {
@@ -37,7 +47,7 @@ fn fetch_remote(repo: &Repository, remote: &RemoteInfo) -> Result<(), anyhow::Er
             .iter()
             .filter(|m| {
                 if let Ok(Some(current_target)) = repo.resolve_ref(&m.dest) {
-                    current_target != m.source.target_id
+                    current_target != m.source.target
                 } else {
                     true
                 }
@@ -46,7 +56,7 @@ fn fetch_remote(repo: &Repository, remote: &RemoteInfo) -> Result<(), anyhow::Er
         if !updates_needed.is_empty() {
             println!("Branches to update:");
             for update_spec in updates_needed.iter() {
-                println!("\t{} to {}", update_spec.dest, update_spec.source.target_id);
+                println!("\t{} to {}", update_spec.dest, update_spec.source.target);
             }
         } else {
             println!("Nothing to update");
@@ -55,10 +65,13 @@ fn fetch_remote(repo: &Repository, remote: &RemoteInfo) -> Result<(), anyhow::Er
         let objects_needed: Vec<String> = updates_needed
             .iter()
             .filter_map(|m| {
-                if repo.has_object(&m.source.target_id).unwrap_or(false) {
+                if repo
+                    .has_object(&m.source.target.to_string())
+                    .unwrap_or(false)
+                {
                     None
                 } else {
-                    Some(m.source.target_id.to_string())
+                    Some(m.source.target.to_string())
                 }
             })
             .collect();

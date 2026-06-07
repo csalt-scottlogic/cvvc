@@ -29,7 +29,7 @@ use crate::{
     ref_log::{RefLog, RefLogEntry},
     stores::{
         BranchLocation, BranchSpec, CombinedRefStore, LooseObjectStore, ObjectStore, PackStore,
-        RefSpec, RefStore, TagSpec,
+        RefSpec, RefStore, RefTarget, TagSpec,
     },
 };
 
@@ -418,19 +418,19 @@ impl Repository {
         let potential_tag = self
             .ref_store
             .resolve_target(&RefSpec::Tag(TagSpec::new(name, false)))?;
-        if let Some(potential_tag) = potential_tag {
+        if let Some(RefTarget::Object(potential_tag)) = potential_tag {
             collected.insert(potential_tag);
         }
 
         let potential_branch = self
             .ref_store
             .resolve_target(&BranchSpec::new(name, BranchLocation::Local).into_ref_spec())?;
-        if let Some(potential_branch) = potential_branch {
+        if let Some(RefTarget::Object(potential_branch)) = potential_branch {
             collected.insert(potential_branch);
         } else {
             let potential_remote_branches = self.ref_store.search_remotes_for_branch(name)?;
             for remote_branch in potential_remote_branches {
-                if let Some(remote_branch_target) = self
+                if let Some(RefTarget::Object(remote_branch_target)) = self
                     .ref_store
                     .resolve_target(&remote_branch.into_ref_spec())?
                 {
@@ -554,16 +554,16 @@ impl Repository {
     /// in the case of tags.
     ///
     /// Returns an error if any errors are encountered accessing the filesystem.
-    pub fn ref_list(&self) -> Result<IndexMap<String, String>, anyhow::Error> {
+    pub fn ref_list(&self) -> Result<IndexMap<String, RefTarget>, anyhow::Error> {
         let mut refs = self
             .ref_store
             .all_ref_targets()?
-            .iter()
-            .map(|x| (x.spec.to_string(), x.target_id.clone()))
-            .collect::<Vec<(String, String)>>();
+            .into_iter()
+            .map(|x| (x.spec.to_string(), x.target))
+            .collect::<Vec<(String, RefTarget)>>();
         refs.sort_by(|a, b| a.0.cmp(&b.0));
-        let mut result = IndexMap::<String, String>::new();
-        for item in refs.into_iter() {
+        let mut result = IndexMap::<String, RefTarget>::new();
+        for item in refs {
             result.insert(item.0, item.1);
         }
         Ok(result)
@@ -572,20 +572,21 @@ impl Repository {
     /// Returns a map of tags in the repository and the objects they point to, unpeeled.
     ///
     /// Returns an error if any errors are encountered accessing the filesystem.
-    pub fn tag_list(&self) -> Result<IndexMap<String, String>, anyhow::Error> {
+    pub fn tag_list(&self) -> Result<IndexMap<String, RefTarget>, anyhow::Error> {
         let refs = self.ref_store.all_ref_targets()?;
-        let mut result = IndexMap::<String, String>::new();
+        let mut result = IndexMap::<String, RefTarget>::new();
         for item in refs
-            .iter()
+            .into_iter()
             .filter(|x| matches!(x.spec, RefSpec::Tag(_)))
-            .map(|x| (x.spec.to_string(), x.target_id.clone()))
+            .map(|x| (x.spec.to_string(), x.target))
         {
             result.insert(item.0, item.1);
         }
         Ok(result)
     }
 
-    pub fn resolve_ref(&self, ref_spec: &RefSpec) -> Result<Option<String>, anyhow::Error> {
+    /// Resolve a reference to its target.
+    pub fn resolve_ref(&self, ref_spec: &RefSpec) -> Result<Option<RefTarget>, anyhow::Error> {
         self.ref_store.resolve_target(ref_spec)
     }
 
@@ -752,11 +753,12 @@ impl Repository {
             return Ok(None);
         }
         let head_conts = fs::read_to_string(path)?;
-        if let Some(ref_target) = head_conts.strip_prefix("ref: ").map(|x| x.trim()) {
-            self.ref_store
-                .resolve_target(&RefSpec::from_str(ref_target)?)
-        } else {
-            Ok(Some(head_conts.trim().to_string()))
+        let head_target = RefTarget::from_str(&head_conts)?;
+        match head_target {
+            RefTarget::SymbolicRef(r) => {
+                Ok(self.ref_store.resolve_target(&r)?.map(|t| t.to_string()))
+            }
+            RefTarget::Object(id) => Ok(Some(id)),
         }
     }
 
@@ -1183,17 +1185,19 @@ impl<'a> CommitIterator<'a> {
                 .ref_store
                 .all_ref_targets()?
                 .into_iter()
-                .filter_map(|r| {
-                    if r.target_id.starts_with("ref:")
-                        && repo.has_object(&r.target_id).unwrap_or(true)
-                        && repo
-                            .read_raw_object(&r.target_id)
-                            .map(|c| c.unwrap().metadata().kind != ObjectKind::Commit)
-                            .unwrap_or(true)
-                    {
-                        None
-                    } else {
-                        Some(r.target_id)
+                .filter_map(|r| match r.target {
+                    RefTarget::SymbolicRef(_) => None,
+                    RefTarget::Object(id) => {
+                        if repo.has_object(&id).unwrap_or(true)
+                            && repo
+                                .read_raw_object(&id)
+                                .map(|c| c.unwrap().metadata().kind != ObjectKind::Commit)
+                                .unwrap_or(true)
+                        {
+                            None
+                        } else {
+                            Some(id)
+                        }
                     }
                 })
                 .filter_map(|id| {
