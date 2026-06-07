@@ -220,6 +220,18 @@ impl FromStr for RefSpec {
     }
 }
 
+impl RefSpec {
+    /// If this value is a [`RefSpec::Tag`], clone it but set the `peeled` property to `true`.
+    /// 
+    /// Otherwise, this method returns `None`.
+    pub fn peel_tag(&self) -> Option<Self> {
+         match self {
+            RefSpec::Tag(t) => Some(RefSpec::Tag(TagSpec { name: t.name.to_string(), peeled: true })),
+            _ => None,
+         }
+    }
+}
+
 /// The definition of a branch.
 #[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BranchSpec {
