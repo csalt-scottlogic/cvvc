@@ -76,10 +76,11 @@ fn fetch_remote(
             })
             .collect();
         if !objects_needed.is_empty() {
-            println!("Comits needed:");
+            println!("Commits needed:");
             for obj in objects_needed.iter() {
                 println!("\t{}", obj);
             }
+            fetch_client_engine.fetch_pack(&objects_needed.iter().map(|x| x.as_str()).collect::<Vec<_>>(), repo, true)?;
         }
     }
     Ok(())

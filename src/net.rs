@@ -1,11 +1,12 @@
 use anyhow::{anyhow, Context};
+use indexmap::IndexSet;
 use reqwest::blocking::{Client, Response};
 use std::{collections::VecDeque, fmt::Display, io::Read, str::FromStr};
 use url::{self, Url};
 
 use crate::{
     helpers::escaped_byte_string,
-    repo::is_partial_object_id,
+    repo::{CommitIterator, Repository, is_partial_object_id},
     stores::{RefSpec, RefTarget, TargetedRef},
 };
 
@@ -289,6 +290,122 @@ impl HttpFetchClient {
     /// Get the protocol version which will be used for the next request.
     pub fn version(&self) -> &ProtocolVersion {
         self.version.as_ref().unwrap_or(&ProtocolVersion::V2)
+    }
+
+    pub fn fetch_pack(&self, wants: &[&str], repo: &Repository, net_dump: bool) -> Result<(), anyhow::Error> {
+        match self.version {
+            Some(ProtocolVersion::V1) => todo!(),
+            Some(ProtocolVersion::V2) => self.fetch_pack_v2(wants, repo, net_dump),
+            None => Err(anyhow!("get your client to sniff the protocol via fetch_refs_capabilities() before fetching a pack")),
+        }
+    }
+
+    fn fetch_pack_v2(&self, wants: &[&str], repo: &Repository, net_dump: bool) -> Result<(), anyhow::Error> {
+        let mut common_objects = IndexSet::<String>::new();
+        let our_objects = repo.commits(None)?;
+        let mut topup_size = our_objects.queue_length();
+        let mut our_objects = Self::top_up_common_objects(&mut common_objects, our_objects, topup_size)?;
+        let mut provide_done = false;
+        loop {
+            match self.fetch_pack_v2_call(wants, &mut common_objects, provide_done, net_dump)? {
+                PackFetchResponse::InfoNeeded(acked) => {
+                    Self::scrub_common_objects(&mut common_objects, acked);
+                },
+                PackFetchResponse::Ready(acked) => {
+                    Self::scrub_common_objects(&mut common_objects, acked);
+                    provide_done = true;
+                }
+                PackFetchResponse::Pack => { break; }
+            }
+            match our_objects {
+                Some(iter) => {
+                    topup_size = if topup_size < 400 {
+                        topup_size * 2
+                    } else {
+                        topup_size + 400
+                    };
+                    our_objects = Self::top_up_common_objects(&mut common_objects, iter, topup_size)?;
+                },
+                None => {
+                    provide_done = true;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn fetch_pack_v2_call(&self, wants: &[&str], common_objects: &IndexSet<String>, provide_done: bool, net_dump: bool) -> Result<PackFetchResponse, anyhow::Error> {
+        let want_list = wants.iter().map(|s| PackFetchCommand::Want(s.to_string())).collect::<Vec<_>>();
+        let have_list = common_objects.iter().map(|s| PackFetchCommand::Have(s.to_string())).collect::<Vec<_>>();
+        let fetch_url = self.base_url.join("git-upload-pack")?;
+        let fetch_args = self.capabilities.iter().filter(|c| c.key == "fetch").next();
+        let Some(_) = fetch_args else {
+            return Err(anyhow!("server does not support fetch command"));
+        };
+        let mut body_lines = vec![PktLine::from("command=fetch\x0a")];
+        if self.capabilities.iter().any(|c| c.key == "agent") {
+            body_lines.push(PktLine::from(format!("agent=cvvc/{}\x0a", env!("CARGO_PKG_VERSION")).as_str()));
+        }
+        body_lines.push(PktLine::Delimiter);
+        body_lines.push(PktLine::from("include-tag\x0a"));
+        body_lines.push(PktLine::from("ofs-delta\x0a"));
+        for want in want_list {
+            body_lines.push(want.into());
+        }
+        for have in have_list {
+            body_lines.push(have.into());
+        }
+        if provide_done {
+            body_lines.push(PktLine::from("done\x0a"));
+        }
+        body_lines.push(PktLine::Flush);
+        if net_dump {
+            for line in &body_lines {
+                println!("S: {line}");
+            }
+        }
+        let body = body_lines.iter().map(|n| n.bytes()).flatten().collect::<Vec<u8>>();
+        let request = self.client.post(fetch_url).header("Git-Protocol", "version=2").body(body);
+        let response = request.send()?;
+        if !response.status().is_success() {
+            return Err(anyhow!(
+                "Request failed: {} {}",
+                response.status(),
+                response.text()?
+            ));
+        }
+        let lines = PktLineIterator::from(response);
+        for line in lines {
+            let line = line?;
+            println!("R: {line}");
+        }
+        Ok(PackFetchResponse::Pack)
+    }
+
+    fn scrub_common_objects(common_objects: &mut IndexSet<String>, mut acked: Vec<String>) {
+        common_objects.retain(|x| {
+            match acked.iter().position(|y| x == y) {
+                Some(pos) => {
+                    acked.remove(pos);
+                    true
+                },
+                None => false,
+            }
+        });
+    }
+
+    fn top_up_common_objects<'a>(common_objects: &mut IndexSet<String>, mut iter: CommitIterator<'a>, to_level: usize) -> Result<Option<CommitIterator<'a>>, anyhow::Error> {
+        while common_objects.len() < to_level {
+            match iter.next() {
+                Some(res) => {
+                    common_objects.insert(res?);
+                },
+                None => {
+                    return Ok(None);
+                }
+            }
+        }
+        Ok(Some(iter))
     }
 
     /// Fetch the server's capabilities and refs.
@@ -594,6 +711,8 @@ impl HttpFetchClient {
     }
 }
 
+
+
 enum PackFetchCommand {
     Want(String),
     Have(String),
@@ -607,6 +726,18 @@ impl From<&PackFetchCommand> for PktLine {
         };
         Self::Line(command.bytes().collect())
     }
+}
+
+impl From<PackFetchCommand> for PktLine {
+    fn from(value: PackFetchCommand) -> Self {
+        Self::from(&value)
+    }
+}
+
+enum PackFetchResponse {
+    InfoNeeded(Vec<String>),
+    Ready(Vec<String>),
+    Pack
 }
 
 #[cfg(test)]

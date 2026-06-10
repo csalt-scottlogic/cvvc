@@ -1225,6 +1225,17 @@ impl<'a> CommitIterator<'a> {
         Ok(CommitIterator { repo, queue, seen })
     }
 
+    /// Get the number of commits currently queued in the iterator.
+    /// 
+    /// If this is called on a newly-created iterator which was created using [`Repository::commits()`] with
+    /// a `None` parameter, it is effectively the number of commits in the repository pointed to by
+    /// the current set of branch tips and tags.
+    /// 
+    /// Calling it at other times is probably not very meaningful.
+    pub fn queue_length(&self) -> usize {
+        self.queue.len()
+    }
+
     fn generate_queue(repo: &Repository, set: &HashSet<String>) -> VecDeque<String> {
         let mut ref_commits = set.iter().map(|x| x.as_str()).collect::<Vec<&str>>();
         ref_commits.sort_by_key(|id| {
