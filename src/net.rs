@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context};
 use indexmap::IndexSet;
 use reqwest::blocking::{Client, Response};
-use std::{collections::VecDeque, fmt::Display, io::Read, str::FromStr};
+use std::{collections::VecDeque, fmt::Display, io::{self, Read}, str::FromStr};
 use url::{self, Url};
 
 use crate::{
@@ -9,6 +9,8 @@ use crate::{
     repo::{CommitIterator, Repository, is_partial_object_id},
     stores::{RefSpec, RefTarget, TargetedRef},
 };
+
+type ReportingFn = Option<fn(&[u8])>;
 
 /// A Git pkt-line, sent or received over the network.
 #[derive(Debug, PartialEq)]
@@ -106,6 +108,19 @@ impl<R: Read> PktLineIterator<R> {
         }
         Some(self.reader.read_exact(buf))
     }
+
+    fn skip_section(&mut self) -> Result<(), anyhow::Error> {
+        loop {
+            let Some(next_line) = self.next() else {
+                break;
+            };
+            let next_line = next_line?;
+            if !matches!(next_line, PktLine::Line(_)) {
+                break;
+            }
+        }
+        Ok(())
+    }
 }
 
 impl<R: Read> Iterator for PktLineIterator<R> {
@@ -159,6 +174,100 @@ impl<R: Read> From<R> for PktLineIterator<R> {
             reader: value,
             has_ended: false,
         }
+    }
+}
+
+/// A reader which reads data from a sequence of Git pkt-line sideband packets, stripping their metadata and presenting them as a single
+/// sequence of bytes, whilst reporting the content of the progress-message sideband back to the user.
+/// 
+/// This reader makes the following assumptions about its input data:
+/// - each pkt-line is in the "sideband" format, with the value of the first data byte of the pkt-line indicating the sideband channel number
+/// - sideband channel 1 is used for data
+/// - sideband channel 2 is used for progress messages
+/// - sideband channel 3 is used for error messages
+/// - if a pkt-line is received on channel 3, it will be the final pkt-line of the sequence
+/// 
+/// Reading from the reader presents the channel 1 data as a continuous stream of bytes, with the line header and sideband number stripped.
+/// 
+/// When a pkt-line on channel 2 is encountered, its content is passed to a message handler function which can, for example, log the message or
+/// display it to the user.
+/// 
+/// When a pkt-line on channel 3 is encountered, its content is passed to the same message handler function as channel 2, and the read immediately
+/// terminates with an error.
+/// 
+/// If any normal lines without a valid channel number are encountered, they are treated as channel 1 data, but without stripping the invalid channel number.
+/// 
+/// Reading terminates successfully on finding a flush line, delimiter line, or response-end line.
+/// 
+/// Reading terminates with [`io::ErrorKind::UnexpectedEof`] if the final pkt-line in the sequence is a normal line.
+pub struct PktLineSidebandReader {
+    iter: PktLineIterator<Response>,
+    cur_line: Option<Vec<u8>>,
+    cur_pos: usize,
+    message_handler: ReportingFn,
+}
+
+impl PktLineSidebandReader {
+    fn new(iter: PktLineIterator<Response>, message_handler: ReportingFn) -> Self {
+        Self {
+            iter,
+            cur_line: None,
+            cur_pos: 0,
+            message_handler,
+        }
+    }
+}
+
+impl Read for PktLineSidebandReader {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        while self.cur_line.is_none() {
+            let the_line = match self.iter.next() {
+                None => {
+                    return Err(io::Error::new(io::ErrorKind::UnexpectedEof, anyhow!("flush or delim not found")));
+                },
+                Some(Err(err)) => {
+                    return Err(io::Error::other(err));
+                },
+                Some(Ok(line)) => line,
+            };
+            let PktLine::Line(line_content) = the_line else {
+                return Ok(0);
+            };
+            match line_content[0] {
+                2 => {
+                    if let Some(mh) = self.message_handler {
+                        mh(&line_content[1..]);
+                    }
+                },
+                3 => {
+                    if let Some(mh) = self.message_handler {
+                        mh(&line_content[1..]);
+                    }
+                    let msg = String::from_utf8_lossy(&line_content[1..]);
+                    return Err(io::Error::other(anyhow!(msg.to_string())));
+                },
+                1 => {
+                    self.cur_line = Some(line_content[1..].to_vec());
+                },
+                _ => {
+                    self.cur_line = Some(line_content);
+                }
+            }
+        }
+        let Some(ref buffered) = self.cur_line else { return Ok(0) };
+        let bytes_avail = buffered.len() - self.cur_pos;
+        let to_copy = if bytes_avail > buf.len() {
+            buf.len()
+        } else {
+            bytes_avail
+        };
+        buf[0..to_copy].copy_from_slice(&buffered[self.cur_pos..(self.cur_pos + to_copy)]);
+        self.cur_pos += to_copy;
+        if self.cur_pos >= buffered.len() {
+            self.cur_line = None;
+            self.cur_pos = 0;
+        }
+        Ok(to_copy)
     }
 }
 
@@ -292,7 +401,29 @@ impl HttpFetchClient {
         self.version.as_ref().unwrap_or(&ProtocolVersion::V2)
     }
 
-    pub fn fetch_pack(&self, wants: &[&str], repo: &Repository, net_dump: bool) -> Result<(), anyhow::Error> {
+    /// Fetch a pack from the remote server.
+    /// 
+    /// This method takes a set of wanted commit IDs, and a reference to the repository which it uses
+    /// to generate the set of commit IDs which we already have.  It returns a `Read` implementation
+    /// which will return the pack data when read, printing any progress or error messages from the remote server
+    /// as it is read.
+    /// 
+    /// This method may make multiple requests to the remote server, as part of the Git pack negotiation protocol.
+    /// 
+    /// # Errors
+    /// 
+    /// This method will return an error under many conditions:
+    /// 
+    /// - if the remote server does not respond
+    /// - if the remote server returns an error status code
+    /// - if the remote server does not return either a packfile, or a response acknowledging which objects are common
+    ///   to remote and local repositories (which could be an empty list)
+    /// - if the remote server returns a `ready` response on one request, but does not send a packfile on the following request
+    /// - if we send a request ending in `done` to show we want to end negotiation, and the remote server does not respond with a packfile
+    /// 
+    /// Note that this method does not read to the end of the final response to confirm that the packfile is properly terminated with a
+    /// "flush" line.  This is handled by the returned reader.
+    pub fn fetch_pack(&self, wants: &[&str], repo: &Repository, net_dump: bool) -> Result<PktLineSidebandReader, anyhow::Error> {
         match self.version {
             Some(ProtocolVersion::V1) => todo!(),
             Some(ProtocolVersion::V2) => self.fetch_pack_v2(wants, repo, net_dump),
@@ -300,22 +431,25 @@ impl HttpFetchClient {
         }
     }
 
-    fn fetch_pack_v2(&self, wants: &[&str], repo: &Repository, net_dump: bool) -> Result<(), anyhow::Error> {
+    fn fetch_pack_v2(&self, wants: &[&str], repo: &Repository, net_dump: bool) -> Result<PktLineSidebandReader, anyhow::Error> {
         let mut common_objects = IndexSet::<String>::new();
         let our_objects = repo.commits(None)?;
         let mut topup_size = our_objects.queue_length();
         let mut our_objects = Self::top_up_common_objects(&mut common_objects, our_objects, topup_size)?;
         let mut provide_done = false;
         loop {
-            match self.fetch_pack_v2_call(wants, &mut common_objects, provide_done, net_dump)? {
+            match self.fetch_pack_v2_call(wants, &common_objects, provide_done, net_dump)? {
                 PackFetchResponse::InfoNeeded(acked) => {
+                    if provide_done {
+                        return Err(anyhow!("ran out of information to send"));
+                    }
                     Self::scrub_common_objects(&mut common_objects, acked);
                 },
                 PackFetchResponse::Ready(acked) => {
                     Self::scrub_common_objects(&mut common_objects, acked);
                     provide_done = true;
                 }
-                PackFetchResponse::Pack => { break; }
+                PackFetchResponse::Pack(reader) => { return Ok(reader); }
             }
             match our_objects {
                 Some(iter) => {
@@ -331,14 +465,13 @@ impl HttpFetchClient {
                 }
             }
         }
-        Ok(())
     }
 
     fn fetch_pack_v2_call(&self, wants: &[&str], common_objects: &IndexSet<String>, provide_done: bool, net_dump: bool) -> Result<PackFetchResponse, anyhow::Error> {
         let want_list = wants.iter().map(|s| PackFetchCommand::Want(s.to_string())).collect::<Vec<_>>();
         let have_list = common_objects.iter().map(|s| PackFetchCommand::Have(s.to_string())).collect::<Vec<_>>();
         let fetch_url = self.base_url.join("git-upload-pack")?;
-        let fetch_args = self.capabilities.iter().filter(|c| c.key == "fetch").next();
+        let fetch_args = self.capabilities.iter().find(|c| c.key == "fetch");
         let Some(_) = fetch_args else {
             return Err(anyhow!("server does not support fetch command"));
         };
@@ -364,7 +497,7 @@ impl HttpFetchClient {
                 println!("S: {line}");
             }
         }
-        let body = body_lines.iter().map(|n| n.bytes()).flatten().collect::<Vec<u8>>();
+        let body = body_lines.iter().flat_map(|n| n.bytes()).collect::<Vec<u8>>();
         let request = self.client.post(fetch_url).header("Git-Protocol", "version=2").body(body);
         let response = request.send()?;
         if !response.status().is_success() {
@@ -374,12 +507,61 @@ impl HttpFetchClient {
                 response.text()?
             ));
         }
-        let lines = PktLineIterator::from(response);
-        for line in lines {
-            let line = line?;
-            println!("R: {line}");
+        let mut lines = PktLineIterator::from(response);
+        // for line in lines {
+        //     let line = line?;
+        //     println!("R: {line}");
+        // }
+        let mut acked_objects = vec![];
+        let mut acks_found = false;
+        let mut is_ready = false;
+        loop {
+            let Some(section_header) = lines.next() else {
+                break;
+            };
+            if let PktLine::Line(line_conts) = section_header? {
+                if line_conts == b"acknowledgements\x0a" {
+                    acks_found = true;
+                    acked_objects.append(&mut Self::load_acked_objects(&mut lines)?);
+                } else if line_conts == b"packfile\x0a" {
+                    let reader = PktLineSidebandReader::new(lines, Some(|m| {
+                        print!("{}", String::from_utf8_lossy(m))
+                    }));
+                    return Ok(PackFetchResponse::Pack(reader))
+                } else if line_conts == b"ready\x0a" {
+                    is_ready = true;
+                } else {
+                    lines.skip_section()?;
+                }
+            }
         }
-        Ok(PackFetchResponse::Pack)
+        if !acks_found {
+            Err(anyhow!("invalid response: no pack and no acknowledgements"))
+        } else if is_ready {
+            Ok(PackFetchResponse::Ready(acked_objects))
+        } else {
+            Ok(PackFetchResponse::InfoNeeded(acked_objects))
+        }
+    }
+
+    fn load_acked_objects<R: Read>(lines: &mut PktLineIterator<R>) -> Result<Vec<String>, anyhow::Error> {
+        let mut objs = vec![];
+        loop {
+            let Some(next_line) = lines.next() else {
+                break;
+            };
+            let next_line = next_line?;
+            let PktLine::Line(line_conts) = next_line else { break; };
+            if line_conts == b"NAK\x0a" {
+                continue;
+            }
+            let line_string = String::from_utf8_lossy(&line_conts);
+            let Some(obj) = line_string.trim().strip_prefix("ACK ") else {
+                return Err(anyhow!("unexpected line received in acknowledgements section"));
+            };
+            objs.push(obj.to_string());
+        }
+        Ok(objs)
     }
 
     fn scrub_common_objects(common_objects: &mut IndexSet<String>, mut acked: Vec<String>) {
@@ -627,7 +809,7 @@ impl HttpFetchClient {
 
     fn fetch_refs_v2(&self, net_dump: bool) -> Result<RemoteServerInfo, anyhow::Error> {
         let ref_url = self.base_url.join("git-upload-pack")?;
-        let ls_refs_args = self.capabilities.iter().filter(|c| c.key == "ls-refs").next();
+        let ls_refs_args = self.capabilities.iter().find(|c| c.key == "ls-refs");
         let Some(ls_refs_args) = ls_refs_args else {
             return Err(anyhow!("server does not support ls-refs command"));
         };
@@ -647,7 +829,7 @@ impl HttpFetchClient {
                 println!("S: {line}");
             }
         }
-        let body = body_lines.iter().map(|n| n.bytes()).flatten().collect::<Vec<u8>>();
+        let body = body_lines.iter().flat_map(|n| n.bytes()).collect::<Vec<u8>>();
         let request = self.client.post(ref_url).header("Git-Protocol", "version=2").body(body);
         let response = request.send()?;
         if !response.status().is_success() {
@@ -737,7 +919,7 @@ impl From<PackFetchCommand> for PktLine {
 enum PackFetchResponse {
     InfoNeeded(Vec<String>),
     Ready(Vec<String>),
-    Pack
+    Pack(PktLineSidebandReader)
 }
 
 #[cfg(test)]
