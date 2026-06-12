@@ -1,3 +1,5 @@
+use std::io::Read;
+
 use crate::{
     config::{FetchRefMap, RemoteInfo},
     helpers::find_repo_cwd,
@@ -80,7 +82,10 @@ fn fetch_remote(
             for obj in objects_needed.iter() {
                 println!("\t{}", obj);
             }
-            fetch_client_engine.fetch_pack(&objects_needed.iter().map(|x| x.as_str()).collect::<Vec<_>>(), repo, true)?;
+            let mut reader = fetch_client_engine.fetch_pack(&objects_needed.iter().map(|x| x.as_str()).collect::<Vec<_>>(), repo, true)?;
+            let mut pack_data = vec![];
+            let pack_size = reader.read_to_end(&mut pack_data)?;
+            println!("\npack size: {pack_size}");
         }
     }
     Ok(())
