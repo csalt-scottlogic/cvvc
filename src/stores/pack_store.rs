@@ -541,6 +541,7 @@ impl TryFrom<PackedObjectType> for ObjectKind {
     }
 }
 
+#[derive(Debug)]
 enum PackedObjectTypeOnly {
     Commit,
     Tree,

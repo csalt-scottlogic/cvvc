@@ -197,15 +197,9 @@ where
         None
     };
     let delta_offset = if let PackedObjectTypeOnly::OffsetDelta = packed_object_type {
-        let mut offset = 0u64;
-        while buf[bytes_read] >= 0x80 {
-            offset |= ((buf[bytes_read] & 0x7f) + 1) as u64;
-            offset <<= 7;
-            bytes_read += 1;
-        }
-        offset |= (buf[bytes_read] & 0x7f) as u64;
-        bytes_read += 1;
-        Some(offset)
+        let offset_nidx = delta_offset_read(&mut buf, bytes_read);
+        bytes_read = offset_nidx.1;
+        Some(offset_nidx.0)
     } else {
         None
     };
@@ -217,6 +211,19 @@ where
         delta_offset,
         base_object,
     )
+}
+
+fn delta_offset_read(buf: &Vec<u8>, mut idx: usize) -> (u64, usize) {
+    let mut offset = 0u64;
+        while buf[idx] >= 0x80 {
+            offset |= (buf[idx] & 0x7f) as u64;
+            offset += 1;
+            offset <<= 7;
+            idx += 1;
+        }
+        offset |= (buf[idx] & 0x7f) as u64;
+        idx += 1;
+        (offset, idx)
 }
 
 pub fn read_raw_object_at_address<R>(
@@ -287,7 +294,6 @@ where
     meta.packed_size = Some(packed_size);
     let reusable_file = decompressor.into_inner();
     if let PackedObjectType::OffsetDelta(offset) = meta.kind {
-        println!("loading base data from {}", address - offset);
         let (base_meta, base_data) = read_at_address(reusable_file, address - offset, file_len)?;
         Ok((
             meta.combine(&base_meta),
@@ -295,5 +301,21 @@ where
         ))
     } else {
         Ok((meta, data))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::stores::pack_store::helpers::delta_offset_read;
+
+    #[test]
+    fn delta_offset_reads_succeeds_for_test_case() {
+        let buf = vec![0xe3u8, 4, 0x80, 0xff, 0xa, 0x78, 0x9c, 0xeb, 0x56, 0x7d, 0xa4, 0x3c, 0x61, 0xcf, 0xc6, 0xb3];
+        let idx = 2;
+        let expected_value = (32778u64, 5usize);
+
+        let test_output = delta_offset_read(&buf, idx);
+
+        assert_eq!(expected_value, test_output);
     }
 }
