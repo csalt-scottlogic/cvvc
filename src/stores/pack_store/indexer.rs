@@ -32,6 +32,8 @@ impl PackIndexEntry {
         R: Read,
         R: Seek,
     {
+        println!("loading object at {address}");
+
         let (raw_object, packed_length) =
             helpers::read_raw_object_at_address(file, address, file_len)?;
         if matches!(&raw_object.metadata().kind, ObjectKind::Delta(_)) {
@@ -43,6 +45,8 @@ impl PackIndexEntry {
         file.seek(SeekFrom::Start(address))?;
         file.read_exact(&mut buf)?;
         let crc = crc32fast::hash(&buf);
+
+        println!("object {} is at {}", raw_object.object_id(), address);
 
         Ok(PackIndexEntry {
             object_id: raw_object.object_id().to_string(),

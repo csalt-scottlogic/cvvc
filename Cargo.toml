@@ -17,6 +17,7 @@ flate2 = "1.1.5"
 glob = "0.3.3"
 hex = "0.4.3"
 indexmap = "2.12.1"
+rand = "0.10.1"
 reqwest = { version = "0.13.4", features = ["blocking"] }
 rust-ini = "0.21.3"
 sha1 = "0.10.6"

@@ -1,5 +1,3 @@
-use std::io::Read;
-
 use crate::{
     config::{FetchRefMap, RemoteInfo},
     helpers::find_repo_cwd,
@@ -10,17 +8,18 @@ use crate::{
 /// Entry point for `cv fetch`.  Fetches from all remotes.
 pub fn fetch(version: Option<u32>) -> Result<(), anyhow::Error> {
     println!("Stop trying to make fetch happen!");
-    let repo = find_repo_cwd()?;
-    for remote in repo.list_remote_names() {
-        if let Some(remote) = repo.get_remote(remote) {
-            fetch_remote(&repo, &remote, version)?;
+    let mut repo = find_repo_cwd()?;
+    let remotes = repo.list_remote_names();
+    for remote in remotes {
+        if let Some(remote) = repo.get_remote(&remote) {
+            fetch_remote(&mut repo, &remote, version)?;
         }
     }
     Ok(())
 }
 
 fn fetch_remote(
-    repo: &Repository,
+    repo: &mut Repository,
     remote: &RemoteInfo,
     version: Option<u32>,
 ) -> Result<(), anyhow::Error> {
@@ -82,10 +81,11 @@ fn fetch_remote(
             for obj in objects_needed.iter() {
                 println!("\t{}", obj);
             }
-            let mut reader = fetch_client_engine.fetch_pack(&objects_needed.iter().map(|x| x.as_str()).collect::<Vec<_>>(), repo, true)?;
-            let mut pack_data = vec![];
-            let pack_size = reader.read_to_end(&mut pack_data)?;
-            println!("\npack size: {pack_size}");
+            let reader = fetch_client_engine.fetch_pack(&objects_needed.iter().map(|x| x.as_str()).collect::<Vec<_>>(), repo, true)?;
+            // let mut pack_data = vec![];
+            // let pack_size = reader.read_to_end(&mut pack_data)?;
+            // println!("\npack size: {pack_size}");
+            repo.store_pack(reader)?;
         }
     }
     Ok(())

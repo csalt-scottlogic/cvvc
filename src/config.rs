@@ -330,21 +330,21 @@ impl RepoConfig {
     ///
     /// If the remote is configured with fetch URLs but no push URLs, the `push_urls`
     /// property will be a clone of the contents of the `fetch_urls` property.
-    pub fn remote_info<'a>(&'a self, name: &'a str) -> Option<RemoteInfo<'a>> {
+    pub fn remote_info(&self, name: &str) -> Option<RemoteInfo> {
         let section = self.cf.section(Some(format!("remote \"{name}\"")))?;
-        let fetch_urls = get_str_setting_from_ini_section(section, "url");
+        let fetch_urls: Vec<String> = get_str_setting_from_ini_section(section, "url").iter().map(|s| s.to_string()).collect();
         let push_urls = get_str_setting_from_ini_section(section, "pushurl");
         let push_urls = if push_urls.is_empty() {
             fetch_urls.clone()
         } else {
-            push_urls
+            push_urls.iter().map(|s| s.to_string()).collect()
         };
         let fetch_defs = get_str_setting_from_ini_section(section, "fetch")
             .into_iter()
             .filter_map(|s| FetchRefSpec::from_str(s).ok())
             .collect();
         Some(RemoteInfo {
-            name,
+            name: name.to_string(),
             fetch_urls,
             push_urls,
             fetch_defs,
@@ -362,15 +362,15 @@ impl RepoConfig {
 }
 
 /// The details of a remote repository.
-pub struct RemoteInfo<'a> {
+pub struct RemoteInfo {
     /// The name by which the remote is referred to on the command line or in ref paths.
-    pub name: &'a str,
+    pub name: String,
 
     /// The list of URLs that can be fetched from.
-    pub fetch_urls: Vec<&'a str>,
+    pub fetch_urls: Vec<String>,
 
     /// The list of URLs that can be pushed to.
-    pub push_urls: Vec<&'a str>,
+    pub push_urls: Vec<String>,
 
     /// THe list of refs that should be copied to this repository during a fetch operation.
     pub fetch_defs: Vec<FetchRefSpec>,

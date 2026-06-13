@@ -1,11 +1,12 @@
 use std::{
     fs::{File, OpenOptions},
-    io::{BufReader, Read, Seek, SeekFrom},
+    io::{self, BufReader, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
 };
 
 use anyhow::anyhow;
 use flate2::bufread::ZlibDecoder;
+use sha1::{Digest, Sha1};
 
 use crate::objects::{combine_object_delta_data, ObjectKind, ObjectMetadata, RawObjectData};
 
@@ -33,10 +34,68 @@ fn file_path_with_extension<P: AsRef<Path>>(base_path: P, pack_name: &str, ext: 
     base_path.as_ref().join(pack_name).with_added_extension(ext)
 }
 
+/// Generate a string containing a large random number, which (we assume) can be used as a temporary filename 
+/// for a new pack being downloaded, before we know what its ID is.
+pub fn randomish_string() -> String {
+    let x: [u64; 4] = [rand::random(), rand::random(), rand::random(), rand::random()];
+    format!("cvvc-cgt-{:x}{:x}{:x}{:x}", x[0], x[1], x[2], x[3])
+}
+
 /// Open a file and return a [`BufReader<File>`].
 pub fn open_file_from_path<P: AsRef<Path>>(path: P) -> Result<BufReader<File>, anyhow::Error> {
     let file = OpenOptions::new().read(true).open(path)?;
     Ok(BufReader::new(file))
+}
+
+/// Copies the content of a reader to a new file.
+/// 
+/// # Errors
+/// 
+/// This function returns an error if the file already exists, if it cannot be created, or if 
+/// any errors occur reading from the reader or writing to the file.
+pub fn store_from_reader<P: AsRef<Path>, R: Read>(mut reader: R, path: P) -> Result<u64, anyhow::Error> {
+    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    let size = io::copy(&mut reader, &mut file)?;
+    println!("{size} bytes downloaded");
+    Ok(size)
+}
+
+pub fn confirm_pack_name<P: AsRef<Path>>(filename: P, expected_size: u64) -> Result<String, anyhow::Error> {
+    let mut to_read = expected_size - 20;
+    let mut file = OpenOptions::new().read(true).open(filename)?;
+    const BLOCK_SZ: usize = 65536;
+    let mut read_buffer = [0u8; BLOCK_SZ];
+    let mut hasher = Sha1::new();
+    loop {
+        let block_size = if to_read as usize > BLOCK_SZ {
+            BLOCK_SZ
+        } else {
+            to_read as usize
+        };
+        match file.read(&mut read_buffer[..block_size])? {
+            0 => {return Err(anyhow!("unexpected end of file"))},
+            BLOCK_SZ => {
+                hasher.update(
+                    read_buffer);
+                to_read -= BLOCK_SZ as u64;
+            },
+            x => {
+                hasher.update(&read_buffer[..x]);
+                to_read -= x as u64;
+            },
+        }
+        if to_read == 0 {
+            break;
+        }
+    }
+    let checksum = hasher.finalize();
+    let mut pack_checksum = [0u8; 20];
+    file.read_exact(&mut pack_checksum)?;
+    if checksum != pack_checksum.into() {
+        Err(anyhow!("incorrect pack checksum"))
+    } else {
+        Ok(format!("pack-{}", hex::encode(checksum)))
+    }
 }
 
 /// Check the magic header and version number of a `.pack` file.
@@ -228,6 +287,7 @@ where
     meta.packed_size = Some(packed_size);
     let reusable_file = decompressor.into_inner();
     if let PackedObjectType::OffsetDelta(offset) = meta.kind {
+        println!("loading base data from {}", address - offset);
         let (base_meta, base_data) = read_at_address(reusable_file, address - offset, file_len)?;
         Ok((
             meta.combine(&base_meta),

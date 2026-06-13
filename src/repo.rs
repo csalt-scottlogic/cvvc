@@ -2,12 +2,7 @@ use anyhow::{anyhow, Context};
 use chrono::{DateTime, TimeZone, Utc};
 use indexmap::IndexMap;
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    env,
-    fmt::Display,
-    fs,
-    path::{Path, PathBuf},
-    str::FromStr,
+    collections::{HashMap, HashSet, VecDeque}, env, fmt::Display, fs, io::Read, path::{Path, PathBuf}, str::FromStr
 };
 
 use crate::{
@@ -313,6 +308,13 @@ impl Repository {
                 Ok(abs_path)
             }
         }
+    }
+
+    /// Store a new pack in the repository
+    pub fn store_pack<R: Read>(&mut self, mut reader: R) -> Result<(), anyhow::Error> {
+        let new_pack = PackStore::store_pack(&self.packfile_base, &mut reader)?;
+        self.packs.push(new_pack);
+        Ok(())
     }
 
     /// Find the canonical ID of an object.
@@ -1127,12 +1129,12 @@ impl Repository {
     }
 
     /// List the names of remotes from the repository's config.
-    pub fn list_remote_names(&self) -> Vec<&str> {
-        self.config.remote_names()
+    pub fn list_remote_names(&self) -> Vec<String> {
+        self.config.remote_names().iter().map(|r| r.to_string()).collect()
     }
 
     /// Get details of a remote, or `None` if the remote does not exist.
-    pub fn get_remote<'a>(&'a self, name: &'a str) -> Option<RemoteInfo<'a>> {
+    pub fn get_remote<'a>(&'a self, name: &'a str) -> Option<RemoteInfo> {
         self.config.remote_info(name)
     }
 
