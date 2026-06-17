@@ -82,9 +82,6 @@ fn fetch_remote(
                 println!("\t{}", obj);
             }
             let reader = fetch_client_engine.fetch_pack(&objects_needed.iter().map(|x| x.as_str()).collect::<Vec<_>>(), repo, true)?;
-            // let mut pack_data = vec![];
-            // let pack_size = reader.read_to_end(&mut pack_data)?;
-            // println!("\npack size: {pack_size}");
             repo.store_pack(reader)?;
             for update in updates_needed {
                 if repo.has_object(&update.source.target.to_string())? {

@@ -755,7 +755,10 @@ impl Repository {
             return Ok(None);
         }
         let head_conts = fs::read_to_string(path)?;
+        println!(">{head_conts}<");
         let head_target = RefTarget::from_str(&head_conts)?;
+        println!(">{head_target}<");
+        println!("{head_target:?}");
         match head_target {
             RefTarget::SymbolicRef(r) => {
                 Ok(self.ref_store.resolve_target(&r)?.map(|t| t.to_string()))

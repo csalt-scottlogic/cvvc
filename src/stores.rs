@@ -301,7 +301,7 @@ impl FromStr for BranchSpec {
 ///
 /// For example, the `HEAD` reference is normally a symbolic reference to a branch, but can be an object ID
 /// when in "detached HEAD" mode.
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Debug, Eq, Hash, PartialEq)]
 pub enum RefTarget {
     /// The reference target is a specific object ID.
     Object(String),
@@ -323,7 +323,7 @@ impl FromStr for RefTarget {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.strip_prefix("ref: ") {
+        match s.trim().strip_prefix("ref: ") {
             Some(rs) => Ok(Self::SymbolicRef(RefSpec::from_str(rs)?)),
             None => Ok(Self::Object(s.to_string())),
         }
