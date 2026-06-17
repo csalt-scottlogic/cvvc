@@ -3,7 +3,7 @@ use std::process::ExitCode;
 use clap::{Args, Parser, Subcommand};
 
 use cvvc::{
-    cli::{branches, init, log, objects, ref_log, refs, remotes, staging},
+    cli::{branches, init, log, net, objects, ref_log, refs, remotes, staging},
     config::GlobalConfig,
 };
 
@@ -84,6 +84,12 @@ enum Commands {
     Commit {
         #[arg(short, long)]
         message: Option<String>,
+    },
+    /// Fetch refs and objects from remote repositories
+    #[command()]
+    Fetch {
+        #[arg(short, long)]
+        version: Option<u32>,
     },
     /// Compute object ID and optionally create an object from a file
     #[command(name = "hash-object")]
@@ -241,6 +247,7 @@ fn parse_dispatch() -> ExitCode {
             parents,
             message,
         } => staging::create_commit_for_tree(&tree_id, &parents, &message, &config),
+        Commands::Fetch { version } => net::fetch(version),
         Commands::HashObject {
             write,
             obj_type: _,

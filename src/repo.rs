@@ -2,12 +2,7 @@ use anyhow::{anyhow, Context};
 use chrono::{DateTime, TimeZone, Utc};
 use indexmap::IndexMap;
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    env,
-    fmt::Display,
-    fs,
-    path::{Path, PathBuf},
-    str::FromStr,
+    collections::{HashMap, HashSet, VecDeque}, env, fmt::Display, fs, io::Read, path::{Path, PathBuf}, str::FromStr
 };
 
 use crate::{
@@ -29,7 +24,7 @@ use crate::{
     ref_log::{RefLog, RefLogEntry},
     stores::{
         BranchLocation, BranchSpec, CombinedRefStore, LooseObjectStore, ObjectStore, PackStore,
-        RefSpec, RefStore, TagSpec,
+        RefSpec, RefStore, RefTarget, TagSpec,
     },
 };
 
@@ -315,6 +310,13 @@ impl Repository {
         }
     }
 
+    /// Store a new pack in the repository
+    pub fn store_pack<R: Read>(&mut self, mut reader: R) -> Result<(), anyhow::Error> {
+        let new_pack = PackStore::store_pack(&self.packfile_base, &mut reader)?;
+        self.packs.push(new_pack);
+        Ok(())
+    }
+
     /// Find the canonical ID of an object.
     ///
     /// The name parameter to this method can be any of the following:
@@ -418,19 +420,19 @@ impl Repository {
         let potential_tag = self
             .ref_store
             .resolve_target(&RefSpec::Tag(TagSpec::new(name, false)))?;
-        if let Some(potential_tag) = potential_tag {
+        if let Some(RefTarget::Object(potential_tag)) = potential_tag {
             collected.insert(potential_tag);
         }
 
         let potential_branch = self
             .ref_store
             .resolve_target(&BranchSpec::new(name, BranchLocation::Local).into_ref_spec())?;
-        if let Some(potential_branch) = potential_branch {
+        if let Some(RefTarget::Object(potential_branch)) = potential_branch {
             collected.insert(potential_branch);
         } else {
             let potential_remote_branches = self.ref_store.search_remotes_for_branch(name)?;
             for remote_branch in potential_remote_branches {
-                if let Some(remote_branch_target) = self
+                if let Some(RefTarget::Object(remote_branch_target)) = self
                     .ref_store
                     .resolve_target(&remote_branch.into_ref_spec())?
                 {
@@ -554,16 +556,16 @@ impl Repository {
     /// in the case of tags.
     ///
     /// Returns an error if any errors are encountered accessing the filesystem.
-    pub fn ref_list(&self) -> Result<IndexMap<String, String>, anyhow::Error> {
+    pub fn ref_list(&self) -> Result<IndexMap<String, RefTarget>, anyhow::Error> {
         let mut refs = self
             .ref_store
             .all_ref_targets()?
-            .iter()
-            .map(|x| (x.0.to_string(), x.1.clone()))
-            .collect::<Vec<(String, String)>>();
+            .into_iter()
+            .map(|x| (x.spec.to_string(), x.target))
+            .collect::<Vec<(String, RefTarget)>>();
         refs.sort_by(|a, b| a.0.cmp(&b.0));
-        let mut result = IndexMap::<String, String>::new();
-        for item in refs.into_iter() {
+        let mut result = IndexMap::<String, RefTarget>::new();
+        for item in refs {
             result.insert(item.0, item.1);
         }
         Ok(result)
@@ -572,17 +574,22 @@ impl Repository {
     /// Returns a map of tags in the repository and the objects they point to, unpeeled.
     ///
     /// Returns an error if any errors are encountered accessing the filesystem.
-    pub fn tag_list(&self) -> Result<IndexMap<String, String>, anyhow::Error> {
+    pub fn tag_list(&self) -> Result<IndexMap<String, RefTarget>, anyhow::Error> {
         let refs = self.ref_store.all_ref_targets()?;
-        let mut result = IndexMap::<String, String>::new();
+        let mut result = IndexMap::<String, RefTarget>::new();
         for item in refs
-            .iter()
-            .filter(|x| matches!(x.0, RefSpec::Tag(_)))
-            .map(|x| (x.0.to_string(), x.1.clone()))
+            .into_iter()
+            .filter(|x| matches!(x.spec, RefSpec::Tag(_)))
+            .map(|x| (x.spec.to_string(), x.target))
         {
             result.insert(item.0, item.1);
         }
         Ok(result)
+    }
+
+    /// Resolve a reference to its target.
+    pub fn resolve_ref(&self, ref_spec: &RefSpec) -> Result<Option<RefTarget>, anyhow::Error> {
+        self.ref_store.resolve_target(ref_spec)
     }
 
     /// Creates a thin reference to an object.
@@ -594,7 +601,7 @@ impl Repository {
     /// An error is returned if there are any issues writing to the repository.
     pub fn create_ref(&self, name: &str, target_id: &str) -> Result<(), anyhow::Error> {
         self.ref_store
-            .create_ref(&RefSpec::from_str(name)?, target_id)
+            .create_update_ref(&RefSpec::from_str(name)?, &RefTarget::from_str(target_id)?)
     }
 
     /// Loads the repository index file, named `.git/index`.
@@ -748,11 +755,12 @@ impl Repository {
             return Ok(None);
         }
         let head_conts = fs::read_to_string(path)?;
-        if let Some(ref_target) = head_conts.strip_prefix("ref: ").map(|x| x.trim()) {
-            self.ref_store
-                .resolve_target(&RefSpec::from_str(ref_target)?)
-        } else {
-            Ok(Some(head_conts.trim().to_string()))
+        let head_target = RefTarget::from_str(&head_conts)?;
+        match head_target {
+            RefTarget::SymbolicRef(r) => {
+                Ok(self.ref_store.resolve_target(&r)?.map(|t| t.to_string()))
+            }
+            RefTarget::Object(id) => Ok(Some(id)),
         }
     }
 
@@ -805,10 +813,15 @@ impl Repository {
         branch_name: &str,
         commit_id: &str,
     ) -> Result<(), anyhow::Error> {
-        self.ref_store.update_branch(
-            &BranchSpec::new(branch_name, BranchLocation::Local),
-            commit_id,
+        self.ref_store.create_update_ref(
+            &BranchSpec::new(branch_name, BranchLocation::Local).into_ref_spec(),
+            &RefTarget::from_str(commit_id)?,
         )
+    }
+
+    /// Update a ref, creating it if it does not exist.
+    pub fn update_ref(&self, refspec: &RefSpec, target: &RefTarget) -> Result<(), anyhow::Error> {
+        self.ref_store.create_update_ref(refspec, target)
     }
 
     /// Update the branch that `HEAD` points to.
@@ -1121,12 +1134,12 @@ impl Repository {
     }
 
     /// List the names of remotes from the repository's config.
-    pub fn list_remote_names(&self) -> Vec<&str> {
-        self.config.remote_names()
+    pub fn list_remote_names(&self) -> Vec<String> {
+        self.config.remote_names().iter().map(|r| r.to_string()).collect()
     }
 
     /// Get details of a remote, or `None` if the remote does not exist.
-    pub fn get_remote<'a>(&'a self, name: &'a str) -> Option<RemoteInfo<'a>> {
+    pub fn get_remote<'a>(&'a self, name: &'a str) -> Option<RemoteInfo> {
         self.config.remote_info(name)
     }
 
@@ -1179,17 +1192,19 @@ impl<'a> CommitIterator<'a> {
                 .ref_store
                 .all_ref_targets()?
                 .into_iter()
-                .filter_map(|r| {
-                    if r.1.starts_with("ref:")
-                        && repo.has_object(&r.1).unwrap_or(true)
-                        && repo
-                            .read_raw_object(&r.1)
-                            .map(|c| c.unwrap().metadata().kind != ObjectKind::Commit)
-                            .unwrap_or(true)
-                    {
-                        None
-                    } else {
-                        Some(r.1)
+                .filter_map(|r| match r.target {
+                    RefTarget::SymbolicRef(_) => None,
+                    RefTarget::Object(id) => {
+                        if repo.has_object(&id).unwrap_or(true)
+                            && repo
+                                .read_raw_object(&id)
+                                .map(|c| c.unwrap().metadata().kind != ObjectKind::Commit)
+                                .unwrap_or(true)
+                        {
+                            None
+                        } else {
+                            Some(id)
+                        }
                     }
                 })
                 .filter_map(|id| {
@@ -1215,6 +1230,17 @@ impl<'a> CommitIterator<'a> {
 
         let queue = Self::generate_queue(repo, &seen);
         Ok(CommitIterator { repo, queue, seen })
+    }
+
+    /// Get the number of commits currently queued in the iterator.
+    /// 
+    /// If this is called on a newly-created iterator which was created using [`Repository::commits()`] with
+    /// a `None` parameter, it is effectively the number of commits in the repository pointed to by
+    /// the current set of branch tips and tags.
+    /// 
+    /// Calling it at other times is probably not very meaningful.
+    pub fn queue_length(&self) -> usize {
+        self.queue.len()
     }
 
     fn generate_queue(repo: &Repository, set: &HashSet<String>) -> VecDeque<String> {

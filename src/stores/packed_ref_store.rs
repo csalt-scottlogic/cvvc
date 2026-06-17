@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::Path, str::FromStr};
 
 use anyhow::anyhow;
 
-use crate::stores::{BranchLocation, BranchSpec, RefSpec, RefStore};
+use crate::stores::{BranchLocation, BranchSpec, RefSpec, RefStore, RefTarget, TargetedRef};
 
 /// The git-compatible "packed refs" store.
 ///
@@ -89,20 +89,23 @@ impl RefStore for PackedRefStore {
         Ok(self.get_specs().collect::<Vec<RefSpec>>())
     }
 
-    fn all_ref_targets(&self) -> Result<Vec<(RefSpec, String)>, anyhow::Error> {
+    fn all_ref_targets(&self) -> Result<Vec<TargetedRef>, anyhow::Error> {
         Ok(self
             .contents
             .iter()
-            .map(|x| (RefSpec::from_str(x.0).unwrap(), x.1.to_string()))
-            .collect::<Vec<(RefSpec, String)>>())
+            .map(|x| TargetedRef {
+                spec: RefSpec::from_str(x.0).unwrap(),
+                target: RefTarget::from_str(x.1).unwrap(),
+            })
+            .collect())
     }
 
-    fn resolve_target(&self, r: &RefSpec) -> Result<Option<String>, anyhow::Error> {
+    fn resolve_target(&self, r: &RefSpec) -> Result<Option<RefTarget>, anyhow::Error> {
         let key = r.to_string();
         if !self.contents.contains_key(&key) {
             Ok(None)
         } else {
-            Ok(Some(self.contents[&key].to_string()))
+            Ok(Some(RefTarget::from_str(&self.contents[&key])?))
         }
     }
 
@@ -121,11 +124,7 @@ impl RefStore for PackedRefStore {
             .collect::<Vec<BranchSpec>>())
     }
 
-    fn create_ref(&self, _r: &RefSpec, _object_id: &str) -> Result<(), anyhow::Error> {
-        Err(anyhow!("cannot create new packed refs"))
-    }
-
-    fn update_branch(&self, _branch: &BranchSpec, _commit_id: &str) -> Result<(), anyhow::Error> {
+    fn create_update_ref(&self, _refspec: &RefSpec, _target: &RefTarget) -> Result<(), anyhow::Error> {
         Err(anyhow!("cannot update packed refs"))
     }
 }

@@ -7,6 +7,9 @@ pub mod init;
 /// Entry point for `cv log`
 pub mod log;
 
+/// Entry point for networking commands.
+pub mod net;
+
 /// Entry point for misc low-level commands including `cv cat-file`, `cv object-hash` and `cv ls-tree`
 pub mod objects;
 
