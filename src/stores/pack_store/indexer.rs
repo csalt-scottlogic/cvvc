@@ -44,8 +44,6 @@ impl PackIndexEntry {
         file.read_exact(&mut buf)?;
         let crc = crc32fast::hash(&buf);
 
-        //println!("object {} is at {}", raw_object.object_id(), address);
-
         Ok(PackIndexEntry {
             object_id: raw_object.object_id().to_string(),
             pack_offset: address,

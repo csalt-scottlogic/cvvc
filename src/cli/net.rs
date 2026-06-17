@@ -86,6 +86,11 @@ fn fetch_remote(
             // let pack_size = reader.read_to_end(&mut pack_data)?;
             // println!("\npack size: {pack_size}");
             repo.store_pack(reader)?;
+            for update in updates_needed {
+                if repo.has_object(&update.source.target.to_string())? {
+                    repo.update_ref(&update.dest, &update.source.target)?;
+                }
+            }
         }
     }
     Ok(())

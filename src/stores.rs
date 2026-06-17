@@ -107,13 +107,11 @@ pub trait RefStore {
     /// This function should return `Ok(vec![])` if no branches with the given name exist, rather than erroring.
     fn search_remotes_for_branch(&self, name: &str) -> Result<Vec<BranchSpec>, anyhow::Error>;
 
-    /// Create a new ref
-    fn create_ref(&self, r: &RefSpec, object_id: &str) -> Result<(), anyhow::Error>;
-
-    /// Update the given branch to point to the given commit.
-    ///
-    /// This function is not required to confirm the commit is valid.
-    fn update_branch(&self, branch: &BranchSpec, commit_id: &str) -> Result<(), anyhow::Error>;
+    /// Create a new ref, or update an existing one.
+    /// 
+    /// This function is not required to confirm that the `target` exists; there are situations such as 
+    /// unborn symbolic references where it might not.
+    fn create_update_ref(&self, refspec: &RefSpec, target: &RefTarget) -> Result<(), anyhow::Error>;
 }
 
 /// Specifies if a branch or tag is local, or if it is remote, which remote it belongs to.
@@ -494,7 +492,7 @@ mod tests {
     }
 
     #[test]
-    fn ref_spec_fmt_succeeds_for_tag() {
+    fn ref_spec_fmt_succeeds_for_unpeeled_tag() {
         let test_object = RefSpec::Tag(TagSpec {
             name: "example/tag".to_string(),
             peeled: false,
@@ -503,6 +501,18 @@ mod tests {
         let test_output = test_object.to_string();
 
         assert_eq!("refs/tags/example/tag", test_output);
+    }
+
+    #[test]
+    fn ref_spec_fmt_succeeds_for_peeled_tag() {
+        let test_object = RefSpec::Tag(TagSpec {
+            name: "example/tag".to_string(),
+            peeled: true,
+        });
+
+        let test_output = test_object.to_string();
+
+        assert_eq!("refs/tags/example/tag^{}", test_output);
     }
 
     #[test]
@@ -530,7 +540,16 @@ mod tests {
     }
 
     #[test]
-    fn ref_spec_from_str_succeeds_for_valid_tag() {
+    fn ref_spec_fmt_succeeds_for_head() {
+        let test_object = RefSpec::Head;
+
+        let test_output = test_object.to_string();
+
+        assert_eq!("HEAD", test_output);
+    }
+
+    #[test]
+    fn ref_spec_from_str_succeeds_for_valid_unpeeled_tag() {
         let test_input = "refs/tags/a/valid/tag-name";
 
         let test_output = RefSpec::from_str(test_input).unwrap();
@@ -539,6 +558,21 @@ mod tests {
             RefSpec::Tag(TagSpec {
                 name: "a/valid/tag-name".to_string(),
                 peeled: false
+            }),
+            test_output
+        );
+    }
+
+    #[test]
+    fn ref_spec_from_str_succeeds_for_valid_peeled_tag() {
+        let test_input = "refs/tags/a/valid/tag-name^{}";
+
+        let test_output = RefSpec::from_str(test_input).unwrap();
+
+        assert_eq!(
+            RefSpec::Tag(TagSpec {
+                name: "a/valid/tag-name".to_string(),
+                peeled: true
             }),
             test_output
         );
@@ -572,6 +606,15 @@ mod tests {
             }),
             test_output
         );
+    }
+
+    #[test]
+    fn ref_spec_from_str_succeeds_for_head() {
+        let test_input = "HEAD";
+
+        let test_output = RefSpec::from_str(test_input).unwrap();
+
+        assert_eq!(RefSpec::Head, test_output);
     }
 
     #[test]
@@ -806,5 +849,29 @@ mod tests {
         let test_output = BranchSpec::from_str(test_input).unwrap_err();
 
         assert_eq!(InvalidRefNameError::new(test_input), test_output);
+    }
+
+    #[test]
+    fn tag_spec_fmt_succeeds_for_unpeeled_tag() {
+        let test_input = TagSpec {
+            name: "the-example-tag".to_string(),
+            peeled: false,
+        };
+
+        let test_output = test_input.to_string();
+
+        assert_eq!("refs/tags/the-example-tag", test_output);
+    }
+
+    #[test]
+    fn tag_spec_fmt_succeeds_for_peeled_tag() {
+        let test_input = TagSpec {
+            name: "the-example-tag".to_string(),
+            peeled: true,
+        };
+
+        let test_output = test_input.to_string();
+
+        assert_eq!("refs/tags/the-example-tag^{}", test_output);
     }
 }

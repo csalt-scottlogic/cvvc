@@ -155,21 +155,6 @@ impl RefStore for RefFileStore {
         Ok(results)
     }
 
-    /// Update the head of a branch to point to the given commit ID, creating the branch if it does not exist.
-    ///
-    /// This method updates either remote or local branches.  It does not confirm that the given ID is a valid
-    /// commit ID within the repository.
-    ///
-    /// This method does not carry out any sort of pull operation or update the branch's ref log; it assumes that
-    /// the calling code will be responsible for those actions.
-    ///
-    /// This method may return an error, if any filesystem errors were encountered.
-    fn update_branch(&self, branch: &BranchSpec, commit_id: &str) -> Result<(), anyhow::Error> {
-        let branch_path = self.base_path.join(PathBuf::from(branch));
-        check_and_create_dir(branch_path.parent().unwrap())?;
-        write_single_line(branch_path, commit_id)
-    }
-
     fn tags(&self) -> Result<Vec<RefSpec>, anyhow::Error> {
         let mut results = Vec::<RefSpec>::new();
         for dir_entry in walk_fs(&self.tag_path)? {
@@ -182,10 +167,10 @@ impl RefStore for RefFileStore {
         Ok(results)
     }
 
-    fn create_ref(&self, r: &RefSpec, object_id: &str) -> Result<(), anyhow::Error> {
-        let ref_path = self.base_path.join(PathBuf::from(r));
+    fn create_update_ref(&self, refspec: &RefSpec, target: &RefTarget) -> Result<(), anyhow::Error> {
+        let ref_path = self.base_path.join(PathBuf::from(refspec));
         check_and_create_dir(ref_path.parent().unwrap())?;
-        write_single_line(ref_path, object_id)
+        write_single_line(ref_path, &target.to_string())
     }
 
     fn all_refs(&self) -> Result<Vec<RefSpec>, anyhow::Error> {

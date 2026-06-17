@@ -601,7 +601,7 @@ impl Repository {
     /// An error is returned if there are any issues writing to the repository.
     pub fn create_ref(&self, name: &str, target_id: &str) -> Result<(), anyhow::Error> {
         self.ref_store
-            .create_ref(&RefSpec::from_str(name)?, target_id)
+            .create_update_ref(&RefSpec::from_str(name)?, &RefTarget::from_str(target_id)?)
     }
 
     /// Loads the repository index file, named `.git/index`.
@@ -813,10 +813,15 @@ impl Repository {
         branch_name: &str,
         commit_id: &str,
     ) -> Result<(), anyhow::Error> {
-        self.ref_store.update_branch(
-            &BranchSpec::new(branch_name, BranchLocation::Local),
-            commit_id,
+        self.ref_store.create_update_ref(
+            &BranchSpec::new(branch_name, BranchLocation::Local).into_ref_spec(),
+            &RefTarget::from_str(commit_id)?,
         )
+    }
+
+    /// Update a ref, creating it if it does not exist.
+    pub fn update_ref(&self, refspec: &RefSpec, target: &RefTarget) -> Result<(), anyhow::Error> {
+        self.ref_store.create_update_ref(refspec, target)
     }
 
     /// Update the branch that `HEAD` points to.

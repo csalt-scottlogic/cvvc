@@ -66,7 +66,7 @@ impl TryFrom<&[u8]> for ObjectMetadata {
             .iter()
             .skip(len_start_index)
             .position(|&x| x == 0)
-            .ok_or(anyhow!("malformed object: end of object length not found"))?
+            .ok_or_else(|| anyhow!("malformed object: end of object length not found"))?
             + len_start_index;
         let data_start_index = len_end_index + 1;
         let object_kind = ObjectKind::try_from(&data[..type_end_index])?;
@@ -165,10 +165,10 @@ pub fn combine_object_delta_data(base_data: &[u8], apply_commands: &[u8]) -> Vec
     while idx < apply_commands.len() {
         let command = DeltaCommand::from(&apply_commands[idx..]);
         match command.kind {
-            DeltaCommandType::Add(sz) => {
+            DeltaCommandKind::Add(sz) => {
                 result.extend_from_slice(&apply_commands[(idx + 1)..(idx + 1 + sz)])
             }
-            DeltaCommandType::Copy { offset, size } => {
+            DeltaCommandKind::Copy { offset, size } => {
                 result.extend_from_slice(&base_data[offset..(offset + size)])
             }
         }
@@ -178,14 +178,14 @@ pub fn combine_object_delta_data(base_data: &[u8], apply_commands: &[u8]) -> Vec
 }
 
 #[derive(Debug, PartialEq)]
-enum DeltaCommandType {
+enum DeltaCommandKind {
     Copy { offset: usize, size: usize },
     Add(usize),
 }
 
 struct DeltaCommand {
     len: usize,
-    kind: DeltaCommandType,
+    kind: DeltaCommandKind,
 }
 
 impl From<&[u8]> for DeltaCommand {
@@ -194,14 +194,14 @@ impl From<&[u8]> for DeltaCommand {
             let size = data[0] & 0x7f;
             Self {
                 len: size as usize + 1,
-                kind: DeltaCommandType::Add(size as usize),
+                kind: DeltaCommandKind::Add(size as usize),
             }
         } else {
             let bits = data[0] & 0x7f;
             if bits == 0 {
                 Self {
                     len: 1,
-                    kind: DeltaCommandType::Copy {
+                    kind: DeltaCommandKind::Copy {
                         offset: 0,
                         size: 0x10000,
                     },
@@ -230,7 +230,7 @@ impl From<&[u8]> for DeltaCommand {
                 }
                 Self {
                     len: bits.count_ones() as usize + 1,
-                    kind: DeltaCommandType::Copy { offset, size },
+                    kind: DeltaCommandKind::Copy { offset, size },
                 }
             }
         }
@@ -413,7 +413,7 @@ mod tests {
 
     use crate::objects::{Blob, Commit, ObjectKind, StoredObject, Tag, Tree, TreeNode};
 
-    use super::{DeltaCommand, DeltaCommandType, ObjectMetadata, RawObject, RawObjectData};
+    use super::{DeltaCommand, DeltaCommandKind, ObjectMetadata, RawObject, RawObjectData};
 
     #[test]
     fn object_metadata_new() {
@@ -633,7 +633,7 @@ mod tests {
 
         let test_output = DeltaCommand::from(&test_input[..]);
 
-        assert_eq!(DeltaCommandType::Add(0x69), test_output.kind);
+        assert_eq!(DeltaCommandKind::Add(0x69), test_output.kind);
         assert_eq!(0x6a, test_output.len);
     }
 
@@ -644,7 +644,7 @@ mod tests {
         let test_output = DeltaCommand::from(&test_input[..]);
 
         assert_eq!(
-            DeltaCommandType::Copy {
+            DeltaCommandKind::Copy {
                 offset: 0,
                 size: 0x10000
             },
@@ -660,7 +660,7 @@ mod tests {
         let test_output = DeltaCommand::from(&test_input[..]);
 
         assert_eq!(
-            DeltaCommandType::Copy {
+            DeltaCommandKind::Copy {
                 offset: 0x8a7200,
                 size: 0x10000
             },
@@ -676,7 +676,7 @@ mod tests {
         let test_output = DeltaCommand::from(&test_input[..]);
 
         assert_eq!(
-            DeltaCommandType::Copy {
+            DeltaCommandKind::Copy {
                 offset: 0x8a7200,
                 size: 0xeaff17
             },

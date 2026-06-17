@@ -147,10 +147,7 @@ pub fn timestamp_from_timestamped_name(
 ///
 /// This is used to create a ref log message from a commit.
 pub fn shorten_and_prefix_message(prefix: &str, message: &str) -> String {
-    let message_start = match message.lines().next() {
-        Some(m) => m.trim(),
-        None => "",
-    };
+    let message_start = message.lines().next().map(|x| x.trim()).unwrap_or("");
     format!("{prefix}: {message_start}")
 }
 
