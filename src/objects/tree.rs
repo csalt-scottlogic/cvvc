@@ -12,6 +12,8 @@ use crate::{
     repo::Repository,
 };
 
+const MODE_DIR: u32 = 0o40000;
+
 /// An individual entry in a repository tree object.
 ///
 /// The object ID field points to either a tree object or blob object.
@@ -33,10 +35,10 @@ struct TreeNodeParsingResult {
 
 impl TreeNode {
     fn from_bytes(data: &[u8]) -> Result<TreeNodeParsingResult, anyhow::Error> {
-        let space_pos = data.iter().position(|x| *x == 0x20);
-        let Some(space_pos) = space_pos else {
-            return Err(anyhow!("Mode terminator character not found in tree entry"));
-        };
+        let space_pos = data
+            .iter()
+            .position(|x| *x == 0x20)
+            .ok_or_else(|| anyhow!("Mode terminator character not found in tree entry"))?;
         if space_pos != 5 && space_pos != 6 {
             return Err(anyhow!("Mode field of tree entry is incorrect length"));
         }
@@ -44,10 +46,10 @@ impl TreeNode {
             .context("Could not parse mode field of tree entry as valid UTF8")?;
         let mode = u32::from_str_radix(mode_str, 8)
             .context("Could not parse mode field of tree entry as valid octal integer")?;
-        let null_pos = &data[(space_pos + 1)..].iter().position(|x| *x == 0);
-        let Some(null_pos) = null_pos else {
-            return Err(anyhow!("Path terminator character not found in tree entry"));
-        };
+        let null_pos = &data[(space_pos + 1)..]
+            .iter()
+            .position(|x| *x == 0)
+            .ok_or_else(|| anyhow!("Path terminator character not found in tree entry"))?;
         if space_pos + null_pos + 21 >= data.len() {
             return Err(anyhow!(
                 "Tree entry is too short to contain valid object name"
@@ -55,7 +57,7 @@ impl TreeNode {
         }
         let path = str::from_utf8(&data[(space_pos + 1)..(space_pos + null_pos + 1)])
             .context("Could not parse path field of tree entry as valid UTF8")?;
-        let ordering_name = if mode != 0o40000 {
+        let ordering_name = if mode != MODE_DIR {
             path.to_string()
         } else {
             path.to_string() + "/"
@@ -85,9 +87,11 @@ impl TreeNode {
     /// It is implied that the `object_id` parameter should be a valid
     /// object ID that points to another tree object, but this is not
     /// validated by the function.
+    ///
+    /// The `dir_name` parameter should not end in a `/`.
     pub fn from_subtree(dir_name: &str, object_id: &str) -> Self {
         Self {
-            mode: 0o40000,
+            mode: MODE_DIR,
             ordering_name: dir_name.to_string() + "/",
             object_id: object_id.to_string(),
         }
@@ -95,7 +99,7 @@ impl TreeNode {
 
     /// Get the filename or directory name of this node.
     pub fn name(&self) -> &str {
-        if self.mode == 0o40000 {
+        if self.mode == MODE_DIR {
             self.ordering_name
                 .strip_suffix("/")
                 .unwrap_or_else(|| &self.ordering_name)
@@ -151,10 +155,8 @@ impl Default for Tree {
 
 impl Tree {
     /// Create an empty tree
-    pub fn new() -> Tree {
-        Tree {
-            entries: Vec::<TreeNode>::new(),
-        }
+    pub fn new() -> Self {
+        Self { entries: vec![] }
     }
 
     /// Get a reference to the entries in this tree.
