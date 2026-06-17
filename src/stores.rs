@@ -433,7 +433,7 @@ mod tests {
     }
 
     #[test]
-    fn ref_spec_fmt_succeeds_for_tag() {
+    fn ref_spec_fmt_succeeds_for_unpeeled_tag() {
         let test_object = RefSpec::Tag(TagSpec {
             name: "example/tag".to_string(),
             peeled: false,
@@ -442,6 +442,18 @@ mod tests {
         let test_output = test_object.to_string();
 
         assert_eq!("refs/tags/example/tag", test_output);
+    }
+
+    #[test]
+    fn ref_spec_fmt_succeeds_for_peeled_tag() {
+        let test_object = RefSpec::Tag(TagSpec {
+            name: "example/tag".to_string(),
+            peeled: true,
+        });
+
+        let test_output = test_object.to_string();
+
+        assert_eq!("refs/tags/example/tag^{}", test_output);
     }
 
     #[test]
@@ -469,7 +481,16 @@ mod tests {
     }
 
     #[test]
-    fn ref_spec_from_str_succeeds_for_valid_tag() {
+    fn ref_spec_fmt_succeeds_for_head() {
+        let test_object = RefSpec::Head;
+
+        let test_output = test_object.to_string();
+
+        assert_eq!("HEAD", test_output);
+    }
+
+    #[test]
+    fn ref_spec_from_str_succeeds_for_valid_unpeeled_tag() {
         let test_input = "refs/tags/a/valid/tag-name";
 
         let test_output = RefSpec::from_str(test_input).unwrap();
@@ -478,6 +499,21 @@ mod tests {
             RefSpec::Tag(TagSpec {
                 name: "a/valid/tag-name".to_string(),
                 peeled: false
+            }),
+            test_output
+        );
+    }
+
+    #[test]
+    fn ref_spec_from_str_succeeds_for_valid_peeled_tag() {
+        let test_input = "refs/tags/a/valid/tag-name^{}";
+
+        let test_output = RefSpec::from_str(test_input).unwrap();
+
+        assert_eq!(
+            RefSpec::Tag(TagSpec {
+                name: "a/valid/tag-name".to_string(),
+                peeled: true
             }),
             test_output
         );
@@ -511,6 +547,15 @@ mod tests {
             }),
             test_output
         );
+    }
+
+    #[test]
+    fn ref_spec_from_str_succeeds_for_head() {
+        let test_input = "HEAD";
+
+        let test_output = RefSpec::from_str(test_input).unwrap();
+
+        assert_eq!(RefSpec::Head, test_output);
     }
 
     #[test]
@@ -745,5 +790,29 @@ mod tests {
         let test_output = BranchSpec::from_str(test_input).unwrap_err();
 
         assert_eq!(InvalidRefNameError::new(test_input), test_output);
+    }
+
+    #[test]
+    fn tag_spec_fmt_succeeds_for_unpeeled_tag() {
+        let test_input = TagSpec {
+            name: "the-example-tag".to_string(),
+            peeled: false,
+        };
+
+        let test_output = test_input.to_string();
+
+        assert_eq!("refs/tags/the-example-tag", test_output);
+    }
+
+    #[test]
+    fn tag_spec_fmt_succeeds_for_peeled_tag() {
+        let test_input = TagSpec {
+            name: "the-example-tag".to_string(),
+            peeled: true,
+        };
+
+        let test_output = test_input.to_string();
+
+        assert_eq!("refs/tags/the-example-tag^{}", test_output);
     }
 }

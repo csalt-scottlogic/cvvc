@@ -27,3 +27,7 @@ target
 
 # Added by Cait
 /test_checkout
+
+# Added by Cait - profiler instrumentation files
+**/*.profraw
+**/*.profdata
