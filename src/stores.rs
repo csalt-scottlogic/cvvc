@@ -108,10 +108,11 @@ pub trait RefStore {
     fn search_remotes_for_branch(&self, name: &str) -> Result<Vec<BranchSpec>, anyhow::Error>;
 
     /// Create a new ref, or update an existing one.
-    /// 
-    /// This function is not required to confirm that the `target` exists; there are situations such as 
+    ///
+    /// This function is not required to confirm that the `target` exists; there are situations such as
     /// unborn symbolic references where it might not.
-    fn create_update_ref(&self, refspec: &RefSpec, target: &RefTarget) -> Result<(), anyhow::Error>;
+    fn create_update_ref(&self, refspec: &RefSpec, target: &RefTarget)
+        -> Result<(), anyhow::Error>;
 }
 
 /// Specifies if a branch or tag is local, or if it is remote, which remote it belongs to.
@@ -220,13 +221,16 @@ impl FromStr for RefSpec {
 
 impl RefSpec {
     /// If this value is a [`RefSpec::Tag`], clone it but set the `peeled` property to `true`.
-    /// 
+    ///
     /// Otherwise, this method returns `None`.
     pub fn peel_tag(&self) -> Option<Self> {
-         match self {
-            RefSpec::Tag(t) => Some(RefSpec::Tag(TagSpec { name: t.name.to_string(), peeled: true })),
+        match self {
+            RefSpec::Tag(t) => Some(RefSpec::Tag(TagSpec {
+                name: t.name.to_string(),
+                peeled: true,
+            })),
             _ => None,
-         }
+        }
     }
 }
 
@@ -301,7 +305,7 @@ impl FromStr for BranchSpec {
 ///
 /// For example, the `HEAD` reference is normally a symbolic reference to a branch, but can be an object ID
 /// when in "detached HEAD" mode.
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Debug, Eq, Hash, PartialEq)]
 pub enum RefTarget {
     /// The reference target is a specific object ID.
     Object(String),
@@ -323,7 +327,7 @@ impl FromStr for RefTarget {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.strip_prefix("ref: ") {
+        match s.trim().strip_prefix("ref: ") {
             Some(rs) => Ok(Self::SymbolicRef(RefSpec::from_str(rs)?)),
             None => Ok(Self::Object(s.to_string())),
         }

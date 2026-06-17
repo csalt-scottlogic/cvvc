@@ -130,7 +130,11 @@ impl RefStore for CombinedRefStore {
         Ok(results.into_iter().collect())
     }
 
-    fn create_update_ref(&self, refspec: &RefSpec, target: &RefTarget) -> Result<(), anyhow::Error> {
+    fn create_update_ref(
+        &self,
+        refspec: &RefSpec,
+        target: &RefTarget,
+    ) -> Result<(), anyhow::Error> {
         self.loose_store.create_update_ref(refspec, target)
     }
 }

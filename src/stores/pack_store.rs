@@ -14,7 +14,12 @@ use std::{
 
 use crate::{
     objects::{GitObject, ObjectKind, RawObject, RawObjectData},
-    stores::{ObjectStore, pack_store::helpers::{confirm_pack_name, primary_file_name, randomish_string, store_from_reader}},
+    stores::{
+        pack_store::helpers::{
+            confirm_pack_name, primary_file_name, randomish_string, store_from_reader,
+        },
+        ObjectStore,
+    },
 };
 
 mod helpers;
@@ -56,7 +61,10 @@ impl PackStore {
         }
         let primary_file = helpers::primary_file_name(base_path, pack_name);
         if !primary_file.is_file() {
-            return Err(anyhow!("pack file {} does not exist", primary_file.display()));
+            return Err(anyhow!(
+                "pack file {} does not exist",
+                primary_file.display()
+            ));
         }
         let index_file = helpers::index_file_name(base_path, pack_name);
         if !index_file.is_file() {
@@ -80,7 +88,10 @@ impl PackStore {
     }
 
     /// Store a pack using data from outside the repository.
-    pub fn store_pack<P: AsRef<Path>, R: Read>(base_path: P, reader: &mut R) -> Result<Self, anyhow::Error> {
+    pub fn store_pack<P: AsRef<Path>, R: Read>(
+        base_path: P,
+        reader: &mut R,
+    ) -> Result<Self, anyhow::Error> {
         let temp_pack_path = base_path.as_ref().join(randomish_string());
         let pack_size = store_from_reader(reader, &temp_pack_path)?;
         let actual_pack_name = confirm_pack_name(&temp_pack_path, pack_size)?;

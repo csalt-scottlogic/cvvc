@@ -167,7 +167,11 @@ impl RefStore for RefFileStore {
         Ok(results)
     }
 
-    fn create_update_ref(&self, refspec: &RefSpec, target: &RefTarget) -> Result<(), anyhow::Error> {
+    fn create_update_ref(
+        &self,
+        refspec: &RefSpec,
+        target: &RefTarget,
+    ) -> Result<(), anyhow::Error> {
         let ref_path = self.base_path.join(PathBuf::from(refspec));
         check_and_create_dir(ref_path.parent().unwrap())?;
         write_single_line(ref_path, &target.to_string())

@@ -1,12 +1,17 @@
 use anyhow::{anyhow, Context};
 use indexmap::IndexSet;
 use reqwest::blocking::{Client, Response};
-use std::{collections::VecDeque, fmt::Display, io::{self, Read}, str::FromStr};
+use std::{
+    collections::VecDeque,
+    fmt::Display,
+    io::{self, Read},
+    str::FromStr,
+};
 use url::{self, Url};
 
 use crate::{
     helpers::escaped_byte_string,
-    repo::{CommitIterator, Repository, is_partial_object_id},
+    repo::{is_partial_object_id, CommitIterator, Repository},
     stores::{RefSpec, RefTarget, TargetedRef},
 };
 
@@ -59,7 +64,7 @@ impl PktLine {
 
 struct PktLineByteIterator {
     header: VecDeque<u8>,
-    line_data: VecDeque<u8>
+    line_data: VecDeque<u8>,
 }
 
 impl PktLineByteIterator {
@@ -85,7 +90,7 @@ impl Iterator for PktLineByteIterator {
             self.header.pop_front()
         } else {
             self.line_data.pop_front()
-        } 
+        }
     }
 }
 
@@ -179,26 +184,26 @@ impl<R: Read> From<R> for PktLineIterator<R> {
 
 /// A reader which reads data from a sequence of Git pkt-line sideband packets, stripping their metadata and presenting them as a single
 /// sequence of bytes, whilst reporting the content of the progress-message sideband back to the user.
-/// 
+///
 /// This reader makes the following assumptions about its input data:
 /// - each pkt-line is in the "sideband" format, with the value of the first data byte of the pkt-line indicating the sideband channel number
 /// - sideband channel 1 is used for data
 /// - sideband channel 2 is used for progress messages
 /// - sideband channel 3 is used for error messages
 /// - if a pkt-line is received on channel 3, it will be the final pkt-line of the sequence
-/// 
+///
 /// Reading from the reader presents the channel 1 data as a continuous stream of bytes, with the line header and sideband number stripped.
-/// 
+///
 /// When a pkt-line on channel 2 is encountered, its content is passed to a message handler function which can, for example, log the message or
 /// display it to the user.
-/// 
+///
 /// When a pkt-line on channel 3 is encountered, its content is passed to the same message handler function as channel 2, and the read immediately
 /// terminates with an error.
-/// 
+///
 /// If any normal lines without a valid channel number are encountered, they are treated as channel 1 data, but without stripping the invalid channel number.
-/// 
+///
 /// Reading terminates successfully on finding a flush line, delimiter line, or response-end line.
-/// 
+///
 /// Reading terminates with [`io::ErrorKind::UnexpectedEof`] if the final pkt-line in the sequence is a normal line.
 pub struct PktLineSidebandReader {
     iter: PktLineIterator<Response>,
@@ -223,11 +228,14 @@ impl Read for PktLineSidebandReader {
         while self.cur_line.is_none() {
             let the_line = match self.iter.next() {
                 None => {
-                    return Err(io::Error::new(io::ErrorKind::UnexpectedEof, anyhow!("flush or delim not found")));
-                },
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        anyhow!("flush or delim not found"),
+                    ));
+                }
                 Some(Err(err)) => {
                     return Err(io::Error::other(err));
-                },
+                }
                 Some(Ok(line)) => line,
             };
             let PktLine::Line(line_content) = the_line else {
@@ -238,23 +246,25 @@ impl Read for PktLineSidebandReader {
                     if let Some(mh) = self.message_handler {
                         mh(&line_content[1..]);
                     }
-                },
+                }
                 3 => {
                     if let Some(mh) = self.message_handler {
                         mh(&line_content[1..]);
                     }
                     let msg = String::from_utf8_lossy(&line_content[1..]);
                     return Err(io::Error::other(anyhow!(msg.to_string())));
-                },
+                }
                 1 => {
                     self.cur_line = Some(line_content[1..].to_vec());
-                },
+                }
                 _ => {
                     self.cur_line = Some(line_content);
                 }
             }
         }
-        let Some(ref buffered) = self.cur_line else { return Ok(0) };
+        let Some(ref buffered) = self.cur_line else {
+            return Ok(0);
+        };
         let bytes_avail = buffered.len() - self.cur_pos;
         let to_copy = if bytes_avail > buf.len() {
             buf.len()
@@ -315,7 +325,11 @@ impl FromStr for RemoteCapability {
             }),
             Some(x) => Ok(Self {
                 key: s[..x].to_string(),
-                values: s[(x + 1)..].trim().split(" ").map(|v| v.to_string()).collect(),
+                values: s[(x + 1)..]
+                    .trim()
+                    .split(" ")
+                    .map(|v| v.to_string())
+                    .collect(),
             }),
         }
     }
@@ -402,28 +416,33 @@ impl HttpFetchClient {
     }
 
     /// Fetch a pack from the remote server.
-    /// 
+    ///
     /// This method takes a set of wanted commit IDs, and a reference to the repository which it uses
     /// to generate the set of commit IDs which we already have.  It returns a `Read` implementation
     /// which will return the pack data when read, printing any progress or error messages from the remote server
     /// as it is read.
-    /// 
+    ///
     /// This method may make multiple requests to the remote server, as part of the Git pack negotiation protocol.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// This method will return an error under many conditions:
-    /// 
+    ///
     /// - if the remote server does not respond
     /// - if the remote server returns an error status code
     /// - if the remote server does not return either a packfile, or a response acknowledging which objects are common
     ///   to remote and local repositories (which could be an empty list)
     /// - if the remote server returns a `ready` response on one request, but does not send a packfile on the following request
     /// - if we send a request ending in `done` to show we want to end negotiation, and the remote server does not respond with a packfile
-    /// 
+    ///
     /// Note that this method does not read to the end of the final response to confirm that the packfile is properly terminated with a
     /// "flush" line.  This is handled by the returned reader.
-    pub fn fetch_pack(&self, wants: &[&str], repo: &Repository, net_dump: bool) -> Result<PktLineSidebandReader, anyhow::Error> {
+    pub fn fetch_pack(
+        &self,
+        wants: &[&str],
+        repo: &Repository,
+        net_dump: bool,
+    ) -> Result<PktLineSidebandReader, anyhow::Error> {
         match self.version {
             Some(ProtocolVersion::V1) => todo!(),
             Some(ProtocolVersion::V2) => self.fetch_pack_v2(wants, repo, net_dump),
@@ -431,11 +450,17 @@ impl HttpFetchClient {
         }
     }
 
-    fn fetch_pack_v2(&self, wants: &[&str], repo: &Repository, net_dump: bool) -> Result<PktLineSidebandReader, anyhow::Error> {
+    fn fetch_pack_v2(
+        &self,
+        wants: &[&str],
+        repo: &Repository,
+        net_dump: bool,
+    ) -> Result<PktLineSidebandReader, anyhow::Error> {
         let mut common_objects = IndexSet::<String>::new();
         let our_objects = repo.commits(None)?;
         let mut topup_size = our_objects.queue_length();
-        let mut our_objects = Self::top_up_common_objects(&mut common_objects, our_objects, topup_size)?;
+        let mut our_objects =
+            Self::top_up_common_objects(&mut common_objects, our_objects, topup_size)?;
         let mut provide_done = false;
         loop {
             match self.fetch_pack_v2_call(wants, &common_objects, provide_done, net_dump)? {
@@ -444,12 +469,14 @@ impl HttpFetchClient {
                         return Err(anyhow!("ran out of information to send"));
                     }
                     Self::scrub_common_objects(&mut common_objects, acked);
-                },
+                }
                 PackFetchResponse::Ready(acked) => {
                     Self::scrub_common_objects(&mut common_objects, acked);
                     provide_done = true;
                 }
-                PackFetchResponse::Pack(reader) => { return Ok(reader); }
+                PackFetchResponse::Pack(reader) => {
+                    return Ok(reader);
+                }
             }
             match our_objects {
                 Some(iter) => {
@@ -458,8 +485,9 @@ impl HttpFetchClient {
                     } else {
                         topup_size + 400
                     };
-                    our_objects = Self::top_up_common_objects(&mut common_objects, iter, topup_size)?;
-                },
+                    our_objects =
+                        Self::top_up_common_objects(&mut common_objects, iter, topup_size)?;
+                }
                 None => {
                     provide_done = true;
                 }
@@ -467,9 +495,21 @@ impl HttpFetchClient {
         }
     }
 
-    fn fetch_pack_v2_call(&self, wants: &[&str], common_objects: &IndexSet<String>, provide_done: bool, net_dump: bool) -> Result<PackFetchResponse, anyhow::Error> {
-        let want_list = wants.iter().map(|s| PackFetchCommand::Want(s.to_string())).collect::<Vec<_>>();
-        let have_list = common_objects.iter().map(|s| PackFetchCommand::Have(s.to_string())).collect::<Vec<_>>();
+    fn fetch_pack_v2_call(
+        &self,
+        wants: &[&str],
+        common_objects: &IndexSet<String>,
+        provide_done: bool,
+        net_dump: bool,
+    ) -> Result<PackFetchResponse, anyhow::Error> {
+        let want_list = wants
+            .iter()
+            .map(|s| PackFetchCommand::Want(s.to_string()))
+            .collect::<Vec<_>>();
+        let have_list = common_objects
+            .iter()
+            .map(|s| PackFetchCommand::Have(s.to_string()))
+            .collect::<Vec<_>>();
         let fetch_url = self.base_url.join("git-upload-pack")?;
         let fetch_args = self.capabilities.iter().find(|c| c.key == "fetch");
         let Some(_) = fetch_args else {
@@ -477,7 +517,9 @@ impl HttpFetchClient {
         };
         let mut body_lines = vec![PktLine::from("command=fetch\x0a")];
         if self.capabilities.iter().any(|c| c.key == "agent") {
-            body_lines.push(PktLine::from(format!("agent=cvvc/{}\x0a", env!("CARGO_PKG_VERSION")).as_str()));
+            body_lines.push(PktLine::from(
+                format!("agent=cvvc/{}\x0a", env!("CARGO_PKG_VERSION")).as_str(),
+            ));
         }
         body_lines.push(PktLine::Delimiter);
         body_lines.push(PktLine::from("include-tag\x0a"));
@@ -497,8 +539,15 @@ impl HttpFetchClient {
                 println!("S: {line}");
             }
         }
-        let body = body_lines.iter().flat_map(|n| n.bytes()).collect::<Vec<u8>>();
-        let request = self.client.post(fetch_url).header("Git-Protocol", "version=2").body(body);
+        let body = body_lines
+            .iter()
+            .flat_map(|n| n.bytes())
+            .collect::<Vec<u8>>();
+        let request = self
+            .client
+            .post(fetch_url)
+            .header("Git-Protocol", "version=2")
+            .body(body);
         let response = request.send()?;
         if !response.status().is_success() {
             return Err(anyhow!(
@@ -524,10 +573,11 @@ impl HttpFetchClient {
                     acks_found = true;
                     acked_objects.append(&mut Self::load_acked_objects(&mut lines)?);
                 } else if line_conts == b"packfile\x0a" {
-                    let reader = PktLineSidebandReader::new(lines, Some(|m| {
-                        print!("{}", String::from_utf8_lossy(m))
-                    }));
-                    return Ok(PackFetchResponse::Pack(reader))
+                    let reader = PktLineSidebandReader::new(
+                        lines,
+                        Some(|m| print!("{}", String::from_utf8_lossy(m))),
+                    );
+                    return Ok(PackFetchResponse::Pack(reader));
                 } else if line_conts == b"ready\x0a" {
                     is_ready = true;
                 } else {
@@ -544,20 +594,26 @@ impl HttpFetchClient {
         }
     }
 
-    fn load_acked_objects<R: Read>(lines: &mut PktLineIterator<R>) -> Result<Vec<String>, anyhow::Error> {
+    fn load_acked_objects<R: Read>(
+        lines: &mut PktLineIterator<R>,
+    ) -> Result<Vec<String>, anyhow::Error> {
         let mut objs = vec![];
         loop {
             let Some(next_line) = lines.next() else {
                 break;
             };
             let next_line = next_line?;
-            let PktLine::Line(line_conts) = next_line else { break; };
+            let PktLine::Line(line_conts) = next_line else {
+                break;
+            };
             if line_conts == b"NAK\x0a" {
                 continue;
             }
             let line_string = String::from_utf8_lossy(&line_conts);
             let Some(obj) = line_string.trim().strip_prefix("ACK ") else {
-                return Err(anyhow!("unexpected line received in acknowledgements section"));
+                return Err(anyhow!(
+                    "unexpected line received in acknowledgements section"
+                ));
             };
             objs.push(obj.to_string());
         }
@@ -565,23 +621,25 @@ impl HttpFetchClient {
     }
 
     fn scrub_common_objects(common_objects: &mut IndexSet<String>, mut acked: Vec<String>) {
-        common_objects.retain(|x| {
-            match acked.iter().position(|y| x == y) {
-                Some(pos) => {
-                    acked.remove(pos);
-                    true
-                },
-                None => false,
+        common_objects.retain(|x| match acked.iter().position(|y| x == y) {
+            Some(pos) => {
+                acked.remove(pos);
+                true
             }
+            None => false,
         });
     }
 
-    fn top_up_common_objects<'a>(common_objects: &mut IndexSet<String>, mut iter: CommitIterator<'a>, to_level: usize) -> Result<Option<CommitIterator<'a>>, anyhow::Error> {
+    fn top_up_common_objects<'a>(
+        common_objects: &mut IndexSet<String>,
+        mut iter: CommitIterator<'a>,
+        to_level: usize,
+    ) -> Result<Option<CommitIterator<'a>>, anyhow::Error> {
         while common_objects.len() < to_level {
             match iter.next() {
                 Some(res) => {
                     common_objects.insert(res?);
-                },
+                }
                 None => {
                     return Ok(None);
                 }
@@ -815,7 +873,9 @@ impl HttpFetchClient {
         };
         let mut body_lines = vec![PktLine::from("command=ls-refs\x0a")];
         if self.capabilities.iter().any(|c| c.key == "agent") {
-            body_lines.push(PktLine::from(format!("agent=cvvc/{}\x0a", env!("CARGO_PKG_VERSION")).as_str()));
+            body_lines.push(PktLine::from(
+                format!("agent=cvvc/{}\x0a", env!("CARGO_PKG_VERSION")).as_str(),
+            ));
         }
         body_lines.push(PktLine::Delimiter);
         body_lines.push(PktLine::from("symrefs\x0a"));
@@ -829,8 +889,15 @@ impl HttpFetchClient {
                 println!("S: {line}");
             }
         }
-        let body = body_lines.iter().flat_map(|n| n.bytes()).collect::<Vec<u8>>();
-        let request = self.client.post(ref_url).header("Git-Protocol", "version=2").body(body);
+        let body = body_lines
+            .iter()
+            .flat_map(|n| n.bytes())
+            .collect::<Vec<u8>>();
+        let request = self
+            .client
+            .post(ref_url)
+            .header("Git-Protocol", "version=2")
+            .body(body);
         let response = request.send()?;
         if !response.status().is_success() {
             return Err(anyhow!(
@@ -849,7 +916,8 @@ impl HttpFetchClient {
             let Some(id_len) = line_contents.iter().position(|x| *x == 32) else {
                 return Err(anyhow!("line format: could not find space"));
             };
-            let target_id = String::from_utf8(line_contents[..id_len].to_vec()).context("invalid target ID")?;
+            let target_id =
+                String::from_utf8(line_contents[..id_len].to_vec()).context("invalid target ID")?;
             let full_refspec = String::from_utf8(line_contents[id_len..].to_vec())?;
             let mut ref_parts = full_refspec.trim().split(" ");
             let Some(primary_ref_str) = ref_parts.next() else {
@@ -861,24 +929,41 @@ impl HttpFetchClient {
             if let Some(secondary_ref_string) = ref_parts.next() {
                 if let Some(peeled_ref_target) = secondary_ref_string.strip_prefix("peeled:") {
                     if let Some(peeled_ref_spec) = primary_ref_spec.peel_tag() {
-                        refs.push(TargetedRef { target: RefTarget::Object(peeled_ref_target.to_string()), spec: peeled_ref_spec })
+                        refs.push(TargetedRef {
+                            target: RefTarget::Object(peeled_ref_target.to_string()),
+                            spec: peeled_ref_spec,
+                        })
                     }
-                    refs.push(TargetedRef { target: RefTarget::Object(target_id), spec: primary_ref_spec });
-                } else if let Some(symref_ref_target) = secondary_ref_string.strip_prefix("symref-target:") {
-                    refs.push(TargetedRef { target: RefTarget::SymbolicRef(RefSpec::from_str(symref_ref_target)?), spec: primary_ref_spec });
-                    refs.push(TargetedRef { target: RefTarget::Object(target_id), spec: RefSpec::from_str(symref_ref_target)?});
+                    refs.push(TargetedRef {
+                        target: RefTarget::Object(target_id),
+                        spec: primary_ref_spec,
+                    });
+                } else if let Some(symref_ref_target) =
+                    secondary_ref_string.strip_prefix("symref-target:")
+                {
+                    refs.push(TargetedRef {
+                        target: RefTarget::SymbolicRef(RefSpec::from_str(symref_ref_target)?),
+                        spec: primary_ref_spec,
+                    });
+                    refs.push(TargetedRef {
+                        target: RefTarget::Object(target_id),
+                        spec: RefSpec::from_str(symref_ref_target)?,
+                    });
                 } else {
-                    refs.push(TargetedRef { target: RefTarget::Object(target_id), spec: primary_ref_spec });
+                    refs.push(TargetedRef {
+                        target: RefTarget::Object(target_id),
+                        spec: primary_ref_spec,
+                    });
                 }
             } else {
-                refs.push(TargetedRef { target: RefTarget::Object(target_id), spec: primary_ref_spec });
+                refs.push(TargetedRef {
+                    target: RefTarget::Object(target_id),
+                    spec: primary_ref_spec,
+                });
             }
         }
         let capabilities = self.capabilities.clone();
-        Ok(RemoteServerInfo {
-            refs,
-            capabilities,
-        })
+        Ok(RemoteServerInfo { refs, capabilities })
     }
 
     fn fetch_refs_capabilities_v1(
@@ -892,8 +977,6 @@ impl HttpFetchClient {
         self.load_refs_capabilities_body_v1(first_line, lines, net_dump)
     }
 }
-
-
 
 enum PackFetchCommand {
     Want(String),
@@ -919,7 +1002,7 @@ impl From<PackFetchCommand> for PktLine {
 enum PackFetchResponse {
     InfoNeeded(Vec<String>),
     Ready(Vec<String>),
-    Pack(PktLineSidebandReader)
+    Pack(PktLineSidebandReader),
 }
 
 #[cfg(test)]
