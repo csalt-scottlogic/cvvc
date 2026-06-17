@@ -2,7 +2,13 @@ use anyhow::{anyhow, Context};
 use chrono::{DateTime, TimeZone, Utc};
 use indexmap::IndexMap;
 use std::{
-    collections::{HashMap, HashSet, VecDeque}, env, fmt::Display, fs, io::Read, path::{Path, PathBuf}, str::FromStr
+    collections::{HashMap, HashSet, VecDeque},
+    env,
+    fmt::Display,
+    fs,
+    io::Read,
+    path::{Path, PathBuf},
+    str::FromStr,
 };
 
 use crate::{
@@ -755,10 +761,7 @@ impl Repository {
             return Ok(None);
         }
         let head_conts = fs::read_to_string(path)?;
-        println!(">{head_conts}<");
         let head_target = RefTarget::from_str(&head_conts)?;
-        println!(">{head_target}<");
-        println!("{head_target:?}");
         match head_target {
             RefTarget::SymbolicRef(r) => {
                 Ok(self.ref_store.resolve_target(&r)?.map(|t| t.to_string()))
@@ -1138,7 +1141,11 @@ impl Repository {
 
     /// List the names of remotes from the repository's config.
     pub fn list_remote_names(&self) -> Vec<String> {
-        self.config.remote_names().iter().map(|r| r.to_string()).collect()
+        self.config
+            .remote_names()
+            .iter()
+            .map(|r| r.to_string())
+            .collect()
     }
 
     /// Get details of a remote, or `None` if the remote does not exist.
@@ -1236,11 +1243,11 @@ impl<'a> CommitIterator<'a> {
     }
 
     /// Get the number of commits currently queued in the iterator.
-    /// 
+    ///
     /// If this is called on a newly-created iterator which was created using [`Repository::commits()`] with
     /// a `None` parameter, it is effectively the number of commits in the repository pointed to by
     /// the current set of branch tips and tags.
-    /// 
+    ///
     /// Calling it at other times is probably not very meaningful.
     pub fn queue_length(&self) -> usize {
         self.queue.len()

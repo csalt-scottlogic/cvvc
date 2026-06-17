@@ -332,7 +332,10 @@ impl RepoConfig {
     /// property will be a clone of the contents of the `fetch_urls` property.
     pub fn remote_info(&self, name: &str) -> Option<RemoteInfo> {
         let section = self.cf.section(Some(format!("remote \"{name}\"")))?;
-        let fetch_urls: Vec<String> = get_str_setting_from_ini_section(section, "url").iter().map(|s| s.to_string()).collect();
+        let fetch_urls: Vec<String> = get_str_setting_from_ini_section(section, "url")
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         let push_urls = get_str_setting_from_ini_section(section, "pushurl");
         let push_urls = if push_urls.is_empty() {
             fetch_urls.clone()

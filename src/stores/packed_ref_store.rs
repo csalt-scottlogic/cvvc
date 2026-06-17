@@ -124,7 +124,11 @@ impl RefStore for PackedRefStore {
             .collect::<Vec<BranchSpec>>())
     }
 
-    fn create_update_ref(&self, _refspec: &RefSpec, _target: &RefTarget) -> Result<(), anyhow::Error> {
+    fn create_update_ref(
+        &self,
+        _refspec: &RefSpec,
+        _target: &RefTarget,
+    ) -> Result<(), anyhow::Error> {
         Err(anyhow!("cannot update packed refs"))
     }
 }

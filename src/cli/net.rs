@@ -81,7 +81,14 @@ fn fetch_remote(
             for obj in objects_needed.iter() {
                 println!("\t{}", obj);
             }
-            let reader = fetch_client_engine.fetch_pack(&objects_needed.iter().map(|x| x.as_str()).collect::<Vec<_>>(), repo, true)?;
+            let reader = fetch_client_engine.fetch_pack(
+                &objects_needed
+                    .iter()
+                    .map(|x| x.as_str())
+                    .collect::<Vec<_>>(),
+                repo,
+                true,
+            )?;
             repo.store_pack(reader)?;
             for update in updates_needed {
                 if repo.has_object(&update.source.target.to_string())? {

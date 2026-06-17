@@ -34,10 +34,15 @@ fn file_path_with_extension<P: AsRef<Path>>(base_path: P, pack_name: &str, ext: 
     base_path.as_ref().join(pack_name).with_added_extension(ext)
 }
 
-/// Generate a string containing a large random number, which (we assume) can be used as a temporary filename 
+/// Generate a string containing a large random number, which (we assume) can be used as a temporary filename
 /// for a new pack being downloaded, before we know what its ID is.
 pub fn randomish_string() -> String {
-    let x: [u64; 4] = [rand::random(), rand::random(), rand::random(), rand::random()];
+    let x: [u64; 4] = [
+        rand::random(),
+        rand::random(),
+        rand::random(),
+        rand::random(),
+    ];
     format!("cvvc-cgt-{:x}{:x}{:x}{:x}", x[0], x[1], x[2], x[3])
 }
 
@@ -48,19 +53,25 @@ pub fn open_file_from_path<P: AsRef<Path>>(path: P) -> Result<BufReader<File>, a
 }
 
 /// Copies the content of a reader to a new file.
-/// 
+///
 /// # Errors
-/// 
-/// This function returns an error if the file already exists, if it cannot be created, or if 
+///
+/// This function returns an error if the file already exists, if it cannot be created, or if
 /// any errors occur reading from the reader or writing to the file.
-pub fn store_from_reader<P: AsRef<Path>, R: Read>(mut reader: R, path: P) -> Result<u64, anyhow::Error> {
+pub fn store_from_reader<P: AsRef<Path>, R: Read>(
+    mut reader: R,
+    path: P,
+) -> Result<u64, anyhow::Error> {
     let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
     let size = io::copy(&mut reader, &mut file)?;
     println!("{size} bytes downloaded");
     Ok(size)
 }
 
-pub fn confirm_pack_name<P: AsRef<Path>>(filename: P, expected_size: u64) -> Result<String, anyhow::Error> {
+pub fn confirm_pack_name<P: AsRef<Path>>(
+    filename: P,
+    expected_size: u64,
+) -> Result<String, anyhow::Error> {
     let mut to_read = expected_size - 20;
     let mut file = OpenOptions::new().read(true).open(filename)?;
     const BLOCK_SZ: usize = 65536;
@@ -73,16 +84,15 @@ pub fn confirm_pack_name<P: AsRef<Path>>(filename: P, expected_size: u64) -> Res
             to_read as usize
         };
         match file.read(&mut read_buffer[..block_size])? {
-            0 => {return Err(anyhow!("unexpected end of file"))},
+            0 => return Err(anyhow!("unexpected end of file")),
             BLOCK_SZ => {
-                hasher.update(
-                    read_buffer);
+                hasher.update(read_buffer);
                 to_read -= BLOCK_SZ as u64;
-            },
+            }
             x => {
                 hasher.update(&read_buffer[..x]);
                 to_read -= x as u64;
-            },
+            }
         }
         if to_read == 0 {
             break;
@@ -215,15 +225,15 @@ where
 
 fn delta_offset_read(buf: &Vec<u8>, mut idx: usize) -> (u64, usize) {
     let mut offset = 0u64;
-        while buf[idx] >= 0x80 {
-            offset |= (buf[idx] & 0x7f) as u64;
-            offset += 1;
-            offset <<= 7;
-            idx += 1;
-        }
+    while buf[idx] >= 0x80 {
         offset |= (buf[idx] & 0x7f) as u64;
+        offset += 1;
+        offset <<= 7;
         idx += 1;
-        (offset, idx)
+    }
+    offset |= (buf[idx] & 0x7f) as u64;
+    idx += 1;
+    (offset, idx)
 }
 
 pub fn read_raw_object_at_address<R>(
@@ -310,7 +320,10 @@ mod tests {
 
     #[test]
     fn delta_offset_reads_succeeds_for_test_case() {
-        let buf = vec![0xe3u8, 4, 0x80, 0xff, 0xa, 0x78, 0x9c, 0xeb, 0x56, 0x7d, 0xa4, 0x3c, 0x61, 0xcf, 0xc6, 0xb3];
+        let buf = vec![
+            0xe3u8, 4, 0x80, 0xff, 0xa, 0x78, 0x9c, 0xeb, 0x56, 0x7d, 0xa4, 0x3c, 0x61, 0xcf, 0xc6,
+            0xb3,
+        ];
         let idx = 2;
         let expected_value = (32778u64, 5usize);
 
