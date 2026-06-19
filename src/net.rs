@@ -2,7 +2,7 @@ use anyhow::{anyhow, Context};
 use indexmap::IndexSet;
 use reqwest::blocking::{Client, Response};
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     fmt::Display,
     io::{self, Read},
     str::FromStr,
@@ -439,7 +439,7 @@ impl HttpFetchClient {
     /// "flush" line.  This is handled by the returned reader.
     pub fn fetch_pack(
         &self,
-        wants: &[&str],
+        wants: &HashSet<&str>,
         repo: &Repository,
         net_dump: bool,
     ) -> Result<PktLineSidebandReader, anyhow::Error> {
@@ -452,7 +452,7 @@ impl HttpFetchClient {
 
     fn fetch_pack_v2(
         &self,
-        wants: &[&str],
+        wants: &HashSet<&str>,
         repo: &Repository,
         net_dump: bool,
     ) -> Result<PktLineSidebandReader, anyhow::Error> {
@@ -497,7 +497,7 @@ impl HttpFetchClient {
 
     fn fetch_pack_v2_call(
         &self,
-        wants: &[&str],
+        wants: &HashSet<&str>,
         common_objects: &IndexSet<String>,
         provide_done: bool,
         net_dump: bool,

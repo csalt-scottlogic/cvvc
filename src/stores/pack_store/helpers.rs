@@ -207,7 +207,7 @@ where
         None
     };
     let delta_offset = if let PackedObjectTypeOnly::OffsetDelta = packed_object_type {
-        let offset_nidx = delta_offset_read(&mut buf, bytes_read);
+        let offset_nidx = delta_offset_read(&buf, bytes_read);
         bytes_read = offset_nidx.1;
         Some(offset_nidx.0)
     } else {
@@ -223,7 +223,7 @@ where
     )
 }
 
-fn delta_offset_read(buf: &Vec<u8>, mut idx: usize) -> (u64, usize) {
+fn delta_offset_read(buf: &[u8], mut idx: usize) -> (u64, usize) {
     let mut offset = 0u64;
     while buf[idx] >= 0x80 {
         offset |= (buf[idx] & 0x7f) as u64;
