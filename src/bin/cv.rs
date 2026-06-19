@@ -247,7 +247,7 @@ fn parse_dispatch() -> ExitCode {
             parents,
             message,
         } => staging::create_commit_for_tree(&tree_id, &parents, &message, &config),
-        Commands::Fetch { version } => net::fetch(version),
+        Commands::Fetch { version } => net::fetch(version, &config),
         Commands::HashObject {
             write,
             obj_type: _,

@@ -11,6 +11,7 @@ use crate::{
     },
     objects::{Blob, Commit, RawObject},
     repo::Repository,
+    stores::RefSpec,
 };
 
 /// Entry point for the `cv where` command.
@@ -184,14 +185,15 @@ pub fn full_commit(config: &GlobalConfig, message: Option<String>) -> Result<(),
     } else {
         repo.update_head_detached(&commit_id)?
     }
-    let current_branch_name = current_branch.map(|b| b.name.to_string());
+    let (reflog_refspec, also_update_head) =
+        current_branch.map_or((RefSpec::Head, false), |b| (b.into_ref_spec(), true));
     repo.write_ref_log(
         start_commit.as_deref(),
         &commit_id,
         &config.committer(),
-        &timestamp,
         &shorten_and_prefix_message("commit", message),
-        current_branch_name.as_deref(),
+        &reflog_refspec,
+        also_update_head,
     )
 }
 

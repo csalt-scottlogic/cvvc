@@ -1,11 +1,9 @@
 use anyhow::{anyhow, Context};
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{Local, Utc};
 use indexmap::IndexMap;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    env,
-    fmt::Display,
-    fs,
+    env, fs,
     io::Read,
     path::{Path, PathBuf},
     str::FromStr,
@@ -1083,53 +1081,44 @@ impl Repository {
     /// # Errors
     ///
     /// An error will be returned if any errors are encountered writing to the filesystem.
-    pub fn write_ref_log<Tz>(
+    pub fn write_ref_log(
         &self,
         old_object_id: Option<&str>,
         new_object_id: &str,
         committer_name: &str,
-        timestamp: &DateTime<Tz>,
         message: &str,
-        branch_name: Option<&str>,
-    ) -> Result<(), anyhow::Error>
-    where
-        Tz: TimeZone,
-        Tz::Offset: Display,
-    {
-        self.ref_log_store.write(
-            &RefLogEntry::new(
-                old_object_id,
-                new_object_id,
-                &timestamped_name(committer_name, timestamp),
-                message,
-            ),
-            branch_name,
-        )
+        branch: &RefSpec,
+        also_update_head: bool,
+    ) -> Result<(), anyhow::Error> {
+        let entry = RefLogEntry::new(
+            old_object_id,
+            new_object_id,
+            &timestamped_name(committer_name, &Local::now()),
+            message,
+        );
+        if also_update_head {
+            self.ref_log_store.write(&entry, &RefSpec::Head)?;
+        }
+        self.ref_log_store.write(&entry, branch)
     }
 
     /// Output the contents of a ref log to `stdout`.
     ///
-    /// This method will output the ref log file for `branch_name`, or the ref log for
-    /// `HEAD` if the `branch_name` parameter is `None`.
-    ///
-    /// The branch given does not need to exist, as long as its ref log file exists.
+    /// The ref given does not need to exist, as long as its ref log file exists.
     ///
     /// # Errors
     ///
     /// This method will return an error if it encounters any errors reading from
     /// the filesystem, or if the branch given does not have a ref log file.
-    pub fn show_ref_log(&self, branch_name: Option<&str>) -> Result<(), anyhow::Error> {
-        self.ref_log_store.dump(branch_name)
+    pub fn show_ref_log(&self, branch: &RefSpec) -> Result<(), anyhow::Error> {
+        self.ref_log_store.dump(branch)
     }
 
     /// Determine whether a ref log exists for a given branch.
     ///
-    /// This method only checks branch ref logs; you should assume that the `HEAD` ref log
-    /// will always exist.
-    ///
     /// This method is infallible, and returns `Ok(false)` if it encounters filesystem errors.
-    pub fn check_ref_log_exists(&self, branch_name: &str) -> Result<bool, anyhow::Error> {
-        Ok(self.ref_log_store.check_exists(branch_name))
+    pub fn check_ref_log_exists(&self, branch: &RefSpec) -> Result<bool, anyhow::Error> {
+        Ok(self.ref_log_store.check_exists(branch))
     }
 
     /// List the ref logs present in the repository

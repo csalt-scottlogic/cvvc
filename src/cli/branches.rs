@@ -3,10 +3,9 @@ use crate::{
     helpers::{find_repo_cwd, is_ref_name_legal},
     objects::StoredObject,
     repo::Repository,
-    stores::BranchLocation,
+    stores::{BranchLocation, BranchSpec, RefSpec},
 };
 use anyhow::anyhow;
-use chrono::{Local, Utc};
 
 /// Entry point for the `cv checkout` command
 pub fn checkout(target_name: &str, config: &GlobalConfig) -> Result<(), anyhow::Error> {
@@ -81,9 +80,9 @@ fn new_branch_in_repo(
             None,
             &current_commit,
             &config.committer(),
-            &Local::now(),
             "branch: Created from HEAD",
-            Some(branch_name),
+            &BranchSpec::local(branch_name).into_ref_spec(),
+            true,
         )?;
     }
     if checkout {
@@ -154,8 +153,8 @@ fn checkout_from_repo(
         prev_commit_id.as_deref(),
         &target_id,
         &config.committer(),
-        &Utc::now(),
         &ref_log_message,
-        None,
+        &RefSpec::Head,
+        false,
     )
 }

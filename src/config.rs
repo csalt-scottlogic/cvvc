@@ -646,12 +646,12 @@ impl TargetedRef {
     /// # Examples
     ///
     /// ```
-    /// # use crate::cvvc::{config::FetchRefSpec, stores::{RefSpec, RefTarget, TargetedRef}};
+    /// # use crate::cvvc::{config::FetchRefSpec, stores::{null_id, RefSpec, RefTarget, TargetedRef}};
     /// # use std::str::FromStr;
     /// let fetch_specs = vec![FetchRefSpec::from_str("+refs/heads/*:refs/remotes/origin/*").unwrap()];
     /// let target = TargetedRef {
     ///     spec: RefSpec::from_str("refs/heads/example").unwrap(),
-    ///     target: RefTarget::Object("0000000000000000000000000000000000000000".to_string())
+    ///     target: RefTarget::Object(null_id())
     /// };
     ///
     /// let maps = target.map_fetch(&fetch_specs);

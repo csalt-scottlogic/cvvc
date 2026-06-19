@@ -256,6 +256,21 @@ impl BranchSpec {
         }
     }
 
+    /// Create a new [`BranchSpec`] object, assuming that the branch is local.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cvvc::stores::{BranchLocation, BranchSpec};
+    /// let b1 = BranchSpec::new("the-branch", BranchLocation::Local);
+    /// let b2 = BranchSpec::local("the-branch");
+    /// assert_eq!(b1, b2);
+    ///
+    /// ```
+    pub fn local(name: &str) -> Self {
+        Self::new(name, BranchLocation::Local)
+    }
+
     /// Convert this branch spec into a [`RefSpec`], consuming it.
     pub fn into_ref_spec(self) -> RefSpec {
         RefSpec::Branch(self)
@@ -410,6 +425,11 @@ impl FromStr for TagSpec {
             Err(InvalidRefNameError::new(s))
         }
     }
+}
+
+/// Get the "null object" ID used in fields that require an object ID when none is present.
+pub fn null_id() -> String {
+    String::from("0000000000000000000000000000000000000000")
 }
 
 #[cfg(test)]

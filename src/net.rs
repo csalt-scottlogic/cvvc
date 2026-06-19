@@ -412,6 +412,17 @@ impl HttpFetchClient {
         self.version.unwrap_or(ProtocolVersion::V2)
     }
 
+    /// Get the remote server's capability list
+    ///
+    /// This will be populated after the first request made to the remote server.  
+    /// Its content will vary wildly based on whether the first request to the
+    /// server used protocol version 1 or 2, because many of the optional capabilities
+    /// the server declares on protocol version 1 are are assumed to be supported by
+    /// any version 2 server.
+    ///
+    /// Conversely, on a version 2 server each available server command is described as
+    /// a separate capability, whereas on protocol version 1, the available commands
+    /// are taken as assumed.
     pub fn capabilities(&self) -> &[RemoteCapability] {
         &self.capabilities
     }
