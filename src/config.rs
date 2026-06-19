@@ -646,7 +646,7 @@ impl TargetedRef {
     /// # Examples
     ///
     /// ```
-    /// # use crate::cvvc::{config::FetchRefSpec, stores::{RefSpec, RefTarget, TargetedRef}};
+    /// # use crate::cvvc::{config::FetchRefSpec, stores::{null_id, RefSpec, RefTarget, TargetedRef}};
     /// # use std::str::FromStr;
     /// let fetch_specs = vec![FetchRefSpec::from_str("+refs/heads/*:refs/remotes/origin/*").unwrap()];
     /// let target = TargetedRef {
