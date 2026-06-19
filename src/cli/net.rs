@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::{
     config::{FetchRefMap, RemoteInfo},
     helpers::find_repo_cwd,
@@ -63,7 +65,7 @@ fn fetch_remote(
             println!("Nothing to update");
             return Ok(());
         }
-        let objects_needed: Vec<String> = updates_needed
+        let objects_needed: HashSet<String> = updates_needed
             .iter()
             .filter_map(|m| {
                 if repo
@@ -85,7 +87,7 @@ fn fetch_remote(
                 &objects_needed
                     .iter()
                     .map(|x| x.as_str())
-                    .collect::<Vec<_>>(),
+                    .collect::<HashSet<_>>(),
                 repo,
                 true,
             )?;
