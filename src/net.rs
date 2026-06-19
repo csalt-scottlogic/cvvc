@@ -285,9 +285,6 @@ impl Read for PktLineSidebandReader {
 pub struct RemoteServerInfo {
     /// A list of the advertised refs on this server
     pub refs: Vec<TargetedRef>,
-
-    /// A list of the advertised capabilities of this server.
-    pub capabilities: Vec<RemoteCapability>,
 }
 
 /// A capability of a remote server, consisting either of a single string, or a key and a number of values.
@@ -336,7 +333,7 @@ impl FromStr for RemoteCapability {
 }
 
 /// The version of the Git protocol in use.
-#[derive(PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum ProtocolVersion {
     /// Protocol version 1.
     V1,
@@ -411,8 +408,12 @@ impl HttpFetchClient {
     }
 
     /// Get the protocol version which will be used for the next request.
-    pub fn version(&self) -> &ProtocolVersion {
-        self.version.as_ref().unwrap_or(&ProtocolVersion::V2)
+    pub fn version(&self) -> ProtocolVersion {
+        self.version.unwrap_or(ProtocolVersion::V2)
+    }
+
+    pub fn capabilities(&self) -> &[RemoteCapability] {
+        &self.capabilities
     }
 
     /// Fetch a pack from the remote server.
@@ -682,7 +683,7 @@ impl HttpFetchClient {
             println!("Discovery URL is {discovery_url}");
         }
         let mut request = self.client.get(discovery_url);
-        if *self.version() == ProtocolVersion::V2 {
+        if self.version() == ProtocolVersion::V2 {
             request = request.header("Git-Protocol", "version=2");
         }
         let response = request.send()?;
@@ -802,7 +803,7 @@ impl HttpFetchClient {
             }
         }
         self.capabilities = capabilities.clone();
-        Ok(RemoteServerInfo { refs, capabilities })
+        Ok(RemoteServerInfo { refs })
     }
 
     fn load_single_v1_refs_capabilities_line(
@@ -962,8 +963,7 @@ impl HttpFetchClient {
                 });
             }
         }
-        let capabilities = self.capabilities.clone();
-        Ok(RemoteServerInfo { refs, capabilities })
+        Ok(RemoteServerInfo { refs })
     }
 
     fn fetch_refs_capabilities_v1(

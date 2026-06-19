@@ -32,13 +32,19 @@ fn fetch_remote(
         };
         println!("Fetching from {} ({})", remote.name, url);
         let mut fetch_client_engine = HttpFetchClient::new(url, version)?;
-        println!("Protocol version {}", fetch_client_engine.version());
+        let start_version = fetch_client_engine.version();
+        println!("Protocol version {}", start_version);
         let remote_info = fetch_client_engine.fetch_refs_capabilities(true)?;
-        if !remote_info.capabilities.is_empty() {
+        let remote_capabilities = fetch_client_engine.capabilities();
+        if !remote_capabilities.is_empty() {
             println!("Server capabilities:");
-            for cap in remote_info.capabilities {
+            for cap in remote_capabilities {
                 println!("\t{cap}");
             }
+        }
+        let sniffed_version = fetch_client_engine.version();
+        if start_version != sniffed_version {
+            println!("Protocol downgraded to {}", sniffed_version);
         }
         let mut ref_maps: Vec<FetchRefMap> = vec![];
         println!("Refs:");
