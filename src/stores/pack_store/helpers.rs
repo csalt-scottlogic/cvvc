@@ -191,7 +191,7 @@ where
     let packed_object_type: PackedObjectTypeOnly = buf[0].try_into()?;
     let mut object_size: u64 = (buf[0] & 0xf).into();
     let mut bytes_read = 1;
-    while buf[bytes_read - 1] > 0x80 {
+    while buf[bytes_read - 1] >= 0x80 {
         object_size |= ((buf[bytes_read] & 0x7f) as u64) << (4 + 7 * (bytes_read - 1));
         bytes_read += 1;
         if bytes_read >= buf.len() {
