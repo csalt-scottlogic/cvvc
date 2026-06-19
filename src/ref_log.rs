@@ -219,6 +219,6 @@ impl RefLog {
     }
 
     fn ref_log_file_path(&self, branch_name: &RefSpec) -> PathBuf {
-        self.base_path.join(&branch_name.to_string())
+        self.base_path.join(branch_name.to_string())
     }
 }

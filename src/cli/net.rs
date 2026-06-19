@@ -1,7 +1,5 @@
 use std::collections::HashSet;
 
-use chrono::Local;
-
 use crate::{
     config::{FetchRefMap, GlobalConfig, RemoteInfo},
     helpers::find_repo_cwd,
@@ -109,7 +107,6 @@ fn fetch_remote(
                         existing_target.as_deref(),
                         &update.source.target.to_string(),
                         &config.committer(),
-                        &Local::now(),
                         "fetch",
                         &update.dest,
                         false,

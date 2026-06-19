@@ -1,11 +1,9 @@
 use anyhow::{anyhow, Context};
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{Local, Utc};
 use indexmap::IndexMap;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    env,
-    fmt::Display,
-    fs,
+    env, fs,
     io::Read,
     path::{Path, PathBuf},
     str::FromStr,
@@ -1083,24 +1081,19 @@ impl Repository {
     /// # Errors
     ///
     /// An error will be returned if any errors are encountered writing to the filesystem.
-    pub fn write_ref_log<Tz>(
+    pub fn write_ref_log(
         &self,
         old_object_id: Option<&str>,
         new_object_id: &str,
         committer_name: &str,
-        timestamp: &DateTime<Tz>,
         message: &str,
         branch: &RefSpec,
         also_update_head: bool,
-    ) -> Result<(), anyhow::Error>
-    where
-        Tz: TimeZone,
-        Tz::Offset: Display,
-    {
+    ) -> Result<(), anyhow::Error> {
         let entry = RefLogEntry::new(
             old_object_id,
             new_object_id,
-            &timestamped_name(committer_name, timestamp),
+            &timestamped_name(committer_name, &Local::now()),
             message,
         );
         if also_update_head {
