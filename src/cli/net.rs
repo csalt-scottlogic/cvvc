@@ -1,20 +1,22 @@
 use std::collections::HashSet;
 
+use chrono::Local;
+
 use crate::{
-    config::{FetchRefMap, RemoteInfo},
+    config::{FetchRefMap, GlobalConfig, RemoteInfo},
     helpers::find_repo_cwd,
     net::{HttpFetchClient, ProtocolVersion},
     repo::Repository,
 };
 
 /// Entry point for `cv fetch`.  Fetches from all remotes.
-pub fn fetch(version: Option<u32>) -> Result<(), anyhow::Error> {
+pub fn fetch(version: Option<u32>, config: &GlobalConfig) -> Result<(), anyhow::Error> {
     println!("Stop trying to make fetch happen!");
     let mut repo = find_repo_cwd()?;
     let remotes = repo.list_remote_names();
     for remote in remotes {
         if let Some(remote) = repo.get_remote(&remote) {
-            fetch_remote(&mut repo, &remote, version)?;
+            fetch_remote(&mut repo, &remote, version, config)?;
         }
     }
     Ok(())
@@ -24,6 +26,7 @@ fn fetch_remote(
     repo: &mut Repository,
     remote: &RemoteInfo,
     version: Option<u32>,
+    config: &GlobalConfig,
 ) -> Result<(), anyhow::Error> {
     for url in remote.fetch_urls.iter() {
         let version = match version {
@@ -100,7 +103,17 @@ fn fetch_remote(
             repo.store_pack(reader)?;
             for update in updates_needed {
                 if repo.has_object(&update.source.target.to_string())? {
+                    let existing_target = repo.resolve_ref(&update.dest)?.map(|r| r.to_string());
                     repo.update_ref(&update.dest, &update.source.target)?;
+                    repo.write_ref_log(
+                        existing_target.as_deref(),
+                        &update.source.target.to_string(),
+                        &config.committer(),
+                        &Local::now(),
+                        "fetch",
+                        &update.dest,
+                        false,
+                    )?;
                 }
             }
         }

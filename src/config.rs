@@ -651,7 +651,7 @@ impl TargetedRef {
     /// let fetch_specs = vec![FetchRefSpec::from_str("+refs/heads/*:refs/remotes/origin/*").unwrap()];
     /// let target = TargetedRef {
     ///     spec: RefSpec::from_str("refs/heads/example").unwrap(),
-    ///     target: RefTarget::Object("0000000000000000000000000000000000000000".to_string())
+    ///     target: RefTarget::Object(null_id())
     /// };
     ///
     /// let maps = target.map_fetch(&fetch_specs);

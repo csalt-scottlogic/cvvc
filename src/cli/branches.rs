@@ -3,7 +3,7 @@ use crate::{
     helpers::{find_repo_cwd, is_ref_name_legal},
     objects::StoredObject,
     repo::Repository,
-    stores::BranchLocation,
+    stores::{BranchLocation, BranchSpec, RefSpec},
 };
 use anyhow::anyhow;
 use chrono::{Local, Utc};
@@ -83,7 +83,8 @@ fn new_branch_in_repo(
             &config.committer(),
             &Local::now(),
             "branch: Created from HEAD",
-            Some(branch_name),
+            &BranchSpec::local(branch_name).into_ref_spec(),
+            true,
         )?;
     }
     if checkout {
@@ -156,6 +157,7 @@ fn checkout_from_repo(
         &config.committer(),
         &Utc::now(),
         &ref_log_message,
-        None,
+        &RefSpec::Head,
+        false,
     )
 }

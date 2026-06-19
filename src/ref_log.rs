@@ -10,6 +10,7 @@ use std::{
 use crate::{
     helpers::{self, fs::check_and_create_dir},
     repo::is_partial_object_id,
+    stores::{null_id, RefSpec},
 };
 
 /// An entry in a ref log.
@@ -109,7 +110,7 @@ impl Display for RefLogEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let old_object_id = match &self.old_object_id {
             Some(id) => id.as_str(),
-            None => "0000000000000000000000000000000000000000",
+            None => &null_id(),
         };
         write!(
             f,
@@ -149,24 +150,14 @@ impl RefLog {
 
     /// Write a new [`RefLogEntry`] to the appropriate ref log.
     ///
-    /// This method writes to the ref log for `HEAD`, and if the `branch_name` parameter is not
-    /// `None`, also writes the same entry to the ref log for the given branch.  If a ref log
-    /// for that branch does not exist, it is created.
+    /// If a ref log for the given branch does not exist, it is created.
     ///
     /// # Errors
     ///
     /// This method returns an error if it encounters any error writing to the filesystem.
-    pub fn write(
-        &self,
-        entry: &RefLogEntry,
-        branch_name: Option<&str>,
-    ) -> Result<(), anyhow::Error> {
-        let file_path = self.ref_log_file_path(branch_name);
-        self.write_to_file(entry, &file_path)?;
-        if branch_name.is_some() {
-            self.write_to_file(entry, self.ref_log_file_path(None))?;
-        }
-        Ok(())
+    pub fn write(&self, entry: &RefLogEntry, branch: &RefSpec) -> Result<(), anyhow::Error> {
+        let file_path = self.ref_log_file_path(branch);
+        self.write_to_file(entry, &file_path)
     }
 
     fn write_to_file<P: AsRef<Path>>(
@@ -186,17 +177,14 @@ impl RefLog {
 
     /// Copy the content of a ref log file to `stdout`.
     ///
-    /// This method will copy the ref log file for `branch_name`, or the ref log for
-    /// `HEAD` if the `branch_name` parameter is `None`.
-    ///
     /// The branch given does not need to exist, as long as its ref log file exists.
     ///
     /// # Errors
     ///
     /// This method will return an error if it encounters any errors reading from
     /// the filesystem, or if the branch given does not have a ref log file.
-    pub fn dump(&self, branch_name: Option<&str>) -> Result<(), anyhow::Error> {
-        let file_path = self.ref_log_file_path(branch_name);
+    pub fn dump(&self, branch: &RefSpec) -> Result<(), anyhow::Error> {
+        let file_path = self.ref_log_file_path(branch);
         let mut file = OpenOptions::new()
             .read(true)
             .open(file_path)
@@ -205,16 +193,11 @@ impl RefLog {
         Ok(())
     }
 
-    /// Return `true` if a ref log file exists on disk for the given branch
-    /// (or for "`HEAD`"), and `false` if not.
+    /// Return `true` if a ref log file exists on disk for the given ref, and `false` if not.
     ///
     /// This method is infallible, and returns `false` if it encounters any filesystem errors.
-    pub fn check_exists(&self, branch_name: &str) -> bool {
-        let file_path = if branch_name == "HEAD" {
-            self.ref_log_file_path(None)
-        } else {
-            self.ref_log_file_path(Some(branch_name))
-        };
+    pub fn check_exists(&self, branch: &RefSpec) -> bool {
+        let file_path = self.ref_log_file_path(branch);
         file_path.exists()
     }
 
@@ -235,10 +218,7 @@ impl RefLog {
         Ok(output)
     }
 
-    fn ref_log_file_path(&self, branch_name: Option<&str>) -> PathBuf {
-        match branch_name {
-            None => self.base_path.join("HEAD"),
-            Some(n) => self.base_path.join("refs").join("heads").join(n),
-        }
+    fn ref_log_file_path(&self, branch_name: &RefSpec) -> PathBuf {
+        self.base_path.join(&branch_name.to_string())
     }
 }
