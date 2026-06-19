@@ -294,9 +294,7 @@ where
     R: Read,
     R: Seek,
 {
-    println!("Reading at {address:x}");
     let mut meta = get_packed_object_metadata(pack_file, address, file_len)?;
-    println!("Compressed data starts at {:x}", meta.data_start_address);
     pack_file.seek(SeekFrom::Start(meta.data_start_address))?;
     let mut decompressor = ZlibDecoder::new(pack_file);
     let mut data = Vec::<u8>::with_capacity(meta.unpacked_size as usize);
@@ -306,7 +304,6 @@ where
     meta.packed_size = Some(packed_size);
     let reusable_file = decompressor.into_inner();
     if let PackedObjectType::OffsetDelta(offset) = meta.kind {
-        println!("Reading delta from {} (offset {})", address - offset, offset);
         let (base_meta, base_data) = read_at_address(reusable_file, address - offset, file_len)?;
         Ok((
             meta.combine(&base_meta),
