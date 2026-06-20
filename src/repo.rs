@@ -1142,7 +1142,8 @@ impl Repository {
         self.config.remote_info(name)
     }
 
-    /// Get an iterator that returns all of the reachable commit IDs in the repository.
+    /// Get an iterator that returns either all of the reachable commit IDs in the repository,
+    /// or, if the `start` parameter is `Some(commit)`, that commit and all of its ancestors.
     ///
     /// # Errors
     ///
@@ -1151,6 +1152,160 @@ impl Repository {
     pub fn commits<'a>(&'a self, start: Option<&str>) -> Result<CommitIterator<'a>, anyhow::Error> {
         CommitIterator::new(self, start)
     }
+
+    /// Determines whether or not `descendant` is genuinely a descendant of `ancester`.
+    pub fn commit_is_ancestor(
+        &self,
+        descendant: &str,
+        ancestor: &str,
+    ) -> Result<bool, anyhow::Error> {
+        Ok(self
+            .commits(Some(descendant))?
+            .filter_map(|x| x.ok())
+            .any(|x| x == ancestor))
+    }
+
+    /// Determines the exact relationship between two commits `a` and `b`.
+    /// 
+    /// The potential `Ok(...)` results are:
+    /// - [`CommitRelationship::PureDescendant`] if `a` is a descendant of `b`, and all of `a`'s other ancestors are either
+    ///   descendants of `b` or ancestors of `b`.
+    /// - [`CommitRelationship::PartialDescendant`] if `a` is a descendant of `b` but has ancestors that are not ancestors or descendants of `b`.
+    /// - [`CommitRelationship::PureAncestor`] if `a` is an ancestor of `b` and all of `b`'s ancestors are either ancestors of `a` or descendants of `a`.
+    /// - [`CommitRelationship::PartialAncestor`] if `a` is an ancestor of `b` but `b` has ancestors that are not ancestors or descendants of `a`.
+    /// - [`CommitRelationship::Cousin`] if `a` and `b` have at least one common ancestor but neither is an ancestor of the other.
+    /// - [`CommitRelationship::Unrelated`] if `a` and `b` have no common ancestors.  This is impossible unless the repository has multiple root commits.
+    pub fn commit_relationship(
+        &self,
+        a: &str,
+        b: &str,
+    ) -> Result<CommitRelationship, anyhow::Error> {
+        // Load the ancestors of A, not including A itself.
+        let mut ancestry_map = self
+            .commits(Some(a))?
+            .filter_map(|c| c.ok())
+            .filter_map(|c| {
+                if c != a {
+                    Some((
+                        c,
+                        AncestryMarker {
+                            ancestor_of_a: true,
+                            ancestor_of_b: false,
+                        },
+                    ))
+                } else {
+                    None
+                }
+            })
+            .collect::<HashMap<String, AncestryMarker>>();
+        // Add the ancestors of B, not including B itself.
+        for c in self
+            .commits(Some(b))?
+            .filter_map(|c| c.ok())
+            .filter_map(|c| if c != b { Some(c) } else { None })
+        {
+            ancestry_map
+                .entry(c)
+                .and_modify(|e| e.ancestor_of_b = true)
+                .or_insert(AncestryMarker {
+                    ancestor_of_a: false,
+                    ancestor_of_b: true,
+                });
+        }
+        // If neither A or B is in the ancestors map, they're cousins or unrelated.
+        // If they're cousins, they must have at least one common ancestor.
+        if !ancestry_map.contains_key(a) && !ancestry_map.contains_key(b) {
+            return if ancestry_map
+                .values()
+                .any(|v| v.ancestor_of_a && v.ancestor_of_b)
+            {
+                Ok(CommitRelationship::Cousin)
+            } else {
+                Ok(CommitRelationship::Unrelated)
+            };
+        }
+        // Whichever *is* in the ancestors map is the older one of the two, and we can switch to using the ordered function.
+        if ancestry_map.contains_key(a) {
+            // convert map to "ordered map"
+            let not_ancestors_of_a: Vec<String> = ancestry_map
+                .into_iter()
+                .filter(|x| x.0 != a && !x.1.ancestor_of_a)
+                .map(|a| 
+                        a.0
+                    )
+                
+                .collect();
+            // call ordered fn
+            let ordered_relationship = self.ordered_commit_relationship(not_ancestors_of_a, a);
+            // convert ordered result to a descendant result
+            match ordered_relationship {
+                OrderedCommitRelationship::PureAncestor => Ok(CommitRelationship::PureDescendant),
+                OrderedCommitRelationship::PartialAncestor => {
+                    Ok(CommitRelationship::PartialDescendant)
+                }
+            }
+        } else {
+            // convert map to unordered map
+            let not_ancestors_of_b: Vec<String> = ancestry_map
+                .into_iter()
+                .filter(|x| x.0 != b && !x.1.ancestor_of_b)
+                .map(|a| 
+                    
+                        a.0)
+                .collect();
+            // call unordered fn
+            let ordered_relationship = self.ordered_commit_relationship(not_ancestors_of_b, b);
+            // convert ordered result to an ancestor result
+            match ordered_relationship {
+                OrderedCommitRelationship::PureAncestor => Ok(CommitRelationship::PureAncestor),
+                OrderedCommitRelationship::PartialAncestor => {
+                    Ok(CommitRelationship::PartialAncestor)
+                }
+            }
+        }
+    }
+
+    fn ordered_commit_relationship(
+        &self,
+        potential_descendants: Vec<String>,
+        ancestor: &str,
+    ) -> OrderedCommitRelationship {
+        if potential_descendants
+            .into_iter()
+            .all(|id| self.commit_is_ancestor(&id, ancestor).unwrap_or(false))
+        {
+            OrderedCommitRelationship::PureAncestor
+        } else {
+            OrderedCommitRelationship::PartialAncestor
+        }
+    }
+}
+
+/// The degree of family relationship between two commits A and B.
+#[derive(PartialEq)]
+pub enum CommitRelationship {
+    /// B is an ancestor of A, and all of A's ancestors are either descendants or ancestors of B.
+    PureAncestor,
+    /// B is an ancestor of A, but A has ancestors that are not descendants or ancestors of B.
+    PartialAncestor,
+    /// B is a descendant of A, and all of B's ancestors are either descendants or ancestors of B.
+    PureDescendant,
+    /// B is a descendant of A, but B has ancestors that are not descendants or ancestors of A.
+    PartialDescendant,
+    /// A and B have at least one common ancestor but are not descendants or ancestors of each other.
+    Cousin,
+    /// A and B have no common ancestors.
+    Unrelated,
+}
+
+enum OrderedCommitRelationship {
+    PureAncestor,
+    PartialAncestor,
+}
+
+struct AncestryMarker {
+    ancestor_of_a: bool,
+    ancestor_of_b: bool,
 }
 
 /// An iterator which iterates over the valid commit IDs in the repository.  Each commit ID
