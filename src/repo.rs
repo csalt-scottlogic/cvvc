@@ -1142,7 +1142,8 @@ impl Repository {
         self.config.remote_info(name)
     }
 
-    /// Get an iterator that returns all of the reachable commit IDs in the repository.
+    /// Get an iterator that returns either all of the reachable commit IDs in the repository,
+    /// or, if the `start` parameter is `Some(commit)`, that commit and all of its ancestors.
     ///
     /// # Errors
     ///
@@ -1150,6 +1151,47 @@ impl Repository {
     /// refs.
     pub fn commits<'a>(&'a self, start: Option<&str>) -> Result<CommitIterator<'a>, anyhow::Error> {
         CommitIterator::new(self, start)
+    }
+
+    /// Determines whether or not `descendant` is genuinely a descendant of `ancester`.
+    pub fn commit_is_ancestor(
+        &self,
+        descendant: &str,
+        ancestor: &str,
+    ) -> Result<bool, anyhow::Error> {
+        Ok(self
+            .commits(Some(descendant))?
+            .filter_map(|x| x.ok())
+            .any(|x| x == ancestor))
+    }
+
+    /// Determines whether or not `descendant` is a pure descendant of `ancestor`.  In other words,
+    /// `ancestor` is an ancestor of `descendant`, and all of `decendant`'s other ancestors are either
+    /// ancestors of or descendants of `ancestor`.
+    pub fn commit_is_pure_ancestor(
+        &self,
+        descendant: &str,
+        ancestor: &str,
+    ) -> Result<bool, anyhow::Error> {
+        if !self.commit_is_ancestor(descendant, ancestor)? {
+            return Ok(false);
+        }
+        let ancestor_ancestors: Vec<String> = self
+            .commits(Some(ancestor))?
+            .filter_map(|id| id.ok())
+            .collect();
+        let ancestor_ancestors_ref: Vec<&str> =
+            ancestor_ancestors.iter().map(String::as_ref).collect();
+        let descendant_ancestors: HashSet<String> =
+            CommitIterator::new_prunable(self, Some(descendant), &ancestor_ancestors_ref)?
+                .filter_map(|id| id.ok())
+                .collect();
+        for da in descendant_ancestors {
+            if !self.commit_is_ancestor(&da, ancestor)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 }
 
@@ -1163,20 +1205,34 @@ pub struct CommitIterator<'a> {
     repo: &'a Repository,
     queue: VecDeque<String>,
     seen: HashSet<String>,
+    prune: HashSet<String>,
 }
 
 impl<'a> CommitIterator<'a> {
     fn new(repo: &'a Repository, start: Option<&str>) -> Result<CommitIterator<'a>, anyhow::Error> {
+        Self::new_prunable(repo, start, &vec![])
+    }
+
+    fn new_prunable(
+        repo: &'a Repository,
+        start: Option<&str>,
+        prune_commits: &[&str],
+    ) -> Result<CommitIterator<'a>, anyhow::Error> {
+        let prune: HashSet<String> = prune_commits.iter().map(|id| id.to_string()).collect();
         let seen = match start {
             Some(sid) => {
                 if let Some(raw_obj) = repo.read_raw_object(sid)? {
                     match raw_obj.metadata().kind {
                         ObjectKind::Commit => vec![start.expect("internal error").to_string()]
                             .into_iter()
+                            .filter(|id| !prune.contains(id))
                             .collect::<HashSet<String>>(),
                         ObjectKind::Tag => {
                             if let StoredObject::Tag(tag) = raw_obj.to_stored_object()? {
-                                vec![tag.target()?].into_iter().collect::<HashSet<String>>()
+                                vec![tag.target()?]
+                                    .into_iter()
+                                    .filter(|id| !prune.contains(id))
+                                    .collect::<HashSet<String>>()
                             } else {
                                 return Err(anyhow!("internal error"));
                             }
@@ -1224,11 +1280,17 @@ impl<'a> CommitIterator<'a> {
                         None
                     }
                 })
+                .filter(|id| !prune.contains(id))
                 .collect::<HashSet<String>>(),
         };
 
         let queue = Self::generate_queue(repo, &seen);
-        Ok(CommitIterator { repo, queue, seen })
+        Ok(CommitIterator {
+            repo,
+            queue,
+            seen,
+            prune,
+        })
     }
 
     /// Get the number of commits currently queued in the iterator.
@@ -1277,7 +1339,7 @@ impl<'a> Iterator for CommitIterator<'a> {
             return Some(Err(anyhow!("error loading commit, or ID is not a commit")));
         };
         for parent in commit.parents() {
-            if !self.seen.contains(&parent) {
+            if !self.seen.contains(&parent) && !self.prune.contains(&parent) {
                 self.queue.push_back(parent.clone());
                 self.seen.insert(parent);
             }

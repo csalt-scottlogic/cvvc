@@ -102,12 +102,33 @@ fn fetch_remote(
             for update in updates_needed {
                 if repo.has_object(&update.source.target.to_string())? {
                     let existing_target = repo.resolve_ref(&update.dest)?.map(|r| r.to_string());
+                    let is_fast_forward = existing_target
+                        .as_deref()
+                        .map(|tid| {
+                            repo.commit_is_pure_ancestor(&update.source.target.to_string(), tid)
+                        })
+                        .map_or(Ok(None), |v| v.map(Some))?;
+                    let message = if existing_target.is_none() {
+                        "fetch (new branch)"
+                    } else if is_fast_forward.unwrap_or(false) {
+                        "fetch (fast forward)"
+                    } else if update.force {
+                        "fetch (forced)"
+                    } else {
+                        println!(
+                            "Skipping update {}... => {}... for {} (not fast-forwardable)",
+                            &existing_target.unwrap()[..8],
+                            &update.source.target.to_string()[..8],
+                            &update.dest
+                        );
+                        continue;
+                    };
                     repo.update_ref(&update.dest, &update.source.target)?;
                     repo.write_ref_log(
                         existing_target.as_deref(),
                         &update.source.target.to_string(),
                         &config.committer(),
-                        "fetch",
+                        message,
                         &update.dest,
                         false,
                     )?;
