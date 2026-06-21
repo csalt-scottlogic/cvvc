@@ -4,7 +4,7 @@ use crate::{
     config::{FetchRefMap, GlobalConfig, RemoteInfo},
     helpers::find_repo_cwd,
     net::{HttpFetchClient, ProtocolVersion},
-    repo::{CommitRelationship, Repository},
+    repo::Repository,
 };
 
 /// Entry point for `cv fetch`.  Fetches from all remotes.
