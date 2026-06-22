@@ -4,7 +4,7 @@ use crate::{
     config::{FetchRefMap, GlobalConfig, RemoteInfo},
     helpers::find_repo_cwd,
     net::{HttpFetchClient, ProtocolVersion},
-    repo::Repository,
+    repo::Repository, stores::TargetedRef,
 };
 
 /// Entry point for `cv fetch`.  Fetches from all remotes.
@@ -49,7 +49,9 @@ fn fetch_remote(
         }
         let mut ref_maps: Vec<FetchRefMap> = vec![];
         println!("Refs:");
-        for rem_ref in remote_info.refs.iter() {
+        let deduped_rem_refs = remote_info.refs.iter().collect::<HashSet<&TargetedRef>>();
+        for rem_ref in deduped_rem_refs.iter() {
+            println!("\t{}", &rem_ref.spec);
             let mut mapped_refs = rem_ref.map_fetch(&remote.fetch_defs);
             ref_maps.append(&mut mapped_refs);
         }
@@ -102,6 +104,7 @@ fn fetch_remote(
             for update in updates_needed {
                 if repo.has_object(&update.source.target.to_string())? {
                     let existing_target = repo.resolve_ref(&update.dest)?.map(|r| r.to_string());
+                    println!("Updating {} to {} to match {}", &update.dest, &update.source.target, &update.source.spec);
                     let is_fast_forward = existing_target
                         .as_deref()
                         .map(|tid| {
