@@ -50,7 +50,7 @@ fn fetch_remote(
         let mut ref_maps: Vec<FetchRefMap> = vec![];
         println!("Refs:");
         let deduped_rem_refs = remote_info.refs.iter().collect::<HashSet<&TargetedRef>>();
-        for rem_ref in deduped_rem_refs.iter() {
+        for rem_ref in deduped_rem_refs {
             println!("\t{}", &rem_ref.spec);
             let mut mapped_refs = rem_ref.map_fetch(&remote.fetch_defs);
             ref_maps.append(&mut mapped_refs);
