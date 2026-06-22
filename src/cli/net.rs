@@ -27,13 +27,13 @@ fn fetch_remote(
     config: &GlobalConfig,
 ) -> Result<(), anyhow::Error> {
     for url in remote.fetch_urls.iter() {
-        let version = match version {
+        let protocol_version = match version {
             Some(x) => Some(ProtocolVersion::try_from(x)?),
             None => None,
         };
         println!("Fetching from {} ({})", remote.name, url);
-        let mut fetch_client_engine = HttpFetchClient::new(url, version)?;
-        let start_version = fetch_client_engine.version();
+        let mut fetch_client_engine = HttpFetchClient::new(url, protocol_version)?;
+        let start_version = fetch_client_engine.protocol_version();
         println!("Protocol version {}", start_version);
         let remote_info = fetch_client_engine.fetch_refs_capabilities(true)?;
         let remote_capabilities = fetch_client_engine.capabilities();
@@ -43,7 +43,7 @@ fn fetch_remote(
                 println!("\t{cap}");
             }
         }
-        let sniffed_version = fetch_client_engine.version();
+        let sniffed_version = fetch_client_engine.protocol_version();
         if start_version != sniffed_version {
             println!("Protocol downgraded to {}", sniffed_version);
         }

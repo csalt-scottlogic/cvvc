@@ -373,7 +373,7 @@ impl Display for ProtocolVersion {
 pub struct HttpFetchClient {
     client: Client,
     base_url: Url,
-    version: Option<ProtocolVersion>,
+    protocol_version: Option<ProtocolVersion>,
     capabilities: Vec<RemoteCapability>,
 }
 
@@ -391,7 +391,7 @@ impl HttpFetchClient {
     /// # Errors
     ///
     /// This function returns an error if the `base_url` parameter cannot be parsed as a [`Url`].
-    pub fn new(base_url: &str, version: Option<ProtocolVersion>) -> Result<Self, anyhow::Error> {
+    pub fn new(base_url: &str, protocol_version: Option<ProtocolVersion>) -> Result<Self, anyhow::Error> {
         let client = Client::new();
         let base_url = if base_url.ends_with("/") {
             base_url.to_string()
@@ -402,14 +402,14 @@ impl HttpFetchClient {
         Ok(Self {
             client,
             base_url,
-            version,
+            protocol_version,
             capabilities: vec![],
         })
     }
 
     /// Get the protocol version which will be used for the next request.
-    pub fn version(&self) -> ProtocolVersion {
-        self.version.unwrap_or(ProtocolVersion::V2)
+    pub fn protocol_version(&self) -> ProtocolVersion {
+        self.protocol_version.unwrap_or(ProtocolVersion::V2)
     }
 
     /// Get the remote server's capability list
@@ -455,7 +455,7 @@ impl HttpFetchClient {
         repo: &Repository,
         net_dump: bool,
     ) -> Result<PktLineSidebandReader, anyhow::Error> {
-        match self.version {
+        match self.protocol_version {
             Some(ProtocolVersion::V1) => todo!(),
             Some(ProtocolVersion::V2) => self.fetch_pack_v2(wants, repo, net_dump),
             None => Err(anyhow!("get your client to sniff the protocol via fetch_refs_capabilities() before fetching a pack")),
@@ -678,7 +678,7 @@ impl HttpFetchClient {
         &mut self,
         net_dump: bool,
     ) -> Result<RemoteServerInfo, anyhow::Error> {
-        match self.version {
+        match self.protocol_version {
             Some(ProtocolVersion::V1) => self.fetch_refs_capabilities_v1(net_dump),
             Some(ProtocolVersion::V2) => self.fetch_refs_capabilities_v2(net_dump),
             None => self.fetch_refs_capabilities_sniff_protocol(net_dump),
@@ -694,7 +694,7 @@ impl HttpFetchClient {
             println!("Discovery URL is {discovery_url}");
         }
         let mut request = self.client.get(discovery_url);
-        if self.version() == ProtocolVersion::V2 {
+        if self.protocol_version() == ProtocolVersion::V2 {
             request = request.header("Git-Protocol", "version=2");
         }
         let response = request.send()?;
@@ -772,8 +772,8 @@ impl HttpFetchClient {
         net_dump: bool,
     ) -> Result<RemoteServerInfo, anyhow::Error> {
         let (protocol_version, first_line, lines) = self.make_initial_fetch_request(net_dump)?;
-        self.version = Some(protocol_version);
-        match self.version {
+        self.protocol_version = Some(protocol_version);
+        match self.protocol_version {
             Some(ProtocolVersion::V1) => {
                 self.load_refs_capabilities_body_v1(first_line, lines, net_dump)
             }
