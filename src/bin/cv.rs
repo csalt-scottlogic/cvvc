@@ -87,10 +87,7 @@ enum Commands {
     },
     /// Fetch refs and objects from remote repositories
     #[command()]
-    Fetch {
-        #[arg(short, long)]
-        protocol: Option<u32>,
-    },
+    Fetch,
     /// Compute object ID and optionally create an object from a file
     #[command(name = "hash-object")]
     HashObject {
@@ -247,7 +244,7 @@ fn parse_dispatch() -> ExitCode {
             parents,
             message,
         } => staging::create_commit_for_tree(&tree_id, &parents, &message, &config),
-        Commands::Fetch { protocol } => net::fetch(protocol, &config),
+        Commands::Fetch => net::fetch(&config),
         Commands::HashObject {
             write,
             obj_type: _,

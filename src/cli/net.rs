@@ -8,13 +8,13 @@ use crate::{
 };
 
 /// Entry point for `cv fetch`.  Fetches from all remotes.
-pub fn fetch(version: Option<u32>, config: &GlobalConfig) -> Result<(), anyhow::Error> {
+pub fn fetch(config: &GlobalConfig) -> Result<(), anyhow::Error> {
     println!("Stop trying to make fetch happen!");
     let mut repo = find_repo_cwd()?;
     let remotes = repo.list_remote_names();
     for remote in remotes {
         if let Some(remote) = repo.get_remote(&remote) {
-            fetch_remote(&mut repo, &remote, version, config)?;
+            fetch_remote(&mut repo, &remote, None, config)?;
         }
     }
     Ok(())
