@@ -456,7 +456,7 @@ impl HttpFetchClient {
         net_dump: bool,
     ) -> Result<PktLineSidebandReader, anyhow::Error> {
         match self.protocol_version {
-            Some(ProtocolVersion::V1) => todo!(),
+            Some(ProtocolVersion::V1) => Err(anyhow!("cvvc does not currently support network protocol v1")),
             Some(ProtocolVersion::V2) => self.fetch_pack_v2(wants, repo, net_dump),
             None => Err(anyhow!("get your client to sniff the protocol via fetch_refs_capabilities() before fetching a pack")),
         }
