@@ -91,6 +91,13 @@ The `cv commit-tree` command accepts `-p` and `-m` options only.
 
 This command only accepts the `-m` option.
 
+### `cv fetch`
+
+This command only supports fetching from remote repositories which use the HTTP (or HTTPS) protocol, do not require authentication, 
+and support Git protocol v2.
+
+It takes a `-v` or `--verbose` option, which outputs network traffic details in a similar way to the `GIT_TRACE_PACKET` environment variable.
+
 ### `cv hash-object`
 
 This command accepts `-w` and `-t` options only.
