@@ -374,8 +374,7 @@ impl Repository {
             if !follow_tags {
                 return Err(anyhow::Error::from(FindObjectError::none()));
             }
-            let obj = obj.to_stored_object()?;
-            match obj {
+            match StoredObject::try_from(&obj)? {
                 StoredObject::Tag(tag) => {
                     current_target = tag.target().context("chunky tag has invalid target")?;
                 }
@@ -530,7 +529,7 @@ impl Repository {
         let Some(raw_object) = raw_object else {
             return Ok(None);
         };
-        Ok(Some(raw_object.to_stored_object()?))
+        Ok(Some(StoredObject::try_from(&raw_object)?))
     }
 
     /// Write a [`RawObject`] to the loose object store.
@@ -1228,7 +1227,7 @@ impl<'a> CommitIterator<'a> {
                             .filter(|id| !prune.contains(id))
                             .collect::<HashSet<String>>(),
                         ObjectKind::Tag => {
-                            if let StoredObject::Tag(tag) = raw_obj.to_stored_object()? {
+                            if let StoredObject::Tag(tag) = StoredObject::try_from(&raw_obj)? {
                                 vec![tag.target()?]
                                     .into_iter()
                                     .filter(|id| !prune.contains(id))
@@ -1268,7 +1267,7 @@ impl<'a> CommitIterator<'a> {
                         match raw_obj.metadata().kind {
                             ObjectKind::Commit => Some(id),
                             ObjectKind::Tag => {
-                                if let Ok(StoredObject::Tag(tag)) = raw_obj.to_stored_object() {
+                                if let Ok(StoredObject::Tag(tag)) = StoredObject::try_from(&raw_obj) {
                                     tag.target().ok()
                                 } else {
                                     None

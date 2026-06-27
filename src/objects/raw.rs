@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context};
 use sha1::{Digest, Sha1};
 
-use crate::objects::{Blob, Commit, GitObject, ObjectKind, StoredObject, Tag, Tree};
+use crate::objects::{GitObject, ObjectKind};
 
 /// Metadata describing a [`RawObject`] or [`RawObjectData`].
 #[derive(Debug, PartialEq)]
@@ -327,27 +327,6 @@ impl RawObject {
     pub fn metadata(&self) -> &ObjectMetadata {
         &self.content.metadata
     }
-
-    /// Attempt to convert this raw object to a stored object by parsing its data
-    ///
-    /// This method will error if the object is a raw delta object.
-    pub fn to_stored_object(&self) -> Result<StoredObject, anyhow::Error> {
-        match self.metadata().kind {
-            ObjectKind::Blob => Ok(StoredObject::Blob(Blob::deserialise(
-                self.content_headerless(),
-            )?)),
-            ObjectKind::Commit => Ok(StoredObject::Commit(Commit::deserialise(
-                self.content_headerless(),
-            )?)),
-            ObjectKind::Tree => Ok(StoredObject::Tree(Tree::deserialise(
-                self.content_headerless(),
-            )?)),
-            ObjectKind::Tag => Ok(StoredObject::Tag(Tag::deserialise(
-                self.content_headerless(),
-            )?)),
-            _ => Err(anyhow!("Delta objects cannot be parsed")),
-        }
-    }
 }
 
 impl<T: GitObject> From<&T> for RawObject {
@@ -411,7 +390,7 @@ impl TryFrom<RawObjectData> for RawObject {
 mod tests {
     use chrono::DateTime;
 
-    use crate::objects::{Blob, Commit, ObjectKind, StoredObject, Tag, Tree, TreeNode};
+    use crate::objects::{Blob, Commit, ObjectKind, Tag, Tree, TreeNode};
 
     use super::{DeltaCommand, DeltaCommandKind, ObjectMetadata, RawObject, RawObjectData};
 
@@ -944,125 +923,5 @@ mod tests {
 
         assert_eq!(ObjectKind::Blob, test_output.kind);
         assert_eq!(8, test_output.size);
-    }
-
-    #[test]
-    fn raw_object_to_stored_object_succeeds_for_valid_blob() {
-        let test_object = RawObject::from_headerless_data(
-            b"Biscuits",
-            "8216d33b7e88ed6bf2cb4eea14b3020f54325484",
-            ObjectMetadata {
-                kind: ObjectKind::Blob,
-                size: 8,
-            },
-        );
-
-        let test_output = test_object.to_stored_object().unwrap();
-
-        let StoredObject::Blob(test_output) = test_output else {
-            panic!();
-        };
-        assert_eq!(test_output.data, b"Biscuits");
-    }
-
-    #[test]
-    fn raw_object_to_stored_object_succeeds_for_valid_commit() {
-        let test_object_data = [
-            116u8, 114, 101, 101, 32, 56, 56, 50, 50, 51, 51, 49, 49, 97, 97, 101, 101, 99, 99,
-            102, 102, 55, 55, 50, 50, 56, 56, 50, 50, 51, 51, 49, 49, 97, 97, 101, 101, 99, 99,
-            102, 102, 55, 55, 50, 50, 10, 97, 117, 116, 104, 111, 114, 32, 67, 97, 105, 116, 108,
-            105, 110, 32, 60, 99, 97, 105, 116, 64, 101, 120, 97, 109, 112, 108, 101, 46, 99, 111,
-            109, 62, 32, 49, 55, 55, 57, 49, 51, 53, 49, 56, 50, 32, 43, 48, 49, 48, 48, 10, 99,
-            111, 109, 109, 105, 116, 116, 101, 114, 32, 67, 97, 105, 116, 108, 105, 110, 32, 60,
-            99, 97, 105, 116, 64, 101, 120, 97, 109, 112, 108, 101, 46, 99, 111, 109, 62, 32, 49,
-            55, 55, 57, 49, 51, 53, 49, 56, 50, 32, 43, 48, 49, 48, 48, 10, 10, 67, 111, 109, 109,
-            105, 116, 32, 109, 101, 115, 115, 97, 103, 101, 10,
-        ];
-        let test_object = RawObject::from_headerless_data(
-            &test_object_data,
-            "2977356f97c83af114be964f85721dc7271a7811",
-            ObjectMetadata {
-                kind: ObjectKind::Commit,
-                size: 167,
-            },
-        );
-
-        let test_output = test_object.to_stored_object().unwrap();
-
-        let StoredObject::Commit(test_output) = test_output else {
-            panic!();
-        };
-        assert_eq!(test_output.message, "Commit message");
-    }
-
-    #[test]
-    fn raw_object_to_stored_object_succeeds_for_valid_tag() {
-        let test_object_data = [
-            111, 98, 106, 101, 99, 116, 32, 50, 57, 55, 55, 51, 53, 54, 102, 57, 55, 99, 56, 51,
-            97, 102, 49, 49, 52, 98, 101, 57, 54, 52, 102, 56, 53, 55, 50, 49, 100, 99, 55, 50, 55,
-            49, 97, 55, 56, 49, 49, 10, 116, 121, 112, 101, 32, 99, 111, 109, 109, 105, 116, 10,
-            116, 97, 103, 32, 116, 101, 115, 116, 45, 116, 97, 103, 10, 116, 97, 103, 103, 101,
-            114, 32, 67, 97, 105, 116, 108, 105, 110, 32, 60, 99, 97, 105, 116, 64, 101, 120, 97,
-            109, 112, 108, 101, 46, 99, 111, 109, 62, 32, 49, 55, 55, 57, 50, 50, 49, 50, 48, 49,
-            32, 43, 48, 49, 48, 48, 10, 10, 84, 97, 103, 32, 109, 101, 115, 115, 97, 103, 101, 10,
-        ];
-        let test_object = RawObject::from_headerless_data(
-            &test_object_data,
-            "887f3ca1f58a93dd3cc7b19c0c5da705d627d9e6",
-            ObjectMetadata {
-                kind: ObjectKind::Tag,
-                size: 137,
-            },
-        );
-
-        let test_output = test_object.to_stored_object().unwrap();
-
-        let StoredObject::Tag(test_output) = test_output else {
-            panic!();
-        };
-        assert_eq!("Tag message", test_output.message);
-    }
-
-    #[test]
-    fn raw_object_to_stored_object_succeeds_for_valid_tree() {
-        let test_object_data = [
-            52, 48, 48, 48, 48, 32, 115, 114, 99, 0, 136, 34, 51, 17, 170, 238, 204, 255, 119, 34,
-            136, 34, 51, 17, 170, 238, 204, 255, 119, 34,
-        ];
-        let test_object = RawObject::from_headerless_data(
-            &test_object_data,
-            "9d298423b3547d85ed7b9344ffad4e0c73eb1da2",
-            ObjectMetadata {
-                kind: ObjectKind::Tree,
-                size: 30,
-            },
-        );
-
-        let test_output = test_object.to_stored_object().unwrap();
-
-        let StoredObject::Tree(test_output) = test_output else {
-            panic!();
-        };
-        assert_eq!(test_output.entries().len(), 1);
-        assert_eq!(test_output.entries().first().unwrap().mode, 0o40000);
-        assert_eq!(test_output.entries().first().unwrap().name(), "src");
-        assert_eq!(
-            test_output.entries().first().unwrap().object_id,
-            "88223311aaeeccff772288223311aaeeccff7722"
-        );
-    }
-
-    #[test]
-    fn raw_object_to_stored_object_fails_for_delta() {
-        let test_object = RawObject::from_headerless_data(
-            &[4, 86, 32, 129, 20],
-            "01020304050607080910a1a2a3a4a5a6a7a8a9a0",
-            ObjectMetadata {
-                kind: ObjectKind::Delta("11121314151617181910c1c2c3c4c5c6c7c8c9c0".to_string()),
-                size: 5,
-            },
-        );
-
-        test_object.to_stored_object().unwrap_err();
     }
 }
