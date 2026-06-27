@@ -80,6 +80,9 @@ pub trait RefStore {
     /// List all of the local branches in the store.
     fn local_branches(&self) -> Result<Vec<BranchSpec>, anyhow::Error>;
 
+    /// List all of the branches in the store, either local or remote-tracking.
+    fn branches(&self) -> Result<Vec<BranchSpec>, anyhow::Error>;
+
     /// List all of the tags in the store.
     fn tags(&self) -> Result<Vec<RefSpec>, anyhow::Error>;
 
@@ -274,6 +277,20 @@ impl BranchSpec {
     /// Convert this branch spec into a [`RefSpec`], consuming it.
     pub fn into_ref_spec(self) -> RefSpec {
         RefSpec::Branch(self)
+    }
+
+    /// Get the name of this branch for display.
+    ///
+    /// For local branches, this returns the `name` property.  For remote branches, this returns the full name
+    /// returned by `to_string()`, with the `refs/` prefix removed.
+    pub fn distinguished_name(&self) -> String {
+        match self.location {
+            BranchLocation::Local => self.name.clone(),
+            BranchLocation::Remote(_) => self
+                .to_string()
+                .strip_prefix("refs/")
+                .map_or_else(|| self.name.clone(), |r| r.to_string()),
+        }
     }
 }
 

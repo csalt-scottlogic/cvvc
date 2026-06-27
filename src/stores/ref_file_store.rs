@@ -82,14 +82,35 @@ impl RefStore for RefFileStore {
     ///
     /// This method may return an error, if any filesystem errors were encountered.
     fn local_branches(&self) -> Result<Vec<BranchSpec>, anyhow::Error> {
-        let mut results = Vec::<BranchSpec>::new();
-        for dir_entry in walk_fs(&self.local_branch_path)? {
-            let dir_entry = dir_entry?;
-            results.push(BranchSpec::new(
-                &path_translate(dir_entry.strip_prefix(&self.local_branch_path)?),
-                BranchLocation::Local,
-            ));
-        }
+        Ok(self
+            .all_refs_in_path(&self.local_branch_path)?
+            .into_iter()
+            .filter_map(|r| match r {
+                RefSpec::Branch(b) => Some(b),
+                _ => None,
+            })
+            .collect())
+    }
+
+    /// List all of the branches in the repository, including remote-tracking branches.
+    ///
+    /// On success, this method returns a [`Vec`] of all of the local branches currently stored in the repository.
+    /// It does not check the branches themselves for validity --- in other words, it does not check that the head
+    /// of each branch is a valid commit.
+    ///
+    /// This method may return an error, if any filesystem errors were encountered.
+    fn branches(&self) -> Result<Vec<BranchSpec>, anyhow::Error> {
+        let mut results: Vec<BranchSpec> = vec![];
+        results.append(&mut self.local_branches()?);
+        results.extend(
+            self.all_refs_in_path(&self.remote_branch_path)?
+                .into_iter()
+                .filter_map(|r| match r {
+                    RefSpec::Branch(b) => Some(b),
+                    _ => None,
+                }),
+        );
+        results.sort();
         Ok(results)
     }
 
