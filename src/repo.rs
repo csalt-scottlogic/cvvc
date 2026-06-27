@@ -1210,7 +1210,7 @@ pub struct CommitIterator<'a> {
 
 impl<'a> CommitIterator<'a> {
     fn new(repo: &'a Repository, start: Option<&str>) -> Result<CommitIterator<'a>, anyhow::Error> {
-        Self::new_prunable(repo, start, &vec![])
+        Self::new_prunable(repo, start, &[])
     }
 
     fn new_prunable(

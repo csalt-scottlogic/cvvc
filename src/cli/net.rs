@@ -4,17 +4,17 @@ use crate::{
     config::{FetchRefMap, GlobalConfig, RemoteInfo},
     helpers::find_repo_cwd,
     net::{HttpFetchClient, ProtocolVersion},
-    repo::Repository, stores::TargetedRef,
+    repo::Repository,
+    stores::TargetedRef,
 };
 
 /// Entry point for `cv fetch`.  Fetches from all remotes.
-pub fn fetch(config: &GlobalConfig) -> Result<(), anyhow::Error> {
-    println!("Stop trying to make fetch happen!");
+pub fn fetch(config: &GlobalConfig, verbose: bool) -> Result<(), anyhow::Error> {
     let mut repo = find_repo_cwd()?;
     let remotes = repo.list_remote_names();
     for remote in remotes {
         if let Some(remote) = repo.get_remote(&remote) {
-            fetch_remote(&mut repo, &remote, None, config)?;
+            fetch_remote(&mut repo, &remote, None, config, verbose)?;
         }
     }
     Ok(())
@@ -25,36 +25,19 @@ fn fetch_remote(
     remote: &RemoteInfo,
     version: Option<u32>,
     config: &GlobalConfig,
+    verbose: bool
 ) -> Result<(), anyhow::Error> {
     for url in remote.fetch_urls.iter() {
-        let protocol_version = match version {
-            Some(x) => Some(ProtocolVersion::try_from(x)?),
-            None => None,
-        };
-        println!("Fetching from {} ({})", remote.name, url);
+        let protocol_version = version
+            .map(ProtocolVersion::try_from)
+            .map_or(Ok(None), |v| v.map(Some))?;
         let mut fetch_client_engine = HttpFetchClient::new(url, protocol_version)?;
-        let start_version = fetch_client_engine.protocol_version();
-        println!("Protocol version {}", start_version);
-        let remote_info = fetch_client_engine.fetch_refs_capabilities(true)?;
-        let remote_capabilities = fetch_client_engine.capabilities();
-        if !remote_capabilities.is_empty() {
-            println!("Server capabilities:");
-            for cap in remote_capabilities {
-                println!("\t{cap}");
-            }
-        }
-        let sniffed_version = fetch_client_engine.protocol_version();
-        if start_version != sniffed_version {
-            println!("Protocol downgraded to {}", sniffed_version);
-        }
-        let mut ref_maps: Vec<FetchRefMap> = vec![];
-        println!("Refs:");
+        let remote_info = fetch_client_engine.fetch_refs_capabilities(verbose)?;
         let deduped_rem_refs = remote_info.refs.iter().collect::<HashSet<&TargetedRef>>();
-        for rem_ref in deduped_rem_refs {
-            println!("\t{}", &rem_ref.spec);
-            let mut mapped_refs = rem_ref.map_fetch(&remote.fetch_defs);
-            ref_maps.append(&mut mapped_refs);
-        }
+        let ref_maps: Vec<FetchRefMap> = deduped_rem_refs
+            .into_iter()
+            .flat_map(|rr| rr.map_fetch(&remote.fetch_defs).into_iter())
+            .collect();
         let updates_needed = ref_maps
             .iter()
             .filter(|m| {
@@ -65,12 +48,7 @@ fn fetch_remote(
                 }
             })
             .collect::<Vec<&FetchRefMap>>();
-        if !updates_needed.is_empty() {
-            println!("Branches to update:");
-            for update_spec in updates_needed.iter() {
-                println!("\t{} to {}", update_spec.dest, update_spec.source.target);
-            }
-        } else {
+        if updates_needed.is_empty() {
             println!("Nothing to update");
             return Ok(());
         }
@@ -87,55 +65,57 @@ fn fetch_remote(
                 }
             })
             .collect();
-        if !objects_needed.is_empty() {
-            println!("Commits needed:");
-            for obj in objects_needed.iter() {
-                println!("\t{}", obj);
-            }
+        if objects_needed.is_empty() {
+            println!("No objects needed");
+        } else {
             let reader = fetch_client_engine.fetch_pack(
                 &objects_needed
                     .iter()
                     .map(|x| x.as_str())
                     .collect::<HashSet<_>>(),
                 repo,
-                true,
+                verbose,
             )?;
             repo.store_pack(reader)?;
-            for update in updates_needed {
-                if repo.has_object(&update.source.target.to_string())? {
-                    let existing_target = repo.resolve_ref(&update.dest)?.map(|r| r.to_string());
-                    println!("Updating {} to {} to match {}", &update.dest, &update.source.target, &update.source.spec);
-                    let is_fast_forward = existing_target
-                        .as_deref()
-                        .map(|tid| {
-                            repo.commit_is_pure_ancestor(&update.source.target.to_string(), tid)
-                        })
-                        .map_or(Ok(None), |v| v.map(Some))?;
-                    let message = if existing_target.is_none() {
-                        "fetch (new branch)"
-                    } else if is_fast_forward.unwrap_or(false) {
-                        "fetch (fast forward)"
-                    } else if update.force {
-                        "fetch (forced)"
-                    } else {
-                        println!(
-                            "Skipping update {}... => {}... for {} (not fast-forwardable)",
-                            &existing_target.unwrap()[..8],
-                            &update.source.target.to_string()[..8],
-                            &update.dest
-                        );
-                        continue;
-                    };
-                    repo.update_ref(&update.dest, &update.source.target)?;
-                    repo.write_ref_log(
-                        existing_target.as_deref(),
-                        &update.source.target.to_string(),
-                        &config.committer(),
-                        message,
-                        &update.dest,
-                        false,
-                    )?;
-                }
+        }
+        for update in updates_needed {
+            let new_target = update.source.target.to_string();
+            if repo.has_object(&new_target)? {
+                let existing_target = repo.resolve_ref(&update.dest)?.map(|r| r.to_string());
+                let is_fast_forward = existing_target
+                    .as_deref()
+                    .map(|tid| repo.commit_is_pure_ancestor(&new_target, tid))
+                    .map_or(Ok(None), |v| v.map(Some))?;
+                let message = if existing_target.is_none() {
+                    "fetch (new branch)"
+                } else if is_fast_forward.unwrap_or(false) {
+                    "fetch (fast forward)"
+                } else if update.force {
+                    "fetch (forced)"
+                } else {
+                    println!(
+                        "Skipping update {}... => {}... for {} (not fast-forwardable)",
+                        &existing_target.unwrap()[..8],
+                        &new_target[..8],
+                        &update.dest
+                    );
+                    continue;
+                };
+                repo.update_ref(&update.dest, &update.source.target)?;
+                repo.write_ref_log(
+                    existing_target.as_deref(),
+                    &new_target,
+                    &config.committer(),
+                    message,
+                    &update.dest,
+                    false,
+                )?;
+                println!(
+                    "Updated {}: {}... => {}...",
+                    &update.dest,
+                    &existing_target.map_or_else(|| "(none)".to_string(), |t| t[..8].to_string()),
+                    &new_target[..8]
+                );
             }
         }
     }

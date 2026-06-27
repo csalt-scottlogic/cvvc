@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Context};
 use indexmap::IndexSet;
-use reqwest::blocking::{Client, Response};
+use reqwest::blocking::{Client, RequestBuilder, Response};
 use std::{
     collections::{HashSet, VecDeque},
     fmt::Display,
@@ -47,6 +47,12 @@ impl Display for PktLine {
 impl From<&str> for PktLine {
     fn from(value: &str) -> Self {
         Self::Line(value.bytes().collect())
+    }
+}
+
+impl From<&String> for PktLine {
+    fn from(value: &String) -> Self {
+        Self::from(value.as_str())
     }
 }
 
@@ -221,6 +227,12 @@ impl PktLineSidebandReader {
             message_handler,
         }
     }
+
+    fn handle_message(&self, line_content: &[u8]) {
+        if let Some(mh) = self.message_handler {
+            mh(&line_content[1..]);
+        }
+    }
 }
 
 impl Read for PktLineSidebandReader {
@@ -242,15 +254,9 @@ impl Read for PktLineSidebandReader {
                 return Ok(0);
             };
             match line_content[0] {
-                2 => {
-                    if let Some(mh) = self.message_handler {
-                        mh(&line_content[1..]);
-                    }
-                }
+                2 => self.handle_message(&line_content),
                 3 => {
-                    if let Some(mh) = self.message_handler {
-                        mh(&line_content[1..]);
-                    }
+                    self.handle_message(&line_content);
                     let msg = String::from_utf8_lossy(&line_content[1..]);
                     return Err(io::Error::other(anyhow!(msg.to_string())));
                 }
@@ -284,7 +290,7 @@ impl Read for PktLineSidebandReader {
 /// The result of a ref discovery process from a remote server.
 pub struct RemoteServerInfo {
     /// A list of the advertised refs on this server
-    pub refs: Vec<TargetedRef>,
+    pub refs: HashSet<TargetedRef>,
 }
 
 /// A capability of a remote server, consisting either of a single string, or a key and a number of values.
@@ -299,12 +305,26 @@ pub struct RemoteCapability {
 }
 
 impl Display for RemoteCapability {
-    // Allowed because we need to ensure we always write a LF, not a platform-dependent EOL
-    #[allow(clippy::write_with_newline)]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.values.len() {
             0 => self.key.fmt(f),
             _ => write!(f, "{}={}", self.key, self.values.join(" ")),
+        }
+    }
+}
+
+impl RemoteCapability {
+    fn new(key: &str) -> Self {
+        Self {
+            key: key.to_string(),
+            values: vec![],
+        }
+    }
+
+    fn new_with_values(key: &str, values: Vec<String>) -> Self {
+        Self {
+            key: key.to_string(),
+            values,
         }
     }
 }
@@ -316,18 +336,15 @@ impl FromStr for RemoteCapability {
         let s = s.trim();
         let sep = s.bytes().position(|x| x == 0x3d); // split on '='
         match sep {
-            None => Ok(Self {
-                key: s.to_string(),
-                values: vec![],
-            }),
-            Some(x) => Ok(Self {
-                key: s[..x].to_string(),
-                values: s[(x + 1)..]
+            None => Ok(Self::new(s)),
+            Some(x) => Ok(Self::new_with_values(
+                &s[..x],
+                s[(x + 1)..]
                     .trim()
                     .split(" ")
                     .map(|v| v.to_string())
                     .collect(),
-            }),
+            )),
         }
     }
 }
@@ -391,7 +408,10 @@ impl HttpFetchClient {
     /// # Errors
     ///
     /// This function returns an error if the `base_url` parameter cannot be parsed as a [`Url`].
-    pub fn new(base_url: &str, protocol_version: Option<ProtocolVersion>) -> Result<Self, anyhow::Error> {
+    pub fn new(
+        base_url: &str,
+        protocol_version: Option<ProtocolVersion>,
+    ) -> Result<Self, anyhow::Error> {
         let client = Client::new();
         let base_url = if base_url.ends_with("/") {
             base_url.to_string()
@@ -425,6 +445,17 @@ impl HttpFetchClient {
     /// are taken as assumed.
     pub fn capabilities(&self) -> &[RemoteCapability] {
         &self.capabilities
+    }
+
+    /// Get the value of a capability, if present.
+    ///
+    /// Capabilities without values will return an empty vector; if a capability is
+    /// not present this method will return `None`.
+    pub fn capability(&self, key: &str) -> Option<Vec<&str>> {
+        self.capabilities
+            .iter()
+            .find(|c| c.key == key)
+            .map(|rc| rc.values.iter().map(|v| v.as_str()).collect())
     }
 
     /// Fetch a pack from the remote server.
@@ -514,34 +545,19 @@ impl HttpFetchClient {
         provide_done: bool,
         net_dump: bool,
     ) -> Result<PackFetchResponse, anyhow::Error> {
-        let want_list = wants
-            .iter()
-            .map(|s| PackFetchCommand::Want(s.to_string()))
-            .collect::<Vec<_>>();
-        let have_list = common_objects
-            .iter()
-            .map(|s| PackFetchCommand::Have(s.to_string()))
-            .collect::<Vec<_>>();
-        let fetch_url = self.base_url.join("git-upload-pack")?;
-        let fetch_args = self.capabilities.iter().find(|c| c.key == "fetch");
-        let Some(_) = fetch_args else {
+        let Some(_) = self.capability("fetch") else {
             return Err(anyhow!("server does not support fetch command"));
         };
+        let fetch_url = self.base_url.join("git-upload-pack")?;
         let mut body_lines = vec![PktLine::from("command=fetch\x0a")];
-        if self.capabilities.iter().any(|c| c.key == "agent") {
-            body_lines.push(PktLine::from(
-                format!("agent=cvvc/{}\x0a", env!("CARGO_PKG_VERSION")).as_str(),
-            ));
+        if self.capability("agent").is_some() {
+            body_lines.push(PktLine::from(&Self::agent_string()));
         }
         body_lines.push(PktLine::Delimiter);
         body_lines.push(PktLine::from("include-tag\x0a"));
         body_lines.push(PktLine::from("ofs-delta\x0a"));
-        for want in want_list {
-            body_lines.push(want.into());
-        }
-        for have in have_list {
-            body_lines.push(have.into());
-        }
+        body_lines.extend(wants.iter().map(|s| PackFetchCommand::Want(s.to_string()).into()));
+        body_lines.extend(common_objects.iter().map(|s| PackFetchCommand::Have(s.to_string()).into()));
         if provide_done {
             body_lines.push(PktLine::from("done\x0a"));
         }
@@ -551,28 +567,13 @@ impl HttpFetchClient {
                 println!("S: {line}");
             }
         }
-        let body = body_lines
-            .iter()
-            .flat_map(|n| n.bytes())
-            .collect::<Vec<u8>>();
-        let request = self
+        let request = add_git_protocol_header(self
             .client
-            .post(fetch_url)
-            .header("Git-Protocol", "version=2")
-            .body(body);
-        let response = request.send()?;
-        if !response.status().is_success() {
-            return Err(anyhow!(
-                "Request failed: {} {}",
-                response.status(),
-                response.text()?
-            ));
-        }
-        let mut lines = PktLineIterator::from(response);
-        // for line in lines {
-        //     let line = line?;
-        //     println!("R: {line}");
-        // }
+            .post(fetch_url))
+            .body(body_lines
+                .iter()
+                .flat_map(|n| n.bytes()).collect::<Vec<u8>>());
+        let mut lines = PktLineIterator::from(response_check(request.send()?)?);
         let mut acked_objects = vec![];
         let mut acks_found = false;
         let mut is_ready = false;
@@ -633,12 +634,11 @@ impl HttpFetchClient {
     }
 
     fn scrub_common_objects(common_objects: &mut IndexSet<String>, mut acked: Vec<String>) {
-        common_objects.retain(|x| match acked.iter().position(|y| x == y) {
-            Some(pos) => {
+        common_objects.retain(|x| {
+            acked.iter().position(|y| x == y).map_or(false, |pos| {
                 acked.remove(pos);
                 true
-            }
-            None => false,
+            })
         });
     }
 
@@ -685,6 +685,17 @@ impl HttpFetchClient {
         }
     }
 
+    fn fetch_refs_capabilities_v1(
+        &mut self,
+        net_dump: bool,
+    ) -> Result<RemoteServerInfo, anyhow::Error> {
+        let (detected_version, first_line, lines) = self.make_initial_fetch_request(net_dump)?;
+        if detected_version != ProtocolVersion::V1 {
+            return Err(anyhow!("wrong protocol version detected"));
+        }
+        self.load_refs_capabilities_body_v1(first_line, lines, net_dump)
+    }
+
     fn make_initial_fetch_request(
         &self,
         net_dump: bool,
@@ -695,16 +706,9 @@ impl HttpFetchClient {
         }
         let mut request = self.client.get(discovery_url);
         if self.protocol_version() == ProtocolVersion::V2 {
-            request = request.header("Git-Protocol", "version=2");
+            request = add_git_protocol_header(request);
         }
-        let response = request.send()?;
-        if !response.status().is_success() {
-            return Err(anyhow!(
-                "Request failed: {} {}",
-                response.status(),
-                response.text()?
-            ));
-        }
+        let response = response_check(request.send()?)?;
         let mut lines = PktLineIterator::from(response);
         if !Self::unwrap_and_test_line(
             lines.next(),
@@ -791,13 +795,12 @@ impl HttpFetchClient {
         lines: PktLineIterator<Response>,
         net_dump: bool,
     ) -> Result<RemoteServerInfo, anyhow::Error> {
-        let mut capabilities: Vec<RemoteCapability> = vec![];
-        let mut refs: Vec<TargetedRef> = vec![];
+        let mut refs = HashSet::<TargetedRef>::new();
         if let PktLine::Line(line_contents) = first_line {
             if let Some(parsed_first_line) =
-                Self::load_single_v1_refs_capabilities_line(line_contents, &mut capabilities)?
+                Self::load_single_v1_refs_capabilities_line(line_contents, &mut self.capabilities)?
             {
-                refs.push(parsed_first_line);
+                refs.insert(parsed_first_line);
             }
         }
         for line in lines {
@@ -806,14 +809,14 @@ impl HttpFetchClient {
                 println!("R:{line}");
             }
             if let PktLine::Line(line_contents) = line {
-                if let Some(parsed_line) =
-                    Self::load_single_v1_refs_capabilities_line(line_contents, &mut capabilities)?
-                {
-                    refs.push(parsed_line);
+                if let Some(parsed_line) = Self::load_single_v1_refs_capabilities_line(
+                    line_contents,
+                    &mut self.capabilities,
+                )? {
+                    refs.insert(parsed_line);
                 }
             }
         }
-        self.capabilities = capabilities.clone();
         Ok(RemoteServerInfo { refs })
     }
 
@@ -868,31 +871,22 @@ impl HttpFetchClient {
                 ))?);
             }
         }
-        if net_dump {
-            println!("Capabilities:");
-            for c in &results {
-                println!("\t{c}");
-            }
-        }
         Ok(results)
     }
 
     fn fetch_refs_v2(&self, net_dump: bool) -> Result<RemoteServerInfo, anyhow::Error> {
         let ref_url = self.base_url.join("git-upload-pack")?;
-        let ls_refs_args = self.capabilities.iter().find(|c| c.key == "ls-refs");
-        let Some(ls_refs_args) = ls_refs_args else {
+        let Some(ls_refs_args) = self.capability("ls-refs") else {
             return Err(anyhow!("server does not support ls-refs command"));
         };
         let mut body_lines = vec![PktLine::from("command=ls-refs\x0a")];
-        if self.capabilities.iter().any(|c| c.key == "agent") {
-            body_lines.push(PktLine::from(
-                format!("agent=cvvc/{}\x0a", env!("CARGO_PKG_VERSION")).as_str(),
-            ));
+        if self.capability("agent").is_some() {
+            body_lines.push(PktLine::from(&Self::agent_string()));
         }
         body_lines.push(PktLine::Delimiter);
         body_lines.push(PktLine::from("symrefs\x0a"));
         body_lines.push(PktLine::from("peel\x0a"));
-        if ls_refs_args.values.contains(&"unborn".to_string()) {
+        if ls_refs_args.contains(&"unborn") {
             body_lines.push(PktLine::from("unborn\x0a"));
         }
         body_lines.push(PktLine::Flush);
@@ -901,25 +895,15 @@ impl HttpFetchClient {
                 println!("S: {line}");
             }
         }
-        let body = body_lines
-            .iter()
-            .flat_map(|n| n.bytes())
-            .collect::<Vec<u8>>();
-        let request = self
+        let request = add_git_protocol_header(self
             .client
-            .post(ref_url)
-            .header("Git-Protocol", "version=2")
-            .body(body);
-        let response = request.send()?;
-        if !response.status().is_success() {
-            return Err(anyhow!(
-                "Request failed: {} {}",
-                response.status(),
-                response.text()?
-            ));
-        }
-        let lines = PktLineIterator::from(response);
-        let mut refs = Vec::<TargetedRef>::new();
+            .post(ref_url))
+            .body(body_lines
+                .iter()
+                .flat_map(|n| n.bytes())
+                .collect::<Vec<u8>>());
+        let lines = PktLineIterator::from(response_check(request.send()?)?);
+        let mut refs = HashSet::<TargetedRef>::new();
         for line in lines {
             let line = Self::unwrap_line(Some(line), net_dump)?;
             let PktLine::Line(line_contents) = line else {
@@ -941,34 +925,34 @@ impl HttpFetchClient {
             if let Some(secondary_ref_string) = ref_parts.next() {
                 if let Some(peeled_ref_target) = secondary_ref_string.strip_prefix("peeled:") {
                     if let Some(peeled_ref_spec) = primary_ref_spec.peel_tag() {
-                        refs.push(TargetedRef {
+                        refs.insert(TargetedRef {
                             target: RefTarget::Object(peeled_ref_target.to_string()),
                             spec: peeled_ref_spec,
-                        })
+                        });
                     }
-                    refs.push(TargetedRef {
+                    refs.insert(TargetedRef {
                         target: RefTarget::Object(target_id),
                         spec: primary_ref_spec,
                     });
                 } else if let Some(symref_ref_target) =
                     secondary_ref_string.strip_prefix("symref-target:")
                 {
-                    refs.push(TargetedRef {
+                    refs.insert(TargetedRef {
                         target: RefTarget::SymbolicRef(RefSpec::from_str(symref_ref_target)?),
                         spec: primary_ref_spec,
                     });
-                    refs.push(TargetedRef {
+                    refs.insert(TargetedRef {
                         target: RefTarget::Object(target_id),
                         spec: RefSpec::from_str(symref_ref_target)?,
                     });
                 } else {
-                    refs.push(TargetedRef {
+                    refs.insert(TargetedRef {
                         target: RefTarget::Object(target_id),
                         spec: primary_ref_spec,
                     });
                 }
             } else {
-                refs.push(TargetedRef {
+                refs.insert(TargetedRef {
                     target: RefTarget::Object(target_id),
                     spec: primary_ref_spec,
                 });
@@ -977,16 +961,23 @@ impl HttpFetchClient {
         Ok(RemoteServerInfo { refs })
     }
 
-    fn fetch_refs_capabilities_v1(
-        &mut self,
-        net_dump: bool,
-    ) -> Result<RemoteServerInfo, anyhow::Error> {
-        let (detected_version, first_line, lines) = self.make_initial_fetch_request(net_dump)?;
-        if detected_version != ProtocolVersion::V1 {
-            return Err(anyhow!("wrong protocol version detected"));
-        }
-        self.load_refs_capabilities_body_v1(first_line, lines, net_dump)
+    fn agent_string() -> String {
+        format!("agent=cvvc/{}\x0a", env!("CARGO_PKG_VERSION"))
     }
+}
+
+fn response_check(response: Response) -> Result<Response, anyhow::Error> {
+    if !response.status().is_success() {
+            Err(anyhow!(
+                "Request failed: {} {}",
+                &response.status(),
+                response.text()?
+            ))
+        } else { Ok(response) }
+}
+
+fn add_git_protocol_header(builder: RequestBuilder) -> RequestBuilder {
+    builder.header("Git-Protocol", "version=2")
 }
 
 enum PackFetchCommand {
