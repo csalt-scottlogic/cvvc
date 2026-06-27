@@ -31,6 +31,8 @@ enum Commands {
     Branch {
         #[arg(long)]
         list: bool,
+        #[arg(short = 'a', long = "all")]
+        list_all: bool,
         #[arg()]
         branch: Option<String>,
     },
@@ -220,13 +222,17 @@ fn parse_dispatch() -> ExitCode {
     let config = GlobalConfig::from_default_files();
     match args.command {
         Commands::Add { paths } => staging::add_files(&paths),
-        Commands::Branch { list, branch } => {
+        Commands::Branch {
+            list,
+            list_all,
+            branch,
+        } => {
             if list {
-                branches::list_branches()
+                branches::list_branches(list_all)
             } else if let Some(branch) = branch {
                 branches::new_branch(&branch, false, &config)
             } else {
-                branches::list_branches()
+                branches::list_branches(list_all)
             }
         }
         Commands::CatFile { obj_type, obj_path } => objects::cat_file(&obj_type, &obj_path),
@@ -247,9 +253,7 @@ fn parse_dispatch() -> ExitCode {
             parents,
             message,
         } => staging::create_commit_for_tree(&tree_id, &parents, &message, &config),
-        Commands::Fetch {
-            verbose
-        } => net::fetch(&config, verbose),
+        Commands::Fetch { verbose } => net::fetch(&config, verbose),
         Commands::HashObject {
             write,
             obj_type: _,

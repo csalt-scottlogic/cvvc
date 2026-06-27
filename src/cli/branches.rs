@@ -24,24 +24,24 @@ pub fn new_branch(
 }
 
 /// Entry point for the `cv branch --list` command.
-pub fn list_branches() -> Result<(), anyhow::Error> {
+pub fn list_branches(list_all: bool) -> Result<(), anyhow::Error> {
     let repo = find_repo_cwd()?;
-    list_branches_in_repo(&repo)
+    list_branches_in_repo(&repo, list_all)
 }
 
-fn list_branches_in_repo(repo: &Repository) -> Result<(), anyhow::Error> {
+fn list_branches_in_repo(repo: &Repository, list_all: bool) -> Result<(), anyhow::Error> {
     let branches = repo.branches()?;
     let cb = repo.current_branch()?;
     for branch in branches
         .into_iter()
-        .filter(|b| b.location == BranchLocation::Local)
+        .filter(|b| list_all || (b.location == BranchLocation::Local))
     {
-        let cb_flag = if cb.as_ref().map(|b| &b.name) == Some(&branch.name) {
+        let cb_flag = if cb.as_ref().map(|b| *b == branch).unwrap_or(false) {
             "*"
         } else {
             " "
         };
-        println!("{cb_flag} {}", branch.name);
+        println!("{cb_flag} {}", branch.distinguished_name());
     }
     Ok(())
 }

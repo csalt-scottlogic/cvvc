@@ -65,7 +65,7 @@ impl RefStore for PackedRefStore {
         Ok(self.contents.contains_key(&r.to_string()))
     }
 
-    fn local_branches(&self) -> Result<Vec<BranchSpec>, anyhow::Error> {
+    fn branches(&self) -> Result<Vec<BranchSpec>, anyhow::Error> {
         Ok(self
             .get_specs()
             .filter_map(|r| match r {
@@ -73,6 +73,14 @@ impl RefStore for PackedRefStore {
                 _ => None,
             })
             .collect::<Vec<BranchSpec>>())
+    }
+
+    fn local_branches(&self) -> Result<Vec<BranchSpec>, anyhow::Error> {
+        Ok(self
+            .branches()?
+            .into_iter()
+            .filter(|b| b.location == BranchLocation::Local)
+            .collect())
     }
 
     fn tags(&self) -> Result<Vec<RefSpec>, anyhow::Error> {

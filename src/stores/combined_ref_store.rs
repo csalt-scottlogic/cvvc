@@ -63,6 +63,19 @@ impl RefStore for CombinedRefStore {
         Ok(results.into_iter().collect())
     }
 
+    fn branches(&self) -> Result<Vec<BranchSpec>, anyhow::Error> {
+        let mut results = HashSet::<BranchSpec>::new();
+        for b in self.loose_store.branches()? {
+            results.insert(b);
+        }
+        if let Some(packed_store) = &self.packed_store {
+            for b in packed_store.branches()? {
+                results.insert(b);
+            }
+        }
+        Ok(results.into_iter().collect())
+    }
+
     fn tags(&self) -> Result<Vec<RefSpec>, anyhow::Error> {
         let mut results = HashSet::<RefSpec>::new();
         for t in self.loose_store.tags()? {

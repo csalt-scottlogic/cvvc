@@ -25,7 +25,7 @@ fn fetch_remote(
     remote: &RemoteInfo,
     version: Option<u32>,
     config: &GlobalConfig,
-    verbose: bool
+    verbose: bool,
 ) -> Result<(), anyhow::Error> {
     for url in remote.fetch_urls.iter() {
         let protocol_version = version

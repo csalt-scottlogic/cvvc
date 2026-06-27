@@ -556,8 +556,16 @@ impl HttpFetchClient {
         body_lines.push(PktLine::Delimiter);
         body_lines.push(PktLine::from("include-tag\x0a"));
         body_lines.push(PktLine::from("ofs-delta\x0a"));
-        body_lines.extend(wants.iter().map(|s| PackFetchCommand::Want(s.to_string()).into()));
-        body_lines.extend(common_objects.iter().map(|s| PackFetchCommand::Have(s.to_string()).into()));
+        body_lines.extend(
+            wants
+                .iter()
+                .map(|s| PackFetchCommand::Want(s.to_string()).into()),
+        );
+        body_lines.extend(
+            common_objects
+                .iter()
+                .map(|s| PackFetchCommand::Have(s.to_string()).into()),
+        );
         if provide_done {
             body_lines.push(PktLine::from("done\x0a"));
         }
@@ -567,12 +575,12 @@ impl HttpFetchClient {
                 println!("S: {line}");
             }
         }
-        let request = add_git_protocol_header(self
-            .client
-            .post(fetch_url))
-            .body(body_lines
+        let request = add_git_protocol_header(self.client.post(fetch_url)).body(
+            body_lines
                 .iter()
-                .flat_map(|n| n.bytes()).collect::<Vec<u8>>());
+                .flat_map(|n| n.bytes())
+                .collect::<Vec<u8>>(),
+        );
         let mut lines = PktLineIterator::from(response_check(request.send()?)?);
         let mut acked_objects = vec![];
         let mut acks_found = false;
@@ -895,13 +903,12 @@ impl HttpFetchClient {
                 println!("S: {line}");
             }
         }
-        let request = add_git_protocol_header(self
-            .client
-            .post(ref_url))
-            .body(body_lines
+        let request = add_git_protocol_header(self.client.post(ref_url)).body(
+            body_lines
                 .iter()
                 .flat_map(|n| n.bytes())
-                .collect::<Vec<u8>>());
+                .collect::<Vec<u8>>(),
+        );
         let lines = PktLineIterator::from(response_check(request.send()?)?);
         let mut refs = HashSet::<TargetedRef>::new();
         for line in lines {
@@ -968,12 +975,14 @@ impl HttpFetchClient {
 
 fn response_check(response: Response) -> Result<Response, anyhow::Error> {
     if !response.status().is_success() {
-            Err(anyhow!(
-                "Request failed: {} {}",
-                &response.status(),
-                response.text()?
-            ))
-        } else { Ok(response) }
+        Err(anyhow!(
+            "Request failed: {} {}",
+            &response.status(),
+            response.text()?
+        ))
+    } else {
+        Ok(response)
+    }
 }
 
 fn add_git_protocol_header(builder: RequestBuilder) -> RequestBuilder {

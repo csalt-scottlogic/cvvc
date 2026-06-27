@@ -770,14 +770,15 @@ impl Repository {
     /// Lists all branches present in the repository.
     ///
     /// Always lists the current branch pointed to by `HEAD` in the results (if there is one) even if
-    /// that branch does not exist.  Creating a commit will force the branch to be created.
+    /// that branch does not exist (in Git terminology, if it is an unborn branch).  Creating a commit
+    /// on that branch will force it to be created.
     ///
     /// # Errors
     ///
     /// Returns an error if errors are encountered reading from the filesystem or if the file `.git/HEAD`
     /// is missing.
     pub fn branches(&self) -> Result<Vec<BranchSpec>, anyhow::Error> {
-        let mut branches = self.ref_store.local_branches()?;
+        let mut branches = self.ref_store.branches()?;
         if let Some(cb) = self.current_branch()? {
             if !branches.contains(&cb) {
                 branches.push(cb);
