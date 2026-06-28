@@ -52,6 +52,12 @@ enum Commands {
         #[arg(value_name = "PATH")]
         paths: Vec<String>,
     },
+    /// Check if a reference name (or branch name) is valid according to the syntax rules
+    #[command(name = "check-ref-format")]
+    CheckRefFormat {
+        #[arg(value_name = "REFNAME")]
+        name: String,
+    },
     /// Checkout a commit
     #[command(arg_required_else_help = true)]
     Checkout {
@@ -237,6 +243,12 @@ fn parse_dispatch() -> ExitCode {
         }
         Commands::CatFile { obj_type, obj_path } => objects::cat_file(&obj_type, &obj_path),
         Commands::CheckIgnore { paths } => staging::check_ignore(&paths),
+        Commands::CheckRefFormat { name } => {
+            if !refs::check_format(&name) {
+                return ExitCode::FAILURE;
+            }
+            Ok(())
+        },
         Commands::Checkout { new_branch, target } => {
             if new_branch {
                 branches::new_branch(&target, true, &config)
