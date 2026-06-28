@@ -41,6 +41,11 @@ pub fn create_tag(
     }
 }
 
+/// Entry point for the `cv check-ref-format` command.
+pub fn check_format(ref_name: &str) -> bool {
+    is_ref_name_legal(ref_name)
+}
+
 fn create_chunky_tag(
     repo: &Repository,
     config: &GlobalConfig,

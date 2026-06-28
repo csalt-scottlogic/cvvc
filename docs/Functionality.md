@@ -74,6 +74,10 @@ This command accepts a `-t` option to confirm the type of the supplied object, b
 
 This command takes no options (including `--stdin`) but otherwise behaves as `git check-ignore`.
 
+### `cv check-ref-name`
+
+This command has no options, but otherwise behaves as `git check-ref-name <arg>`.
+
 ### `cv checkout`
 
 This command is two forms:
