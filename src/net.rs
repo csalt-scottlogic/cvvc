@@ -11,7 +11,7 @@ use url::{self, Url};
 
 use crate::{
     helpers::escaped_byte_string,
-    output::{OutputMessage, Printer},
+    output::{OutputMessage, OutputService},
     repo::{is_partial_object_id, CommitIterator, Repository},
     stores::{RefSpec, RefTarget, TargetedRef},
 };
@@ -485,12 +485,11 @@ impl HttpFetchClient {
         &self,
         wants: &HashSet<&str>,
         repo: &Repository,
-        net_dump: bool,
-        println: &Printer,
+        printer: &dyn OutputService,
     ) -> Result<PktLineSidebandReader, anyhow::Error> {
         match self.protocol_version {
             Some(ProtocolVersion::V1) => Err(anyhow!("cvvc does not currently support network protocol v1")),
-            Some(ProtocolVersion::V2) => self.fetch_pack_v2(wants, repo, net_dump, println),
+            Some(ProtocolVersion::V2) => self.fetch_pack_v2(wants, repo, printer),
             None => Err(anyhow!("get your client to sniff the protocol via fetch_refs_capabilities() before fetching a pack")),
         }
     }
@@ -499,8 +498,7 @@ impl HttpFetchClient {
         &self,
         wants: &HashSet<&str>,
         repo: &Repository,
-        net_dump: bool,
-        println: &Printer,
+        printer: &dyn OutputService,
     ) -> Result<PktLineSidebandReader, anyhow::Error> {
         let mut common_objects = IndexSet::<String>::new();
         let our_objects = repo.commits(None)?;
@@ -509,13 +507,7 @@ impl HttpFetchClient {
             Self::top_up_common_objects(&mut common_objects, our_objects, topup_size)?;
         let mut provide_done = false;
         loop {
-            match self.fetch_pack_v2_call(
-                wants,
-                &common_objects,
-                provide_done,
-                net_dump,
-                println,
-            )? {
+            match self.fetch_pack_v2_call(wants, &common_objects, provide_done, printer)? {
                 PackFetchResponse::InfoNeeded(acked) => {
                     if provide_done {
                         return Err(anyhow!("ran out of information to send"));
@@ -552,8 +544,7 @@ impl HttpFetchClient {
         wants: &HashSet<&str>,
         common_objects: &IndexSet<String>,
         provide_done: bool,
-        net_dump: bool,
-        println: &Printer,
+        printer: &dyn OutputService,
     ) -> Result<PackFetchResponse, anyhow::Error> {
         let Some(_) = self.capability("fetch") else {
             return Err(anyhow!("server does not support fetch command"));
@@ -580,10 +571,8 @@ impl HttpFetchClient {
             body_lines.push(PktLine::from("done\x0a"));
         }
         body_lines.push(PktLine::Flush);
-        if net_dump {
-            for line in &body_lines {
-                println(&OutputMessage::plain(&format!("S: {line}")));
-            }
+        for line in &body_lines {
+            printer.println_verbose(&OutputMessage::plain(&format!("S: {line}")));
         }
         let request = add_git_protocol_header(self.client.post(fetch_url)).body(
             body_lines
@@ -694,40 +683,34 @@ impl HttpFetchClient {
     /// an unexpected or unparseable response from the server.
     pub fn fetch_refs_capabilities(
         &mut self,
-        net_dump: bool,
-        println: &Printer,
+        printer: &dyn OutputService,
     ) -> Result<RemoteServerInfo, anyhow::Error> {
         match self.protocol_version {
-            Some(ProtocolVersion::V1) => self.fetch_refs_capabilities_v1(net_dump, println),
-            Some(ProtocolVersion::V2) => self.fetch_refs_capabilities_v2(net_dump, println),
-            None => self.fetch_refs_capabilities_sniff_protocol(net_dump, println),
+            Some(ProtocolVersion::V1) => self.fetch_refs_capabilities_v1(printer),
+            Some(ProtocolVersion::V2) => self.fetch_refs_capabilities_v2(printer),
+            None => self.fetch_refs_capabilities_sniff_protocol(printer),
         }
     }
 
     fn fetch_refs_capabilities_v1(
         &mut self,
-        net_dump: bool,
-        println: &Printer,
+        printer: &dyn OutputService,
     ) -> Result<RemoteServerInfo, anyhow::Error> {
-        let (detected_version, first_line, lines) =
-            self.make_initial_fetch_request(net_dump, println)?;
+        let (detected_version, first_line, lines) = self.make_initial_fetch_request(printer)?;
         if detected_version != ProtocolVersion::V1 {
             return Err(anyhow!("wrong protocol version detected"));
         }
-        self.load_refs_capabilities_body_v1(first_line, lines, net_dump, println)
+        self.load_refs_capabilities_body_v1(first_line, lines, printer)
     }
 
     fn make_initial_fetch_request(
         &self,
-        net_dump: bool,
-        println: &Printer,
+        printer: &dyn OutputService,
     ) -> Result<(ProtocolVersion, PktLine, PktLineIterator<Response>), anyhow::Error> {
         let discovery_url = self.base_url.join("info/refs?service=git-upload-pack")?;
-        if net_dump {
-            println(&OutputMessage::plain(
-                &format!("Discovery URL is {discovery_url}"),
-            ));
-        }
+        printer.println_verbose(&OutputMessage::plain(&format!(
+            "Discovery URL is {discovery_url}"
+        )));
         let mut request = self.client.get(discovery_url);
         if self.protocol_version() == ProtocolVersion::V2 {
             request = add_git_protocol_header(request);
@@ -737,15 +720,14 @@ impl HttpFetchClient {
         if !Self::unwrap_and_test_line(
             lines.next(),
             &PktLine::Line(b"# service=git-upload-pack\x0a".to_vec()),
-            net_dump,
-            println,
+            printer,
         )? {
             return Err(anyhow!("response header not found"));
         }
-        if !Self::unwrap_and_test_line(lines.next(), &PktLine::Flush, net_dump, println)? {
+        if !Self::unwrap_and_test_line(lines.next(), &PktLine::Flush, printer)? {
             return Err(anyhow!("end of header not found"));
         }
-        let first_line = Self::unwrap_line(lines.next(), net_dump, println)?;
+        let first_line = Self::unwrap_line(lines.next(), printer)?;
         let detected_version = if first_line == PktLine::Line(b"version 2\x0a".to_vec()) {
             ProtocolVersion::V2
         } else {
@@ -756,65 +738,57 @@ impl HttpFetchClient {
 
     fn unwrap_line(
         line: Option<Result<PktLine, anyhow::Error>>,
-        net_dump: bool,
-        println: &Printer,
+        printer: &dyn OutputService,
     ) -> Result<PktLine, anyhow::Error> {
         let Some(line) = line else {
             return Err(anyhow!("unexpected end"));
         };
         let line = line?;
-        if net_dump {
-            println(&OutputMessage::plain(&format!("R: {line}")));
-        }
+        printer.println_verbose(&OutputMessage::plain(&format!("R: {line}")));
         Ok(line)
     }
 
     fn unwrap_and_test_line(
         line: Option<Result<PktLine, anyhow::Error>>,
         test_line: &PktLine,
-        net_dump: bool,
-        println: &Printer,
+        printer: &dyn OutputService,
     ) -> Result<bool, anyhow::Error> {
-        let line = Self::unwrap_line(line, net_dump, println)?;
+        let line = Self::unwrap_line(line, printer)?;
         Ok(line == *test_line)
     }
 
     fn fetch_capabilities_v2(
         &mut self,
-        net_dump: bool,
-        println: &Printer,
+        printer: &dyn OutputService,
     ) -> Result<Vec<RemoteCapability>, anyhow::Error> {
-        let (protocol_version, _, lines) = self.make_initial_fetch_request(net_dump, println)?;
+        let (protocol_version, _, lines) = self.make_initial_fetch_request(printer)?;
         if protocol_version != ProtocolVersion::V2 {
             return Err(anyhow!("wrong protocol version"));
         }
-        self.load_capabilities_body_v2(lines, net_dump, println)
+        self.load_capabilities_body_v2(lines, printer)
     }
 
     fn fetch_refs_capabilities_v2(
         &mut self,
-        net_dump: bool,
-        println: &Printer,
+        printer: &dyn OutputService,
     ) -> Result<RemoteServerInfo, anyhow::Error> {
-        self.capabilities = self.fetch_capabilities_v2(net_dump, println)?;
-        self.fetch_refs_v2(net_dump, println)
+        self.capabilities = self.fetch_capabilities_v2(printer)?;
+        self.fetch_refs_v2(printer)
     }
 
     fn fetch_refs_capabilities_sniff_protocol(
         &mut self,
-        net_dump: bool,
-        println: &Printer,
+        printer: &dyn OutputService,
     ) -> Result<RemoteServerInfo, anyhow::Error> {
-        let (protocol_version, first_line, lines) =
-            self.make_initial_fetch_request(net_dump, println)?;
+        let (protocol_version, first_line, lines) = self.make_initial_fetch_request(printer)?;
         self.protocol_version = Some(protocol_version);
         match self.protocol_version {
             Some(ProtocolVersion::V1) => {
-                self.load_refs_capabilities_body_v1(first_line, lines, net_dump, println)
+                self.load_refs_capabilities_body_v1(first_line, lines, printer)
             }
             Some(ProtocolVersion::V2) => {
-                self.capabilities = self.load_capabilities_body_v2(lines, net_dump, println)?;
-                self.fetch_refs_v2(net_dump, println)
+                self.capabilities = self.load_capabilities_body_v2(lines, printer)?;
+                self.fetch_refs_v2(printer)
             }
             _ => Err(anyhow!("impossible")),
         }
@@ -824,8 +798,7 @@ impl HttpFetchClient {
         &mut self,
         first_line: PktLine,
         lines: PktLineIterator<Response>,
-        net_dump: bool,
-        println: &Printer,
+        printer: &dyn OutputService,
     ) -> Result<RemoteServerInfo, anyhow::Error> {
         let mut refs = HashSet::<TargetedRef>::new();
         if let PktLine::Line(line_contents) = first_line {
@@ -837,9 +810,7 @@ impl HttpFetchClient {
         }
         for line in lines {
             let line = line.context("couldn't parse pkt-line")?;
-            if net_dump {
-                println(&OutputMessage::plain(&format!("R:{line}")));
-            }
+            printer.println_verbose(&OutputMessage::plain(&format!("R:{line}")));
             if let PktLine::Line(line_contents) = line {
                 if let Some(parsed_line) = Self::load_single_v1_refs_capabilities_line(
                     line_contents,
@@ -889,15 +860,12 @@ impl HttpFetchClient {
     fn load_capabilities_body_v2(
         &mut self,
         lines: PktLineIterator<Response>,
-        net_dump: bool,
-        println: &Printer,
+        printer: &dyn OutputService,
     ) -> Result<Vec<RemoteCapability>, anyhow::Error> {
         let mut results = vec![];
         for line in lines {
             let line = line?;
-            if net_dump {
-                println(&OutputMessage::plain("R: {line}"));
-            }
+            printer.println_verbose(&OutputMessage::plain(&format!("R: {line}")));
             if let PktLine::Line(content) = line {
                 results.push(RemoteCapability::from_str(&String::from_utf8_lossy(
                     &content,
@@ -909,8 +877,7 @@ impl HttpFetchClient {
 
     fn fetch_refs_v2(
         &self,
-        net_dump: bool,
-        println: &Printer,
+        printer: &dyn OutputService,
     ) -> Result<RemoteServerInfo, anyhow::Error> {
         let ref_url = self.base_url.join("git-upload-pack")?;
         let Some(ls_refs_args) = self.capability("ls-refs") else {
@@ -927,10 +894,8 @@ impl HttpFetchClient {
             body_lines.push(PktLine::from("unborn\x0a"));
         }
         body_lines.push(PktLine::Flush);
-        if net_dump {
-            for line in &body_lines {
-                println(&OutputMessage::plain(&format!("S: {line}")));
-            }
+        for line in &body_lines {
+            printer.println_verbose(&OutputMessage::plain(&format!("S: {line}")));
         }
         let request = add_git_protocol_header(self.client.post(ref_url)).body(
             body_lines
@@ -941,7 +906,7 @@ impl HttpFetchClient {
         let lines = PktLineIterator::from(response_check(request.send()?)?);
         let mut refs = HashSet::<TargetedRef>::new();
         for line in lines {
-            let line = Self::unwrap_line(Some(line), net_dump, println)?;
+            let line = Self::unwrap_line(Some(line), printer)?;
             let PktLine::Line(line_contents) = line else {
                 continue;
             };

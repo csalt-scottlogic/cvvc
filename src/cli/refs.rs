@@ -5,21 +5,21 @@ use crate::{
     config::GlobalConfig,
     helpers::{self, find_repo_cwd, is_ref_name_legal},
     objects::Tag,
-    output::{OutputMessage, Printer},
+    output::{OutputMessage, OutputService},
     repo::Repository,
     stores::RefTarget,
 };
 
 /// Entry point for the `cv show-ref` coommand
-pub fn show_refs(println: &Printer) -> Result<(), anyhow::Error> {
-    let repo = find_repo_cwd(println)?;
-    show_refs_in_repo(&repo, println)
+pub fn show_refs(printer: &dyn OutputService) -> Result<(), anyhow::Error> {
+    let repo = find_repo_cwd(printer)?;
+    show_refs_in_repo(&repo, printer)
 }
 
 /// Entry point for the `cv tag` command (with no arguments).
-pub fn show_tags(println: &Printer) -> Result<(), anyhow::Error> {
-    let repo = find_repo_cwd(println)?;
-    show_tags_in_repo(&repo, println)
+pub fn show_tags(printer: &dyn OutputService) -> Result<(), anyhow::Error> {
+    let repo = find_repo_cwd(printer)?;
+    show_tags_in_repo(&repo, printer)
 }
 
 /// Entry point for the `cv tag <new-tag>` command.
@@ -29,9 +29,9 @@ pub fn create_tag(
     target: &str,
     chunky: bool,
     message: Option<&str>,
-    println: &Printer,
+    printer: &dyn OutputService,
 ) -> Result<(), anyhow::Error> {
-    let repo = find_repo_cwd(println)?;
+    let repo = find_repo_cwd(printer)?;
     if !is_ref_name_legal(name) {
         return Err(anyhow!("illegal ref name"));
     }
@@ -67,15 +67,15 @@ fn create_chunky_tag(
     repo.create_ref(&name, &tag_id)
 }
 
-fn show_refs_in_repo(repo: &Repository, println: &Printer) -> Result<(), anyhow::Error> {
+fn show_refs_in_repo(repo: &Repository, printer: &dyn OutputService) -> Result<(), anyhow::Error> {
     let ref_map = repo.ref_list()?;
-    print_refs(ref_map, true, "", println);
+    print_refs(ref_map, true, "", printer);
     Ok(())
 }
 
-fn show_tags_in_repo(repo: &Repository, println: &Printer) -> Result<(), anyhow::Error> {
+fn show_tags_in_repo(repo: &Repository, printer: &dyn OutputService) -> Result<(), anyhow::Error> {
     let ref_map = repo.tag_list()?;
-    print_refs(ref_map, false, "", println);
+    print_refs(ref_map, false, "", printer);
     Ok(())
 }
 
@@ -83,7 +83,7 @@ fn print_refs(
     ref_map: IndexMap<String, RefTarget>,
     with_hash: bool,
     prefix: &str,
-    println: &Printer,
+    printer: &dyn OutputService,
 ) {
     for item in ref_map {
         let msg = if with_hash {
@@ -91,6 +91,6 @@ fn print_refs(
         } else {
             format!("{}{}", prefix, item.0)
         };
-        println(&OutputMessage::plain(&msg));
+        printer.println(&OutputMessage::plain(&msg));
     }
 }

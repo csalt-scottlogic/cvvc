@@ -1,6 +1,3 @@
-/// A convenience type representing a function that takes an [`OutputMessage`] argument.
-pub type Printer = dyn Fn(&OutputMessage);
-
 /// Whether to produce plain or coloured output
 ///
 /// "Plain" or "Colour" here should be taken as meaning
@@ -41,17 +38,27 @@ impl<'a> OutputMessage<'a> {
 pub trait OutputService {
     /// Print a user message, followed by a newline.
     fn println(&self, msg: &OutputMessage);
+
+    /// Print a user maessage, followed by a newline, if verbose output is selected.
+    fn println_verbose(&self, msg: &OutputMessage);
+
+    /// Print an empty line.
+    fn println_empty(&self);
 }
 
 /// A service that prints user messages to the console.
 pub struct ConsoleOutputService {
     mode: OutputKind,
+    verbose: bool,
 }
 
 impl ConsoleOutputService {
     /// Create a new [`ConsoleOutputService`], specifying whether it supports plain or coloured (and plain) messages.
-    pub fn new(kind: OutputKind) -> Self {
-        Self { mode: kind }
+    pub fn new(kind: OutputKind, verbose: bool) -> Self {
+        Self {
+            mode: kind,
+            verbose,
+        }
     }
 
     fn select<'a>(&self, msg: &'a OutputMessage) -> &'a str {
@@ -65,6 +72,16 @@ impl ConsoleOutputService {
 impl OutputService for ConsoleOutputService {
     fn println(&self, msg: &OutputMessage) {
         println!("{}", self.select(msg))
+    }
+
+    fn println_verbose(&self, msg: &OutputMessage) {
+        if self.verbose {
+            self.println(msg);
+        }
+    }
+
+    fn println_empty(&self) {
+        println!()
     }
 }
 
@@ -80,6 +97,7 @@ mod tests {
         };
         let test_object = ConsoleOutputService {
             mode: OutputKind::Plain,
+            verbose: true,
         };
 
         let test_output = test_object.select(&test_input);
@@ -95,6 +113,7 @@ mod tests {
         };
         let test_object = ConsoleOutputService {
             mode: OutputKind::Plain,
+            verbose: true,
         };
 
         let test_output = test_object.select(&test_input);
@@ -110,6 +129,7 @@ mod tests {
         };
         let test_object = ConsoleOutputService {
             mode: OutputKind::Colour,
+            verbose: true,
         };
 
         let test_output = test_object.select(&test_input);
@@ -125,6 +145,7 @@ mod tests {
         };
         let test_object = ConsoleOutputService {
             mode: OutputKind::Colour,
+            verbose: true,
         };
 
         let test_output = test_object.select(&test_input);

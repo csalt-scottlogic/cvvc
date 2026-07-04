@@ -9,7 +9,7 @@ use sha1::{Digest, Sha1};
 
 use crate::{
     objects::{ObjectKind, RawObject},
-    output::{OutputMessage, Printer},
+    output::{OutputMessage, OutputService},
 };
 
 use super::helpers;
@@ -82,7 +82,7 @@ impl PackIndexEntry {
 pub fn index<P: AsRef<Path>>(
     base_path: P,
     pack_name: &str,
-    println: &Printer,
+    printer: &dyn OutputService,
 ) -> Result<(), anyhow::Error> {
     let primary_file_path = helpers::primary_file_name(&base_path, pack_name);
     let primary_file_len = primary_file_path.metadata()?.len();
@@ -111,14 +111,14 @@ pub fn index<P: AsRef<Path>>(
         pack_name,
         &index_entries,
         &pack_checksum,
-        println,
+        printer,
     )?;
     write_out_rev_index(
         &base_path,
         pack_name,
         &index_entries,
         &pack_checksum,
-        println,
+        printer,
     )?;
     Ok(())
 }
@@ -128,11 +128,11 @@ fn write_out_index<P: AsRef<Path>>(
     pack_name: &str,
     entries: &[PackIndexEntry],
     pack_checksum: &[u8],
-    println: &Printer,
+    printer: &dyn OutputService,
 ) -> Result<(), anyhow::Error> {
     let index_file_path = helpers::index_file_name(base_path, pack_name);
     if index_file_path.exists() {
-        println(&OutputMessage::plain(
+        printer.println(&OutputMessage::plain(
             "Index file path already exists; not overwriting",
         ));
         return Ok(());
@@ -266,11 +266,11 @@ fn write_out_rev_index<P: AsRef<Path>>(
     pack_name: &str,
     entries: &[PackIndexEntry],
     pack_checksum: &[u8],
-    println: &Printer,
+    printer: &dyn OutputService,
 ) -> Result<(), anyhow::Error> {
     let rev_file_path = helpers::rev_index_file_name(base_path, pack_name);
     if rev_file_path.exists() {
-        println(&OutputMessage::plain(
+        printer.println(&OutputMessage::plain(
             "Reverse index file already exists; not overwriting",
         ));
         return Ok(());

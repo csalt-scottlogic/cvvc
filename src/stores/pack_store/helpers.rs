@@ -10,7 +10,7 @@ use sha1::{Digest, Sha1};
 
 use crate::{
     objects::{combine_object_delta_data, ObjectKind, ObjectMetadata, RawObjectData},
-    output::{OutputMessage, Printer},
+    output::{OutputMessage, OutputService},
 };
 
 use super::{PackedObjectMetadata, PackedObjectType, PackedObjectTypeOnly};
@@ -64,11 +64,11 @@ pub fn open_file_from_path<P: AsRef<Path>>(path: P) -> Result<BufReader<File>, a
 pub fn store_from_reader<P: AsRef<Path>, R: Read>(
     mut reader: R,
     path: P,
-    println: &Printer,
+    printer: &dyn OutputService,
 ) -> Result<u64, anyhow::Error> {
     let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
     let size = io::copy(&mut reader, &mut file)?;
-    println(&OutputMessage::plain("{size} bytes downloaded"));
+    printer.println(&OutputMessage::plain("{size} bytes downloaded"));
     Ok(size)
 }
 
