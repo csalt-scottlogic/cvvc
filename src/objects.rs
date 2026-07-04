@@ -99,23 +99,17 @@ impl TryFrom<&RawObject> for StoredObject {
     type Error = anyhow::Error;
 
     /// Attempt to convert a [`RawObject`] to a [`StoredObject`]
-    /// 
+    ///
     /// This function will return an error if the raw object is a delta object; delta objects
     /// need to be merged with their base chain before they can be parsed.
     fn try_from(value: &RawObject) -> Result<Self, Self::Error> {
         match value.metadata().kind {
-            ObjectKind::Blob => Ok(Self::Blob(Blob::deserialise(
-                value.content_headerless(),
-            )?)),
+            ObjectKind::Blob => Ok(Self::Blob(Blob::deserialise(value.content_headerless())?)),
             ObjectKind::Commit => Ok(Self::Commit(Commit::deserialise(
                 value.content_headerless(),
             )?)),
-            ObjectKind::Tree => Ok(Self::Tree(Tree::deserialise(
-                value.content_headerless(),
-            )?)),
-            ObjectKind::Tag => Ok(Self::Tag(Tag::deserialise(
-                value.content_headerless(),
-            )?)),
+            ObjectKind::Tree => Ok(Self::Tree(Tree::deserialise(value.content_headerless())?)),
+            ObjectKind::Tag => Ok(Self::Tag(Tag::deserialise(value.content_headerless())?)),
             _ => Err(anyhow!("Delta objects cannot be parsed")),
         }
     }
@@ -492,7 +486,7 @@ mod tests {
 
     use crate::objects::StoredObject;
 
-use super::{find_without, kvlm_parse, ObjectKind, ObjectMetadata, RawObject};
+    use super::{find_without, kvlm_parse, ObjectKind, ObjectMetadata, RawObject};
 
     #[test]
     fn find_without_succeeds() {
@@ -639,8 +633,6 @@ nJ9HxHVU8lBavzdUdEpO
 -----END PGP SIGNATURE-----\n";
 
         kvlm_parse(&test_data, &mut test_map).unwrap();
-
-        println!("{:?}", test_map);
 
         let test_output = &test_map["gpgsig"];
         assert_eq!(vec![expected_result], *test_output);

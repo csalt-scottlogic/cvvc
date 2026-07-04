@@ -8,7 +8,10 @@ use anyhow::anyhow;
 use flate2::bufread::ZlibDecoder;
 use sha1::{Digest, Sha1};
 
-use crate::objects::{combine_object_delta_data, ObjectKind, ObjectMetadata, RawObjectData};
+use crate::{
+    objects::{combine_object_delta_data, ObjectKind, ObjectMetadata, RawObjectData},
+    output::{OutputMessage, Printer},
+};
 
 use super::{PackedObjectMetadata, PackedObjectType, PackedObjectTypeOnly};
 
@@ -61,10 +64,11 @@ pub fn open_file_from_path<P: AsRef<Path>>(path: P) -> Result<BufReader<File>, a
 pub fn store_from_reader<P: AsRef<Path>, R: Read>(
     mut reader: R,
     path: P,
+    println: &Printer,
 ) -> Result<u64, anyhow::Error> {
     let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
     let size = io::copy(&mut reader, &mut file)?;
-    println!("{size} bytes downloaded");
+    println(&OutputMessage::new("{size} bytes downloaded", None));
     Ok(size)
 }
 

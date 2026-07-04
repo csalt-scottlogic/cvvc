@@ -1,34 +1,40 @@
 use crate::{
     helpers::find_repo_cwd,
     objects::{ObjectKind, StoredObject},
+    output::{OutputMessage, Printer},
     repo::Repository,
 };
 use std::collections::HashSet;
 
 /// Entry point for the `cv log` command
-pub fn cmd(commit: &str) -> Result<(), anyhow::Error> {
-    let repo = find_repo_cwd()?;
-    log_from_repo(repo, commit)
+pub fn cmd(commit: &str, println: &Printer) -> Result<(), anyhow::Error> {
+    let repo = find_repo_cwd(println)?;
+    log_from_repo(repo, commit, println)
 }
 
-fn log_from_repo(repo: Repository, commit: &str) -> Result<(), anyhow::Error> {
+fn log_from_repo(repo: Repository, commit: &str, println: &Printer) -> Result<(), anyhow::Error> {
     let starting_node = repo.find_object(commit, Some(ObjectKind::Commit), true)?;
 
-    println!("digraph cvlog{{");
-    println!("  node[shape=rect]");
-    log_commits_graphviz(&repo, &starting_node)?;
-    println!("}}");
+    println(&OutputMessage::new("digraph cvlog{{", None));
+    println(&OutputMessage::new("  node[shape=rect]", None));
+    log_commits_graphviz(&repo, &starting_node, println)?;
+    println(&OutputMessage::new("}}", None));
     Ok(())
 }
 
 /// Create a GraphViz repository graph, starting from a specific commit.
-pub fn log_commits_graphviz(repo: &Repository, commit_id: &str) -> Result<(), anyhow::Error> {
-    log_commits_graphviz_impl(repo, commit_id, &mut HashSet::<String>::new())
+pub fn log_commits_graphviz(
+    repo: &Repository,
+    commit_id: &str,
+    println: &Printer,
+) -> Result<(), anyhow::Error> {
+    log_commits_graphviz_impl(repo, commit_id, println, &mut HashSet::<String>::new())
 }
 
 fn log_commits_graphviz_impl<'a>(
     repo: &'a Repository,
     commit_id: &'a str,
+    println: &Printer,
     seen: &mut HashSet<String>,
 ) -> Result<(), anyhow::Error> {
     if seen.contains(commit_id) {
@@ -49,10 +55,16 @@ fn log_commits_graphviz_impl<'a>(
         } else {
             commit_id
         };
-        println!("  c_{commit_id} [label=\"{commit_id_prefix}: {printable_message}\"]");
+        println(&OutputMessage::new(
+            &format!("  c_{commit_id} [label=\"{commit_id_prefix}: {printable_message}\"]"),
+            None,
+        ));
         for p in commit.parents().iter() {
-            println!("  c_{commit_id} -> c_{p};");
-            log_commits_graphviz_impl(repo, p, seen)?;
+            println(&OutputMessage::new(
+                &format!("  c_{commit_id} -> c_{p};"),
+                None,
+            ));
+            log_commits_graphviz_impl(repo, p, println, seen)?;
         }
     }
     Ok(())

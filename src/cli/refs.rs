@@ -5,20 +5,21 @@ use crate::{
     config::GlobalConfig,
     helpers::{self, find_repo_cwd, is_ref_name_legal},
     objects::Tag,
+    output::{OutputMessage, Printer},
     repo::Repository,
     stores::RefTarget,
 };
 
 /// Entry point for the `cv show-ref` coommand
-pub fn show_refs() -> Result<(), anyhow::Error> {
-    let repo = find_repo_cwd()?;
-    show_refs_in_repo(&repo)
+pub fn show_refs(println: &Printer) -> Result<(), anyhow::Error> {
+    let repo = find_repo_cwd(println)?;
+    show_refs_in_repo(&repo, println)
 }
 
 /// Entry point for the `cv tag` command (with no arguments).
-pub fn show_tags() -> Result<(), anyhow::Error> {
-    let repo = find_repo_cwd()?;
-    show_tags_in_repo(&repo)
+pub fn show_tags(println: &Printer) -> Result<(), anyhow::Error> {
+    let repo = find_repo_cwd(println)?;
+    show_tags_in_repo(&repo, println)
 }
 
 /// Entry point for the `cv tag <new-tag>` command.
@@ -28,8 +29,9 @@ pub fn create_tag(
     target: &str,
     chunky: bool,
     message: Option<&str>,
+    println: &Printer,
 ) -> Result<(), anyhow::Error> {
-    let repo = find_repo_cwd()?;
+    let repo = find_repo_cwd(println)?;
     if !is_ref_name_legal(name) {
         return Err(anyhow!("illegal ref name"));
     }
@@ -65,24 +67,30 @@ fn create_chunky_tag(
     repo.create_ref(&name, &tag_id)
 }
 
-fn show_refs_in_repo(repo: &Repository) -> Result<(), anyhow::Error> {
+fn show_refs_in_repo(repo: &Repository, println: &Printer) -> Result<(), anyhow::Error> {
     let ref_map = repo.ref_list()?;
-    print_refs(ref_map, true, "");
+    print_refs(ref_map, true, "", println);
     Ok(())
 }
 
-fn show_tags_in_repo(repo: &Repository) -> Result<(), anyhow::Error> {
+fn show_tags_in_repo(repo: &Repository, println: &Printer) -> Result<(), anyhow::Error> {
     let ref_map = repo.tag_list()?;
-    print_refs(ref_map, false, "");
+    print_refs(ref_map, false, "", println);
     Ok(())
 }
 
-fn print_refs(ref_map: IndexMap<String, RefTarget>, with_hash: bool, prefix: &str) {
+fn print_refs(
+    ref_map: IndexMap<String, RefTarget>,
+    with_hash: bool,
+    prefix: &str,
+    println: &Printer,
+) {
     for item in ref_map {
-        if with_hash {
-            println!("{} {}{}", item.1, prefix, item.0);
+        let msg = if with_hash {
+            format!("{} {}{}", item.1, prefix, item.0)
         } else {
-            println!("{}{}", prefix, item.0);
-        }
+            format!("{}{}", prefix, item.0)
+        };
+        println(&OutputMessage::new(&msg, None));
     }
 }

@@ -2,15 +2,20 @@ use crate::{
     config::GlobalConfig,
     helpers::{find_repo_cwd, is_ref_name_legal},
     objects::StoredObject,
+    output::{OutputMessage, Printer},
     repo::Repository,
     stores::{BranchLocation, BranchSpec, RefSpec},
 };
 use anyhow::anyhow;
 
 /// Entry point for the `cv checkout` command
-pub fn checkout(target_name: &str, config: &GlobalConfig) -> Result<(), anyhow::Error> {
-    let repo = find_repo_cwd()?;
-    checkout_from_repo(&repo, target_name, config)
+pub fn checkout(
+    target_name: &str,
+    config: &GlobalConfig,
+    println: &Printer,
+) -> Result<(), anyhow::Error> {
+    let repo = find_repo_cwd(println)?;
+    checkout_from_repo(&repo, target_name, config, println)
 }
 
 /// Entry point for the `cv branch <new-branch>` and `cv checkout -b <new-branch>` commands
@@ -18,18 +23,23 @@ pub fn new_branch(
     branch_name: &str,
     checkout: bool,
     config: &GlobalConfig,
+    println: &Printer,
 ) -> Result<(), anyhow::Error> {
-    let repo = find_repo_cwd()?;
+    let repo = find_repo_cwd(println)?;
     new_branch_in_repo(&repo, branch_name, checkout, config)
 }
 
 /// Entry point for the `cv branch --list` command.
-pub fn list_branches(list_all: bool) -> Result<(), anyhow::Error> {
-    let repo = find_repo_cwd()?;
-    list_branches_in_repo(&repo, list_all)
+pub fn list_branches(list_all: bool, println: &Printer) -> Result<(), anyhow::Error> {
+    let repo = find_repo_cwd(println)?;
+    list_branches_in_repo(&repo, list_all, println)
 }
 
-fn list_branches_in_repo(repo: &Repository, list_all: bool) -> Result<(), anyhow::Error> {
+fn list_branches_in_repo(
+    repo: &Repository,
+    list_all: bool,
+    println: &Printer,
+) -> Result<(), anyhow::Error> {
     let branches = repo.branches()?;
     let cb = repo.current_branch()?;
     for branch in branches
@@ -41,7 +51,10 @@ fn list_branches_in_repo(repo: &Repository, list_all: bool) -> Result<(), anyhow
         } else {
             " "
         };
-        println!("{cb_flag} {}", branch.distinguished_name());
+        println(&OutputMessage::new(
+            &format!("{cb_flag} {}", branch.distinguished_name()),
+            None,
+        ));
     }
     Ok(())
 }
@@ -96,6 +109,7 @@ fn checkout_from_repo(
     repo: &Repository,
     target_name: &str,
     config: &GlobalConfig,
+    println: &Printer,
 ) -> Result<(), anyhow::Error> {
     let prev_branch = repo.current_branch()?;
     let prev_commit_id = repo.current_commit()?;
@@ -142,7 +156,10 @@ fn checkout_from_repo(
         repo.update_head(target_name)?;
     } else {
         repo.update_head_detached(&target_id)?;
-        println!("HEAD is detached at {target_id}");
+        println(&OutputMessage::new(
+            &format!("HEAD is detached at {target_id}"),
+            None,
+        ));
     }
     let ref_log_source = prev_branch
         .map(|b| b.name)

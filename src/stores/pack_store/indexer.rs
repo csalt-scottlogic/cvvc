@@ -7,7 +7,10 @@ use std::{
 use anyhow::anyhow;
 use sha1::{Digest, Sha1};
 
-use crate::objects::{ObjectKind, RawObject};
+use crate::{
+    objects::{ObjectKind, RawObject},
+    output::{OutputMessage, Printer},
+};
 
 use super::helpers;
 
@@ -76,7 +79,11 @@ impl PackIndexEntry {
     }
 }
 
-pub fn index<P: AsRef<Path>>(base_path: P, pack_name: &str) -> Result<(), anyhow::Error> {
+pub fn index<P: AsRef<Path>>(
+    base_path: P,
+    pack_name: &str,
+    println: &Printer,
+) -> Result<(), anyhow::Error> {
     let primary_file_path = helpers::primary_file_name(&base_path, pack_name);
     let primary_file_len = primary_file_path.metadata()?.len();
     let mut primary_file = helpers::open_file_from_path(primary_file_path)?;
@@ -99,8 +106,20 @@ pub fn index<P: AsRef<Path>>(base_path: P, pack_name: &str) -> Result<(), anyhow
     let mut pack_checksum = [0u8; 20];
     primary_file.seek(SeekFrom::Start(idx))?;
     primary_file.read_exact(&mut pack_checksum)?;
-    write_out_index(&base_path, pack_name, &index_entries, &pack_checksum)?;
-    write_out_rev_index(&base_path, pack_name, &index_entries, &pack_checksum)?;
+    write_out_index(
+        &base_path,
+        pack_name,
+        &index_entries,
+        &pack_checksum,
+        println,
+    )?;
+    write_out_rev_index(
+        &base_path,
+        pack_name,
+        &index_entries,
+        &pack_checksum,
+        println,
+    )?;
     Ok(())
 }
 
@@ -109,10 +128,14 @@ fn write_out_index<P: AsRef<Path>>(
     pack_name: &str,
     entries: &[PackIndexEntry],
     pack_checksum: &[u8],
+    println: &Printer,
 ) -> Result<(), anyhow::Error> {
     let index_file_path = helpers::index_file_name(base_path, pack_name);
     if index_file_path.exists() {
-        println!("Index file path already exists; not overwriting");
+        println(&OutputMessage::new(
+            "Index file path already exists; not overwriting",
+            None,
+        ));
         return Ok(());
     }
     let file = OpenOptions::new()
@@ -244,10 +267,14 @@ fn write_out_rev_index<P: AsRef<Path>>(
     pack_name: &str,
     entries: &[PackIndexEntry],
     pack_checksum: &[u8],
+    println: &Printer,
 ) -> Result<(), anyhow::Error> {
     let rev_file_path = helpers::rev_index_file_name(base_path, pack_name);
     if rev_file_path.exists() {
-        println!("Reverse index file already exists; not overwriting");
+        println(&OutputMessage::new(
+            "Reverse index file already exists; not overwriting",
+            None,
+        ));
         return Ok(());
     }
     let file = OpenOptions::new()

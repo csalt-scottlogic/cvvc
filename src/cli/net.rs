@@ -4,17 +4,18 @@ use crate::{
     config::{FetchRefMap, GlobalConfig, RemoteInfo},
     helpers::find_repo_cwd,
     net::{HttpFetchClient, ProtocolVersion},
+    output::{OutputMessage, Printer},
     repo::Repository,
     stores::TargetedRef,
 };
 
 /// Entry point for `cv fetch`.  Fetches from all remotes.
-pub fn fetch(config: &GlobalConfig, verbose: bool) -> Result<(), anyhow::Error> {
-    let mut repo = find_repo_cwd()?;
+pub fn fetch(config: &GlobalConfig, verbose: bool, println: &Printer) -> Result<(), anyhow::Error> {
+    let mut repo = find_repo_cwd(println)?;
     let remotes = repo.list_remote_names();
     for remote in remotes {
         if let Some(remote) = repo.get_remote(&remote) {
-            fetch_remote(&mut repo, &remote, None, config, verbose)?;
+            fetch_remote(&mut repo, &remote, None, config, verbose, println)?;
         }
     }
     Ok(())
@@ -26,13 +27,14 @@ fn fetch_remote(
     version: Option<u32>,
     config: &GlobalConfig,
     verbose: bool,
+    println: &Printer,
 ) -> Result<(), anyhow::Error> {
     for url in remote.fetch_urls.iter() {
         let protocol_version = version
             .map(ProtocolVersion::try_from)
             .map_or(Ok(None), |v| v.map(Some))?;
         let mut fetch_client_engine = HttpFetchClient::new(url, protocol_version)?;
-        let remote_info = fetch_client_engine.fetch_refs_capabilities(verbose)?;
+        let remote_info = fetch_client_engine.fetch_refs_capabilities(verbose, println)?;
         let deduped_rem_refs = remote_info.refs.iter().collect::<HashSet<&TargetedRef>>();
         let ref_maps: Vec<FetchRefMap> = deduped_rem_refs
             .into_iter()
@@ -49,7 +51,7 @@ fn fetch_remote(
             })
             .collect::<Vec<&FetchRefMap>>();
         if updates_needed.is_empty() {
-            println!("Nothing to update");
+            println(&OutputMessage::new("Nothing to update", None));
             return Ok(());
         }
         let objects_needed: HashSet<String> = updates_needed
@@ -66,7 +68,7 @@ fn fetch_remote(
             })
             .collect();
         if objects_needed.is_empty() {
-            println!("No objects needed");
+            println(&OutputMessage::new("No objects needed", None));
         } else {
             let reader = fetch_client_engine.fetch_pack(
                 &objects_needed
@@ -75,8 +77,9 @@ fn fetch_remote(
                     .collect::<HashSet<_>>(),
                 repo,
                 verbose,
+                println,
             )?;
-            repo.store_pack(reader)?;
+            repo.store_pack(reader, println)?;
         }
         for update in updates_needed {
             let new_target = update.source.target.to_string();
@@ -93,12 +96,15 @@ fn fetch_remote(
                 } else if update.force {
                     "fetch (forced)"
                 } else {
-                    println!(
-                        "Skipping update {}... => {}... for {} (not fast-forwardable)",
-                        &existing_target.unwrap()[..8],
-                        &new_target[..8],
-                        &update.dest
-                    );
+                    println(&OutputMessage::new(
+                        &format!(
+                            "Skipping update {}... => {}... for {} (not fast-forwardable)",
+                            &existing_target.unwrap()[..8],
+                            &new_target[..8],
+                            &update.dest
+                        ),
+                        None,
+                    ));
                     continue;
                 };
                 repo.update_ref(&update.dest, &update.source.target)?;
@@ -110,12 +116,16 @@ fn fetch_remote(
                     &update.dest,
                     false,
                 )?;
-                println!(
-                    "Updated {}: {}... => {}...",
-                    &update.dest,
-                    &existing_target.map_or_else(|| "(none)".to_string(), |t| t[..8].to_string()),
-                    &new_target[..8]
-                );
+                println(&OutputMessage::new(
+                    &format!(
+                        "Updated {}: {}... => {}...",
+                        &update.dest,
+                        &existing_target
+                            .map_or_else(|| "(none)".to_string(), |t| t[..8].to_string()),
+                        &new_target[..8]
+                    ),
+                    None,
+                ));
             }
         }
     }

@@ -8,26 +8,30 @@ use std::{
 use crate::{
     helpers::find_repo_cwd,
     objects::{Blob, ObjectKind, RawObject, StoredObject},
+    output::{OutputMessage, Printer},
     repo::Repository,
 };
 
 /// Entry point for the `cv rev-parse` command.
-pub fn rev_parse(obj_name: &str) -> Result<(), anyhow::Error> {
-    let repo = find_repo_cwd()?;
-    println!("{}", &repo.find_object(obj_name, None, true)?);
+pub fn rev_parse(obj_name: &str, println: &Printer) -> Result<(), anyhow::Error> {
+    let repo = find_repo_cwd(println)?;
+    println(&OutputMessage::new(
+        &repo.find_object(obj_name, None, true)?,
+        None,
+    ));
     Ok(())
 }
 
 /// Entry point for the `cv cat-file` command.
-pub fn cat_file(obj_type: &str, obj_name: &str) -> Result<(), anyhow::Error> {
-    let repo = find_repo_cwd()?;
+pub fn cat_file(obj_type: &str, obj_name: &str, println: &Printer) -> Result<(), anyhow::Error> {
+    let repo = find_repo_cwd(println)?;
     cat_file_from_repo(repo, obj_type, obj_name)
 }
 
 /// Entry point for the `cv ls-tree` command.
-pub fn list_tree(recursive: bool, obj_name: &str) -> Result<(), anyhow::Error> {
-    let repo = find_repo_cwd()?;
-    list_tree_recursive(recursive, &repo, obj_name, None)
+pub fn list_tree(recursive: bool, obj_name: &str, println: &Printer) -> Result<(), anyhow::Error> {
+    let repo = find_repo_cwd(println)?;
+    list_tree_recursive(recursive, &repo, obj_name, None, println)
 }
 
 fn cat_file_from_repo(
@@ -55,11 +59,11 @@ fn cat_file_from_repo(
 }
 
 /// Entry point for the `cv object-hash` command.
-pub fn object_hash(write: bool, filename: &str) -> Result<(), anyhow::Error> {
+pub fn object_hash(write: bool, filename: &str, println: &Printer) -> Result<(), anyhow::Error> {
     let raw_object = RawObject::from(&Blob::new_from_path(filename)?);
-    println!("{}", raw_object.object_id());
+    println(&OutputMessage::new(raw_object.object_id(), None));
     if write {
-        if let Some(repo) = Repository::find_cwd()? {
+        if let Some(repo) = Repository::find_cwd(println)? {
             repo.write_raw_object(&raw_object)?;
         }
     }
@@ -71,6 +75,7 @@ fn list_tree_recursive(
     repo: &Repository,
     obj_name: &str,
     prefix: Option<&PathBuf>,
+    println: &Printer,
 ) -> Result<(), anyhow::Error> {
     let obj = repo.read_object(obj_name)?;
     let Some(obj) = obj else {
@@ -99,16 +104,20 @@ fn list_tree_recursive(
                 Some(prefix) => prefix.join(item.name()).to_string_lossy().to_string(),
                 None => item.name().to_string(),
             };
-            println!(
-                "{:06o} {} {}\t{}",
-                item.mode, item_type, item.object_id, path_str
-            );
+            println(&OutputMessage::new(
+                &format!(
+                    "{:06o} {} {}\t{}",
+                    item.mode, item_type, item.object_id, path_str
+                ),
+                None,
+            ));
         } else {
             list_tree_recursive(
                 recursive,
                 repo,
                 &item.object_id,
                 Some(&PathBuf::from_str(item.name())?),
+                println,
             )?;
         }
     }
