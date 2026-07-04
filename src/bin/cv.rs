@@ -248,7 +248,7 @@ fn parse_dispatch() -> ExitCode {
                 return ExitCode::FAILURE;
             }
             Ok(())
-        },
+        }
         Commands::Checkout { new_branch, target } => {
             if new_branch {
                 branches::new_branch(&target, true, &config)
