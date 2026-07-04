@@ -21,7 +21,7 @@ pub fn list(println: &Printer) -> Result<(), anyhow::Error> {
     let repo = find_repo_cwd(println)?;
     let ref_logs = repo.list_ref_logs()?;
     for log in ref_logs {
-        println(&OutputMessage::new(&log, None));
+        println(&OutputMessage::plain(&log));
     }
     Ok(())
 }

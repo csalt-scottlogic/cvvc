@@ -9,22 +9,20 @@ pub fn list_remotes(verbose: bool, println: &Printer) -> Result<(), anyhow::Erro
     let remotes = repo.list_remote_names();
     if !verbose {
         for remote in remotes {
-            println(&OutputMessage::new(&remote, None));
+            println(&OutputMessage::plain(&remote));
         }
     } else {
         for remote in remotes {
             let remote_details = repo.get_remote(&remote);
             if let Some(remote_details) = remote_details {
                 for fetch in remote_details.fetch_urls {
-                    println(&OutputMessage::new(
+                    println(&OutputMessage::plain(
                         &remote_formatter(&remote_details.name, &fetch, "fetch"),
-                        None,
                     ));
                 }
                 for push in remote_details.push_urls {
-                    println(&OutputMessage::new(
+                    println(&OutputMessage::plain(
                         &remote_formatter(&remote_details.name, &push, "push"),
-                        None,
                     ));
                 }
             };

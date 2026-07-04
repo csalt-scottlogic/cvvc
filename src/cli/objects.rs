@@ -15,9 +15,8 @@ use crate::{
 /// Entry point for the `cv rev-parse` command.
 pub fn rev_parse(obj_name: &str, println: &Printer) -> Result<(), anyhow::Error> {
     let repo = find_repo_cwd(println)?;
-    println(&OutputMessage::new(
+    println(&OutputMessage::plain(
         &repo.find_object(obj_name, None, true)?,
-        None,
     ));
     Ok(())
 }
@@ -61,7 +60,7 @@ fn cat_file_from_repo(
 /// Entry point for the `cv object-hash` command.
 pub fn object_hash(write: bool, filename: &str, println: &Printer) -> Result<(), anyhow::Error> {
     let raw_object = RawObject::from(&Blob::new_from_path(filename)?);
-    println(&OutputMessage::new(raw_object.object_id(), None));
+    println(&OutputMessage::plain(raw_object.object_id()));
     if write {
         if let Some(repo) = Repository::find_cwd(println)? {
             repo.write_raw_object(&raw_object)?;
@@ -104,12 +103,11 @@ fn list_tree_recursive(
                 Some(prefix) => prefix.join(item.name()).to_string_lossy().to_string(),
                 None => item.name().to_string(),
             };
-            println(&OutputMessage::new(
+            println(&OutputMessage::plain(
                 &format!(
                     "{:06o} {} {}\t{}",
                     item.mode, item_type, item.object_id, path_str
                 ),
-                None,
             ));
         } else {
             list_tree_recursive(

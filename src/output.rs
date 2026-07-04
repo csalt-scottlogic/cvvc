@@ -30,6 +30,11 @@ impl<'a> OutputMessage<'a> {
     pub fn new(plain: &'a str, colour: Option<&'a str>) -> OutputMessage<'a> {
         Self { plain, colour }
     }
+
+    /// Create an [`OutputMessage`] consisting only of a plain message.
+    pub fn plain(msg: &'a str) -> OutputMessage<'a> {
+        Self::new(msg, None)
+    }
 }
 
 /// A service that can print user messages.

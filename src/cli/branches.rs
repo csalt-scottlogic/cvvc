@@ -51,9 +51,8 @@ fn list_branches_in_repo(
         } else {
             " "
         };
-        println(&OutputMessage::new(
-            &format!("{cb_flag} {}", branch.distinguished_name()),
-            None,
+        println(&OutputMessage::plain(
+            &format!("{cb_flag} {}", branch.distinguished_name())
         ));
     }
     Ok(())
@@ -156,9 +155,8 @@ fn checkout_from_repo(
         repo.update_head(target_name)?;
     } else {
         repo.update_head_detached(&target_id)?;
-        println(&OutputMessage::new(
-            &format!("HEAD is detached at {target_id}"),
-            None,
+        println(&OutputMessage::plain(
+            &format!("HEAD is detached at {target_id}")
         ));
     }
     let ref_log_source = prev_branch

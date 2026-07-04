@@ -51,7 +51,7 @@ fn fetch_remote(
             })
             .collect::<Vec<&FetchRefMap>>();
         if updates_needed.is_empty() {
-            println(&OutputMessage::new("Nothing to update", None));
+            println(&OutputMessage::plain("Nothing to update"));
             return Ok(());
         }
         let objects_needed: HashSet<String> = updates_needed
@@ -68,7 +68,7 @@ fn fetch_remote(
             })
             .collect();
         if objects_needed.is_empty() {
-            println(&OutputMessage::new("No objects needed", None));
+            println(&OutputMessage::plain("No objects needed"));
         } else {
             let reader = fetch_client_engine.fetch_pack(
                 &objects_needed
@@ -96,14 +96,13 @@ fn fetch_remote(
                 } else if update.force {
                     "fetch (forced)"
                 } else {
-                    println(&OutputMessage::new(
+                    println(&OutputMessage::plain(
                         &format!(
                             "Skipping update {}... => {}... for {} (not fast-forwardable)",
                             &existing_target.unwrap()[..8],
                             &new_target[..8],
                             &update.dest
                         ),
-                        None,
                     ));
                     continue;
                 };
@@ -116,7 +115,7 @@ fn fetch_remote(
                     &update.dest,
                     false,
                 )?;
-                println(&OutputMessage::new(
+                println(&OutputMessage::plain(
                     &format!(
                         "Updated {}: {}... => {}...",
                         &update.dest,
@@ -124,7 +123,6 @@ fn fetch_remote(
                             .map_or_else(|| "(none)".to_string(), |t| t[..8].to_string()),
                         &new_target[..8]
                     ),
-                    None,
                 ));
             }
         }

@@ -59,9 +59,8 @@ impl PackStore {
         pack_name: &str,
         println: &Printer,
     ) -> Result<Self, anyhow::Error> {
-        println(&OutputMessage::new(
+        println(&OutputMessage::plain(
             &format!("DEBUG: loading pack {}", pack_name),
-            None,
         ));
         let base_path = base_path.as_ref();
         if !base_path.is_dir() {
@@ -77,9 +76,8 @@ impl PackStore {
         let index_file = helpers::index_file_name(base_path, pack_name);
         if !index_file.is_file() {
             if !index_file.exists() {
-                println(&OutputMessage::new(
+                println(&OutputMessage::plain(
                     &format!("Reindexing pack {}", pack_name),
-                    None,
                 ));
                 indexer::index(base_path, pack_name, println)?;
             } else {

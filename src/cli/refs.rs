@@ -91,6 +91,6 @@ fn print_refs(
         } else {
             format!("{}{}", prefix, item.0)
         };
-        println(&OutputMessage::new(&msg, None));
+        println(&OutputMessage::plain(&msg));
     }
 }

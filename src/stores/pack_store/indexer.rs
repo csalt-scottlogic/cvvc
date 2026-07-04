@@ -132,9 +132,8 @@ fn write_out_index<P: AsRef<Path>>(
 ) -> Result<(), anyhow::Error> {
     let index_file_path = helpers::index_file_name(base_path, pack_name);
     if index_file_path.exists() {
-        println(&OutputMessage::new(
+        println(&OutputMessage::plain(
             "Index file path already exists; not overwriting",
-            None,
         ));
         return Ok(());
     }
@@ -271,9 +270,8 @@ fn write_out_rev_index<P: AsRef<Path>>(
 ) -> Result<(), anyhow::Error> {
     let rev_file_path = helpers::rev_index_file_name(base_path, pack_name);
     if rev_file_path.exists() {
-        println(&OutputMessage::new(
+        println(&OutputMessage::plain(
             "Reverse index file already exists; not overwriting",
-            None,
         ));
         return Ok(());
     }

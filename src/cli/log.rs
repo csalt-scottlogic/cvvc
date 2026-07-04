@@ -15,10 +15,10 @@ pub fn cmd(commit: &str, println: &Printer) -> Result<(), anyhow::Error> {
 fn log_from_repo(repo: Repository, commit: &str, println: &Printer) -> Result<(), anyhow::Error> {
     let starting_node = repo.find_object(commit, Some(ObjectKind::Commit), true)?;
 
-    println(&OutputMessage::new("digraph cvlog{{", None));
-    println(&OutputMessage::new("  node[shape=rect]", None));
+    println(&OutputMessage::plain("digraph cvlog{{"));
+    println(&OutputMessage::plain("  node[shape=rect]"));
     log_commits_graphviz(&repo, &starting_node, println)?;
-    println(&OutputMessage::new("}}", None));
+    println(&OutputMessage::plain("}}"));
     Ok(())
 }
 
@@ -55,14 +55,13 @@ fn log_commits_graphviz_impl<'a>(
         } else {
             commit_id
         };
-        println(&OutputMessage::new(
+        println(&OutputMessage::plain(
             &format!("  c_{commit_id} [label=\"{commit_id_prefix}: {printable_message}\"]"),
-            None,
+            
         ));
         for p in commit.parents().iter() {
-            println(&OutputMessage::new(
+            println(&OutputMessage::plain(
                 &format!("  c_{commit_id} -> c_{p};"),
-                None,
             ));
             log_commits_graphviz_impl(repo, p, println, seen)?;
         }

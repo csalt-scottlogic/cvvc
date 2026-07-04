@@ -20,18 +20,16 @@ pub fn current_branch_and_commit(println: &Printer) -> Result<(), anyhow::Error>
     let repo = find_repo_cwd(println)?;
     let branch = repo.current_branch()?;
     let commit = repo.current_commit()?;
-    println(&OutputMessage::new(
+    println(&OutputMessage::plain(
         &format!(
             "Branch: {}",
             branch
                 .map(|b| b.name)
                 .unwrap_or_else(|| "[none]".to_string())
         ),
-        None,
     ));
-    println(&OutputMessage::new(
+    println(&OutputMessage::plain(
         &format!("Commit: {}", commit.unwrap_or_else(|| "[none]".to_string())),
-        None,
     ));
     Ok(())
 }
@@ -42,7 +40,7 @@ pub fn list_commits(start: Option<&str>, println: &Printer) -> Result<(), anyhow
     let commits = repo.commits(start)?;
     for commit in commits {
         let commit = commit?;
-        println(&OutputMessage::new(&commit, None));
+        println(&OutputMessage::plain(&commit));
     }
     Ok(())
 }
@@ -52,48 +50,40 @@ pub fn list_files(verbose: bool, println: &Printer) -> Result<(), anyhow::Error>
     let repo = find_repo_cwd(println)?;
     let index = repo.read_index()?;
     if verbose {
-        println(&OutputMessage::new(
+        println(&OutputMessage::plain(
             &format!(
                 "Index file format v{}, containing {} entries",
                 index.version,
                 index.entries().len()
             ),
-            None,
         ));
     }
     for entry in index.entries() {
-        println(&OutputMessage::new(&entry.object_name, None));
+        println(&OutputMessage::plain(&entry.object_name));
         if verbose {
-            println(&OutputMessage::new(
+            println(&OutputMessage::plain(
                 &format!("  {} with perms: {}", entry.mode_type, entry.mode_perms),
-                None,
             ));
-            println(&OutputMessage::new(
+            println(&OutputMessage::plain(
                 &format!("  on blob {}", entry.object_id),
-                None,
             ));
-            println(&OutputMessage::new(
+            println(&OutputMessage::plain(
                 &format!("  size {}", entry.fsize),
-                None,
             ));
-            println(&OutputMessage::new(
+            println(&OutputMessage::plain(
                 &format!("  created {}, modified {}", entry.ctime, entry.mtime),
-                None,
             ));
-            println(&OutputMessage::new(
+            println(&OutputMessage::plain(
                 &format!("  device {}, inode {}", entry.dev, entry.ino),
-                None,
             ));
-            println(&OutputMessage::new(
+            println(&OutputMessage::plain(
                 &format!("  user {}, group {}", entry.uid, entry.gid),
-                None,
             ));
-            println(&OutputMessage::new(
+            println(&OutputMessage::plain(
                 &format!(
                     "  flags: stage={}, assume_valid={}",
                     entry.flag_stage, entry.flag_assume_valid
                 ),
-                None,
             ));
         }
     }
@@ -106,7 +96,7 @@ pub fn check_ignore(paths: &[String], println: &Printer) -> Result<(), anyhow::E
     let ignore_rules = repo.read_ignore_info()?;
     for path in paths {
         if ignore_rules.check(Path::new(path)) {
-            println(&OutputMessage::new(path, None));
+            println(&OutputMessage::plain(path));
         }
     }
     Ok(())
@@ -125,7 +115,7 @@ pub fn remove_files(
     for path in paths {
         if repo.remove_path_from_index(path, &mut index, !index_only)? {
             some_removed = true;
-            println(&OutputMessage::new(path, None));
+            println(&OutputMessage::plain(path));
         }
     }
     if some_removed {
@@ -151,15 +141,15 @@ pub fn status(println: &Printer) -> Result<(), anyhow::Error> {
     let unstaged_changes = status_worktree(&repo, println)?;
     if unstaged_changes {
         if !staged_changes {
-            println(&OutputMessage::new(
+            println(&OutputMessage::plain(
                 "no changes added to commit (use \"cv add\")",
-                None,
+                
             ));
         }
     } else if !staged_changes {
-        println(&OutputMessage::new(
+        println(&OutputMessage::plain(
             "nothing to commit, working tree clean",
-            None,
+            
         ));
     }
     println_empty_line(println);
@@ -169,9 +159,8 @@ pub fn status(println: &Printer) -> Result<(), anyhow::Error> {
 /// Entry point for the `cv write-tree` command.
 pub fn store_index_as_tree(no_checks: bool, println: &Printer) -> Result<(), anyhow::Error> {
     let repo = find_repo_cwd(println)?;
-    println(&OutputMessage::new(
+    println(&OutputMessage::plain(
         &store_index_as_tree_repo(&repo, no_checks)?,
-        None,
     ));
     Ok(())
 }
@@ -199,7 +188,7 @@ pub fn create_commit_for_tree(
         message,
     );
     let commit_id = repo.write_object(&commit)?;
-    println(&OutputMessage::new(&commit_id, None));
+    println(&OutputMessage::plain(&commit_id));
     Ok(())
 }
 
@@ -247,14 +236,13 @@ fn status_branch(repo: &Repository, println: &Printer) -> Result<(), anyhow::Err
     let branch = repo.current_branch()?;
     match branch {
         Some(name) => {
-            println(&OutputMessage::new(&format!("On branch {name}"), None));
+            println(&OutputMessage::plain(&format!("On branch {name}")));
         }
         None => {
             let head_commit = repo.current_commit()?;
             if let Some(head_commit) = head_commit {
-                println(&OutputMessage::new(
+                println(&OutputMessage::plain(
                     &format!("HEAD detached at {head_commit}"),
-                    None,
                 ));
             } else {
                 return Err(anyhow!("missing head"));
@@ -284,9 +272,9 @@ fn status_index(repo: &Repository, println: &Printer) -> Result<bool, anyhow::Er
     }
     let printable = !to_print.is_empty();
     if printable {
-        println(&OutputMessage::new("Changes to be committed:", None));
+        println(&OutputMessage::plain("Changes to be committed:"));
         for line in to_print {
-            println(&OutputMessage::new(&line, None));
+            println(&OutputMessage::plain(&line));
         }
         println_empty_line(println);
     }
@@ -343,17 +331,17 @@ fn status_worktree(repo: &Repository, println: &Printer) -> Result<bool, anyhow:
     }
     let mut printable = !to_print.is_empty();
     if printable {
-        println(&OutputMessage::new("Changes not staged for commit:", None));
+        println(&OutputMessage::plain("Changes not staged for commit:"));
         for line in to_print {
-            println(&OutputMessage::new(&line, None));
+            println(&OutputMessage::plain(&line));
         }
         println_empty_line(println);
     }
     if !files.is_empty() {
         printable = true;
-        println(&OutputMessage::new("Untracked files:", None));
+        println(&OutputMessage::plain("Untracked files:"));
         for f in files {
-            println(&OutputMessage::new(&format!("\t{f}"), None));
+            println(&OutputMessage::plain(&format!("\t{f}")));
         }
     }
     Ok(printable)
@@ -394,5 +382,5 @@ where
 }
 
 fn println_empty_line(println: &Printer) {
-    println(&OutputMessage::new("", None))
+    println(&OutputMessage::plain(""))
 }

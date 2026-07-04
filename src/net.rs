@@ -582,7 +582,7 @@ impl HttpFetchClient {
         body_lines.push(PktLine::Flush);
         if net_dump {
             for line in &body_lines {
-                println(&OutputMessage::new(&format!("S: {line}"), None));
+                println(&OutputMessage::plain(&format!("S: {line}")));
             }
         }
         let request = add_git_protocol_header(self.client.post(fetch_url)).body(
@@ -724,9 +724,8 @@ impl HttpFetchClient {
     ) -> Result<(ProtocolVersion, PktLine, PktLineIterator<Response>), anyhow::Error> {
         let discovery_url = self.base_url.join("info/refs?service=git-upload-pack")?;
         if net_dump {
-            println(&OutputMessage::new(
+            println(&OutputMessage::plain(
                 &format!("Discovery URL is {discovery_url}"),
-                None,
             ));
         }
         let mut request = self.client.get(discovery_url);
@@ -765,7 +764,7 @@ impl HttpFetchClient {
         };
         let line = line?;
         if net_dump {
-            println(&OutputMessage::new(&format!("R: {line}"), None));
+            println(&OutputMessage::plain(&format!("R: {line}")));
         }
         Ok(line)
     }
@@ -839,7 +838,7 @@ impl HttpFetchClient {
         for line in lines {
             let line = line.context("couldn't parse pkt-line")?;
             if net_dump {
-                println(&OutputMessage::new(&format!("R:{line}"), None));
+                println(&OutputMessage::plain(&format!("R:{line}")));
             }
             if let PktLine::Line(line_contents) = line {
                 if let Some(parsed_line) = Self::load_single_v1_refs_capabilities_line(
@@ -897,7 +896,7 @@ impl HttpFetchClient {
         for line in lines {
             let line = line?;
             if net_dump {
-                println(&OutputMessage::new("R: {line}", None));
+                println(&OutputMessage::plain("R: {line}"));
             }
             if let PktLine::Line(content) = line {
                 results.push(RemoteCapability::from_str(&String::from_utf8_lossy(
@@ -930,7 +929,7 @@ impl HttpFetchClient {
         body_lines.push(PktLine::Flush);
         if net_dump {
             for line in &body_lines {
-                println(&OutputMessage::new(&format!("S: {line}"), None));
+                println(&OutputMessage::plain(&format!("S: {line}")));
             }
         }
         let request = add_git_protocol_header(self.client.post(ref_url)).body(
