@@ -642,7 +642,7 @@ impl HttpFetchClient {
 
     fn scrub_common_objects(common_objects: &mut IndexSet<String>, mut acked: Vec<String>) {
         common_objects.retain(|x| {
-            acked.iter().position(|y| x == y).map_or(false, |pos| {
+            acked.iter().position(|y| x == y).is_some_and(|pos| {
                 acked.remove(pos);
                 true
             })

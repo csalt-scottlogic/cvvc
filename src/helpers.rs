@@ -156,7 +156,7 @@ pub fn shorten_message(message: &str) -> String {
         .lines()
         .next()
         .map(|x| x.trim().to_string())
-        .unwrap_or_else(String::new)
+        .unwrap_or_default()
 }
 
 /// Return the first *n* characters of a string, suffixed by `...`.
