@@ -29,7 +29,7 @@ use crate::{
     ref_log::{RefLog, RefLogEntry},
     stores::{
         BranchLocation, BranchSpec, CombinedRefStore, LooseObjectStore, ObjectStore, PackStore,
-        RefSpec, RefStore, RefTarget, TagSpec,
+        RefSpec, RefStore, RefTarget, TagSpec, TargetedRef,
     },
 };
 
@@ -1240,24 +1240,12 @@ impl<'a> CommitIterator<'a> {
         let prune: HashSet<String> = prune_commits.iter().map(|id| id.to_string()).collect();
         let seen = match start {
             Some(sid) => {
-                if let Some(raw_obj) = repo.read_raw_object(sid)? {
-                    match raw_obj.metadata().kind {
-                        ObjectKind::Commit => vec![start.expect("internal error").to_string()]
-                            .into_iter()
-                            .filter(|id| !prune.contains(id))
-                            .collect::<HashSet<String>>(),
-                        ObjectKind::Tag => {
-                            if let StoredObject::Tag(tag) = StoredObject::try_from(&raw_obj)? {
-                                vec![tag.target()?]
-                                    .into_iter()
-                                    .filter(|id| !prune.contains(id))
-                                    .collect::<HashSet<String>>()
-                            } else {
-                                return Err(anyhow!("internal error"));
-                            }
-                        }
-                        _ => return Err(anyhow!("object id is not a commit or tag")),
-                    }
+                if prune.contains(sid) {
+                    HashSet::new()
+                } else if let Some(cid) = peel_to_commit(sid, repo) {
+                    let mut hs = HashSet::new();
+                    hs.insert(cid);
+                    hs
                 } else {
                     HashSet::new()
                 }
@@ -1266,40 +1254,8 @@ impl<'a> CommitIterator<'a> {
                 .ref_store
                 .all_ref_targets()?
                 .into_iter()
-                .filter_map(|r| match r.target {
-                    RefTarget::SymbolicRef(_) => None,
-                    RefTarget::Object(id) => {
-                        if repo.has_object(&id).unwrap_or(true)
-                            && repo
-                                .read_raw_object(&id)
-                                .map(|c| c.unwrap().metadata().kind != ObjectKind::Commit)
-                                .unwrap_or(true)
-                        {
-                            None
-                        } else {
-                            Some(id)
-                        }
-                    }
-                })
-                .filter_map(|id| {
-                    let raw_obj = repo.read_raw_object(&id);
-                    if let Ok(Some(raw_obj)) = raw_obj {
-                        match raw_obj.metadata().kind {
-                            ObjectKind::Commit => Some(id),
-                            ObjectKind::Tag => {
-                                if let Ok(StoredObject::Tag(tag)) = StoredObject::try_from(&raw_obj)
-                                {
-                                    tag.target().ok()
-                                } else {
-                                    None
-                                }
-                            }
-                            _ => None,
-                        }
-                    } else {
-                        None
-                    }
-                })
+                .filter_map(|r| target_to_commit_id(r, repo))
+                .filter_map(|id| peel_to_commit(&id, repo))
                 .filter(|id| !prune.contains(id))
                 .collect::<HashSet<String>>(),
         };
@@ -1386,4 +1342,42 @@ pub fn is_partial_object_id(id: &str) -> bool {
 enum ObjectSource {
     LooseObjectStore,
     Pack(usize),
+}
+
+fn target_to_commit_id(targeted_ref: TargetedRef, repo: &Repository) -> Option<String> {
+    match targeted_ref.target {
+        RefTarget::SymbolicRef(_) => None,
+        RefTarget::Object(obj) => {
+            if !repo.has_object(&obj).unwrap_or(false) {
+                None
+            } else if let Ok(Some(raw_object)) = repo.read_raw_object(&obj) {
+                if raw_object.metadata().kind == ObjectKind::Commit {
+                    Some(obj)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+    }
+}
+
+fn peel_to_commit(commit_or_tag: &str, repo: &Repository) -> Option<String> {
+    let raw_obj = repo.read_raw_object(commit_or_tag);
+    if let Ok(Some(raw_obj)) = raw_obj {
+        match raw_obj.metadata().kind {
+            ObjectKind::Commit => Some(commit_or_tag.to_string()),
+            ObjectKind::Tag => {
+                if let Ok(StoredObject::Tag(tag)) = StoredObject::try_from(&raw_obj) {
+                    tag.target().ok()
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    } else {
+        None
+    }
 }
