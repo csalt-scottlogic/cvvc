@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt::Display, str::FromStr};
 
 use chrono::{DateTime, FixedOffset, Local, TimeZone, Utc};
 
-use crate::{helpers::fs::index_path_parent, repo::Repository};
+use crate::{helpers::fs::index_path_parent, output::OutputService, repo::Repository};
 
 pub mod fs;
 
@@ -100,8 +100,8 @@ pub fn add_parent_dirs_to_map_of_vecs<T>(map: &mut HashMap<String, Vec<T>>, path
 /// returned.
 ///
 /// If the process's current working directory is not inside a repository, an error is returned.
-pub fn find_repo_cwd() -> Result<Repository, anyhow::Error> {
-    let repo = Repository::find_cwd()?;
+pub fn find_repo_cwd(printer: &dyn OutputService) -> Result<Repository, anyhow::Error> {
+    let repo = Repository::find_cwd(printer)?;
     match repo {
         Some(r) => Ok(r),
         None => Err(anyhow!("Not in a repository")),

@@ -634,8 +634,6 @@ nJ9HxHVU8lBavzdUdEpO
 
         kvlm_parse(&test_data, &mut test_map).unwrap();
 
-        println!("{:?}", test_map);
-
         let test_output = &test_map["gpgsig"];
         assert_eq!(vec![expected_result], *test_output);
     }

@@ -5,6 +5,7 @@ use clap::{Args, Parser, Subcommand};
 use cvvc::{
     cli::{branches, init, log, net, objects, ref_log, refs, remotes, staging},
     config::GlobalConfig,
+    output::{ConsoleOutputService, OutputKind},
 };
 
 fn main() -> ExitCode {
@@ -16,6 +17,9 @@ fn main() -> ExitCode {
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+    /// Print verbose output
+    #[arg(short, long)]
+    verbose: bool,
 }
 
 #[derive(Subcommand)]
@@ -95,10 +99,7 @@ enum Commands {
     },
     /// Fetch refs and objects from remote repositories
     #[command()]
-    Fetch {
-        #[arg(short, long)]
-        verbose: bool,
-    },
+    Fetch,
     /// Compute object ID and optionally create an object from a file
     #[command(name = "hash-object")]
     HashObject {
@@ -226,23 +227,26 @@ enum RefLogCommands {
 fn parse_dispatch() -> ExitCode {
     let args = Cli::parse();
     let config = GlobalConfig::from_default_files();
+    let output_service = ConsoleOutputService::new(OutputKind::Colour, args.verbose);
     match args.command {
-        Commands::Add { paths } => staging::add_files(&paths),
+        Commands::Add { paths } => staging::add_files(&paths, &output_service),
         Commands::Branch {
             list,
             list_all,
             branch,
         } => {
             if list {
-                branches::list_branches(list_all)
+                branches::list_branches(list_all, &output_service)
             } else if let Some(branch) = branch {
-                branches::new_branch(&branch, false, &config)
+                branches::new_branch(&branch, false, &config, &output_service)
             } else {
-                branches::list_branches(list_all)
+                branches::list_branches(list_all, &output_service)
             }
         }
-        Commands::CatFile { obj_type, obj_path } => objects::cat_file(&obj_type, &obj_path),
-        Commands::CheckIgnore { paths } => staging::check_ignore(&paths),
+        Commands::CatFile { obj_type, obj_path } => {
+            objects::cat_file(&obj_type, &obj_path, &output_service)
+        }
+        Commands::CheckIgnore { paths } => staging::check_ignore(&paths, &output_service),
         Commands::CheckRefFormat { name } => {
             if !refs::check_format(&name) {
                 return ExitCode::FAILURE;
@@ -251,35 +255,41 @@ fn parse_dispatch() -> ExitCode {
         }
         Commands::Checkout { new_branch, target } => {
             if new_branch {
-                branches::new_branch(&target, true, &config)
+                branches::new_branch(&target, true, &config, &output_service)
             } else {
-                branches::checkout(&target, &config)
+                branches::checkout(&target, &config, &output_service)
             }
         }
-        Commands::Commit { message } => staging::full_commit(&config, message),
+        Commands::Commit { message } => staging::full_commit(&config, message, &output_service),
         Commands::CommitList { starting_commit } => {
-            staging::list_commits(starting_commit.as_deref())
+            staging::list_commits(starting_commit.as_deref(), &output_service)
         }
         Commands::CommitTree {
             tree_id,
             parents,
             message,
-        } => staging::create_commit_for_tree(&tree_id, &parents, &message, &config),
-        Commands::Fetch { verbose } => net::fetch(&config, verbose),
+        } => {
+            staging::create_commit_for_tree(&tree_id, &parents, &message, &config, &output_service)
+        }
+        Commands::Fetch => net::fetch(&config, &output_service),
         Commands::HashObject {
             write,
             obj_type: _,
             filename,
-        } => objects::object_hash(write, &filename),
-        Commands::Init { pathname } => init::cmd(&pathname, &config.default_branch_name()),
-        Commands::ListFiles { verbose } => staging::list_files(verbose),
-        Commands::ListTree { recursive, tree } => objects::list_tree(recursive, &tree),
-        Commands::Log { commit } => log::cmd(&commit),
+        } => objects::object_hash(write, &filename, &output_service),
+        Commands::Init { pathname } => {
+            init::cmd(&pathname, &config.default_branch_name(), &output_service)
+        }
+        Commands::ListFiles { verbose } => staging::list_files(verbose, &output_service),
+        Commands::ListTree { recursive, tree } => {
+            objects::list_tree(recursive, &tree, &output_service)
+        }
+        Commands::Log { commit } => log::cmd(&commit, &output_service),
         Commands::RefLog(sub_command) => match sub_command.command {
-            RefLogCommands::List => ref_log::list(),
-            RefLogCommands::Show { branch } => ref_log::show(branch.as_deref()),
+            RefLogCommands::List => ref_log::list(&output_service),
+            RefLogCommands::Show { branch } => ref_log::show(branch.as_deref(), &output_service),
             RefLogCommands::Exists { branch } => {
-                let exists = ref_log::exists(&branch);
+                let exists = ref_log::exists(&branch, &output_service);
                 match exists {
                     Ok(true) => Ok(()),
                     Err(x) => Err(x),
@@ -289,28 +299,35 @@ fn parse_dispatch() -> ExitCode {
                 }
             }
         },
-        Commands::Remote { verbose } => remotes::list_remotes(verbose),
+        Commands::Remote { verbose } => remotes::list_remotes(verbose, &output_service),
         Commands::Remove {
             index_only,
             ignore_no_matches,
             paths,
-        } => staging::remove_files(&paths, index_only, ignore_no_matches),
-        Commands::RevParse { name } => objects::rev_parse(&name),
-        Commands::ShowRef => refs::show_refs(),
-        Commands::Status => staging::status(),
+        } => staging::remove_files(&paths, index_only, ignore_no_matches, &output_service),
+        Commands::RevParse { name } => objects::rev_parse(&name, &output_service),
+        Commands::ShowRef => refs::show_refs(&output_service),
+        Commands::Status => staging::status(&output_service),
         Commands::Tag {
             chunky,
             message,
             name,
             target,
         } => match name {
-            Some(tag_name) => {
-                refs::create_tag(&config, &tag_name, &target, chunky, message.as_deref())
-            }
-            None => refs::show_tags(),
+            Some(tag_name) => refs::create_tag(
+                &config,
+                &tag_name,
+                &target,
+                chunky,
+                message.as_deref(),
+                &output_service,
+            ),
+            None => refs::show_tags(&output_service),
         },
-        Commands::Where => staging::current_branch_and_commit(),
-        Commands::WriteTree { no_checks } => staging::store_index_as_tree(no_checks),
+        Commands::Where => staging::current_branch_and_commit(&output_service),
+        Commands::WriteTree { no_checks } => {
+            staging::store_index_as_tree(no_checks, &output_service)
+        }
     }
     .expect("Error!");
     ExitCode::SUCCESS

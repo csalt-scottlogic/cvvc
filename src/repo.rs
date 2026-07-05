@@ -25,6 +25,7 @@ use crate::{
         Blob, FindObjectError, GitObject, ObjectKind, RawObject, RawObjectData, StoredObject, Tree,
         TreeNode,
     },
+    output::OutputService,
     ref_log::{RefLog, RefLogEntry},
     stores::{
         BranchLocation, BranchSpec, CombinedRefStore, LooseObjectStore, ObjectStore, PackStore,
@@ -69,13 +70,16 @@ impl Repository {
     ///
     /// This function will also error if it determines the path is within a corrupt repository.  See the documentation for
     /// [`Repository::new`] for details of the sanity checks carried out.
-    pub fn find<P: AsRef<Path>>(path: P) -> Result<Option<Self>, anyhow::Error> {
+    pub fn find<P: AsRef<Path>>(
+        path: P,
+        printer: &dyn OutputService,
+    ) -> Result<Option<Self>, anyhow::Error> {
         let path_buf = path.as_ref().canonicalize()?;
         if path_buf.join(Path::new(".git")).is_dir() {
-            return Ok(Some(Self::new(path_buf)?));
+            return Ok(Some(Self::new(path_buf, printer)?));
         }
         match path_buf.parent() {
-            Some(p) => Self::find(p),
+            Some(p) => Self::find(p, printer),
             None => Ok(None),
         }
     }
@@ -84,8 +88,8 @@ impl Repository {
     /// object if it is, or `None` if it is not.
     ///
     /// See the [`Repository::find`] function for further information.
-    pub fn find_cwd() -> Result<Option<Self>, anyhow::Error> {
-        Self::find(env::current_dir()?)
+    pub fn find_cwd(printer: &dyn OutputService) -> Result<Option<Self>, anyhow::Error> {
+        Self::find(env::current_dir()?, printer)
     }
 
     /// Create a new [`Repository`] object representing a repository at a given filesystem path.  
@@ -102,11 +106,18 @@ impl Repository {
     ///
     /// If the repository cannot be read due to permissions errors, the function will return errors implying that the
     /// repository does not exist.
-    pub fn new<P: AsRef<Path>>(worktree: P) -> Result<Self, anyhow::Error> {
-        Self::new_impl(worktree, false)
+    pub fn new<P: AsRef<Path>>(
+        worktree: P,
+        printer: &dyn OutputService,
+    ) -> Result<Self, anyhow::Error> {
+        Self::new_impl(worktree, false, printer)
     }
 
-    fn new_impl<P: AsRef<Path>>(worktree: P, allow_invalid: bool) -> Result<Self, anyhow::Error> {
+    fn new_impl<P: AsRef<Path>>(
+        worktree: P,
+        allow_invalid: bool,
+        printer: &dyn OutputService,
+    ) -> Result<Self, anyhow::Error> {
         let worktree = worktree.as_ref().canonicalize()?;
         let git_dir = worktree.join(Path::new(".git"));
         if !(allow_invalid || git_dir.is_dir()) {
@@ -135,7 +146,7 @@ impl Repository {
 
         let pack_dir = git_dir.join("objects").join("pack");
         let packs = if pack_dir.is_dir() {
-            PackStore::find_packs(&pack_dir)?
+            PackStore::find_packs(&pack_dir, printer)?
         } else {
             vec![]
         };
@@ -178,11 +189,15 @@ impl Repository {
     /// following applies:
     /// - the path exists but is not a directory
     /// - a file named `.git` exists in the path directory.
-    pub fn create<P: AsRef<Path>>(path: P, first_branch: &str) -> Result<Self, anyhow::Error> {
+    pub fn create<P: AsRef<Path>>(
+        path: P,
+        first_branch: &str,
+        printer: &dyn OutputService,
+    ) -> Result<Self, anyhow::Error> {
         if !path.as_ref().exists() {
             fs::create_dir_all(&path)?;
         }
-        let repo = Repository::new_impl(path, true)?;
+        let repo = Repository::new_impl(path, true, printer)?;
 
         if !repo.worktree.is_dir() {
             return Err(anyhow!(format!(
@@ -315,8 +330,12 @@ impl Repository {
     }
 
     /// Store a new pack in the repository
-    pub fn store_pack<R: Read>(&mut self, mut reader: R) -> Result<(), anyhow::Error> {
-        let new_pack = PackStore::store_pack(&self.packfile_base, &mut reader)?;
+    pub fn store_pack<R: Read>(
+        &mut self,
+        mut reader: R,
+        printer: &dyn OutputService,
+    ) -> Result<(), anyhow::Error> {
+        let new_pack = PackStore::store_pack(&self.packfile_base, &mut reader, printer)?;
         self.packs.push(new_pack);
         Ok(())
     }

@@ -46,6 +46,9 @@ pub mod index;
 /// Server communications
 pub mod net;
 
+/// End-user display code
+pub mod output;
+
 /// Git object parsing
 pub mod objects;
 

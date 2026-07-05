@@ -14,6 +14,7 @@ use std::{
 
 use crate::{
     objects::{GitObject, ObjectKind, RawObject, RawObjectData},
+    output::{OutputMessage, OutputService},
     stores::{
         pack_store::helpers::{
             confirm_pack_name, primary_file_name, randomish_string, store_from_reader,
@@ -53,8 +54,15 @@ impl PackStore {
     /// This function returns successfully if the packfile uses SHA-256 for object IDs.  However, as CVVC does not
     /// yet support SHA-256, other functions and methods in this module will likely error or give incorrect results
     /// when run against a SHA-256 packfile.
-    pub fn new<P: AsRef<Path>>(base_path: P, pack_name: &str) -> Result<Self, anyhow::Error> {
-        println!("DEBUG: loading pack {}", pack_name);
+    pub fn new<P: AsRef<Path>>(
+        base_path: P,
+        pack_name: &str,
+        printer: &dyn OutputService,
+    ) -> Result<Self, anyhow::Error> {
+        printer.println(&OutputMessage::plain(&format!(
+            "DEBUG: loading pack {}",
+            pack_name
+        )));
         let base_path = base_path.as_ref();
         if !base_path.is_dir() {
             return Err(anyhow!("base path is not a directory"));
@@ -69,8 +77,11 @@ impl PackStore {
         let index_file = helpers::index_file_name(base_path, pack_name);
         if !index_file.is_file() {
             if !index_file.exists() {
-                println!("Reindexing pack {}", pack_name);
-                indexer::index(base_path, pack_name)?;
+                printer.println(&OutputMessage::plain(&format!(
+                    "Reindexing pack {}",
+                    pack_name
+                )));
+                indexer::index(base_path, pack_name, printer)?;
             } else {
                 return Err(anyhow!("pack file exists but is not a file"));
             }
@@ -91,13 +102,14 @@ impl PackStore {
     pub fn store_pack<P: AsRef<Path>, R: Read>(
         base_path: P,
         reader: &mut R,
+        printer: &dyn OutputService,
     ) -> Result<Self, anyhow::Error> {
         let temp_pack_path = base_path.as_ref().join(randomish_string());
-        let pack_size = store_from_reader(reader, &temp_pack_path)?;
+        let pack_size = store_from_reader(reader, &temp_pack_path, printer)?;
         let actual_pack_name = confirm_pack_name(&temp_pack_path, pack_size)?;
         let actual_path = primary_file_name(&base_path, &actual_pack_name);
         fs::rename(temp_pack_path, actual_path)?;
-        Self::new(base_path, &actual_pack_name)
+        Self::new(base_path, &actual_pack_name, printer)
     }
 
     /// Find all packs in a given directory.
@@ -116,7 +128,10 @@ impl PackStore {
     /// When searching for candidate packs, this function does not distinguish between packfiles that use SHA-1 and
     /// those that use SHA-256.  However, because CVVC does not at present support SHA-256 repositories, attempting to
     /// load SHA-256 packfiles is highly likely to cause runtime errors.
-    pub fn find_packs<P: AsRef<Path>>(base_path: P) -> Result<Vec<Self>, anyhow::Error> {
+    pub fn find_packs<P: AsRef<Path>>(
+        base_path: P,
+        printer: &dyn OutputService,
+    ) -> Result<Vec<Self>, anyhow::Error> {
         let base_path = base_path.as_ref();
         if !base_path.is_dir() {
             return Err(anyhow!("base path is not a directory"));
@@ -141,7 +156,7 @@ impl PackStore {
         }
         pack_names
             .iter()
-            .map(|x| Self::new(base_path, x))
+            .map(|x| Self::new(base_path, x, printer))
             .collect::<Result<Vec<Self>, anyhow::Error>>()
     }
 

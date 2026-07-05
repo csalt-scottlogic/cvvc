@@ -4,17 +4,18 @@ use crate::{
     config::{FetchRefMap, GlobalConfig, RemoteInfo},
     helpers::find_repo_cwd,
     net::{HttpFetchClient, ProtocolVersion},
+    output::{OutputMessage, OutputService},
     repo::Repository,
     stores::TargetedRef,
 };
 
 /// Entry point for `cv fetch`.  Fetches from all remotes.
-pub fn fetch(config: &GlobalConfig, verbose: bool) -> Result<(), anyhow::Error> {
-    let mut repo = find_repo_cwd()?;
+pub fn fetch(config: &GlobalConfig, printer: &dyn OutputService) -> Result<(), anyhow::Error> {
+    let mut repo = find_repo_cwd(printer)?;
     let remotes = repo.list_remote_names();
     for remote in remotes {
         if let Some(remote) = repo.get_remote(&remote) {
-            fetch_remote(&mut repo, &remote, None, config, verbose)?;
+            fetch_remote(&mut repo, &remote, None, config, printer)?;
         }
     }
     Ok(())
@@ -25,14 +26,14 @@ fn fetch_remote(
     remote: &RemoteInfo,
     version: Option<u32>,
     config: &GlobalConfig,
-    verbose: bool,
+    printer: &dyn OutputService,
 ) -> Result<(), anyhow::Error> {
     for url in remote.fetch_urls.iter() {
         let protocol_version = version
             .map(ProtocolVersion::try_from)
             .map_or(Ok(None), |v| v.map(Some))?;
         let mut fetch_client_engine = HttpFetchClient::new(url, protocol_version)?;
-        let remote_info = fetch_client_engine.fetch_refs_capabilities(verbose)?;
+        let remote_info = fetch_client_engine.fetch_refs_capabilities(printer)?;
         let deduped_rem_refs = remote_info.refs.iter().collect::<HashSet<&TargetedRef>>();
         let ref_maps: Vec<FetchRefMap> = deduped_rem_refs
             .into_iter()
@@ -49,7 +50,7 @@ fn fetch_remote(
             })
             .collect::<Vec<&FetchRefMap>>();
         if updates_needed.is_empty() {
-            println!("Nothing to update");
+            printer.println(&OutputMessage::plain("Nothing to update"));
             return Ok(());
         }
         let objects_needed: HashSet<String> = updates_needed
@@ -66,7 +67,7 @@ fn fetch_remote(
             })
             .collect();
         if objects_needed.is_empty() {
-            println!("No objects needed");
+            printer.println(&OutputMessage::plain("No objects needed"));
         } else {
             let reader = fetch_client_engine.fetch_pack(
                 &objects_needed
@@ -74,9 +75,9 @@ fn fetch_remote(
                     .map(|x| x.as_str())
                     .collect::<HashSet<_>>(),
                 repo,
-                verbose,
+                printer,
             )?;
-            repo.store_pack(reader)?;
+            repo.store_pack(reader, printer)?;
         }
         for update in updates_needed {
             let new_target = update.source.target.to_string();
@@ -93,12 +94,12 @@ fn fetch_remote(
                 } else if update.force {
                     "fetch (forced)"
                 } else {
-                    println!(
+                    printer.println(&OutputMessage::plain(&format!(
                         "Skipping update {}... => {}... for {} (not fast-forwardable)",
                         &existing_target.unwrap()[..8],
                         &new_target[..8],
                         &update.dest
-                    );
+                    )));
                     continue;
                 };
                 repo.update_ref(&update.dest, &update.source.target)?;
@@ -110,12 +111,12 @@ fn fetch_remote(
                     &update.dest,
                     false,
                 )?;
-                println!(
+                printer.println(&OutputMessage::plain(&format!(
                     "Updated {}: {}... => {}...",
                     &update.dest,
                     &existing_target.map_or_else(|| "(none)".to_string(), |t| t[..8].to_string()),
                     &new_target[..8]
-                );
+                )));
             }
         }
     }
