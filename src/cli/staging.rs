@@ -5,9 +5,7 @@ use std::{fmt::Display, fs, path::Path, time::SystemTime};
 use crate::{
     config::GlobalConfig,
     helpers::{
-        self, find_repo_cwd,
-        fs::{path_translate, path_translate_rev, walk_fs_pruned},
-        shorten_and_prefix_message,
+        self, abbrev_commit_id, find_repo_cwd, fs::{path_translate, path_translate_rev, walk_fs_pruned}, shorten_and_prefix_message, shorten_message
     },
     objects::{Blob, Commit, RawObject},
     output::{OutputMessage, OutputService},
@@ -228,7 +226,9 @@ pub fn full_commit(
         &shorten_and_prefix_message("commit", message),
         &reflog_refspec,
         also_update_head,
-    )
+    )?;
+    printer.println(&OutputMessage::plain(&format!("[{} {}] {}", reflog_refspec.short_name(), abbrev_commit_id(&commit_id), shorten_message(message))));
+    Ok(())
 }
 
 fn status_branch(repo: &Repository, printer: &dyn OutputService) -> Result<(), anyhow::Error> {
