@@ -87,21 +87,25 @@ fn fetch_remote(
                     .as_deref()
                     .map(|tid| repo.commit_is_pure_ancestor(&new_target, tid))
                     .map_or(Ok(None), |v| v.map(Some))?;
-                let message = if existing_target.is_none() {
-                    "fetch (new branch)"
-                } else if is_fast_forward.unwrap_or(false) {
-                    "fetch (fast forward)"
-                } else if update.force {
-                    "fetch (forced)"
+
+                let message = if let Some(ref et) = existing_target {
+                    if is_fast_forward.unwrap_or(false) {
+                        "fetch (fast forward)"
+                    } else if update.force {
+                        "fetch (forced)"
+                    } else {
+                        printer.println(&OutputMessage::plain(&format!(
+                            "Skipping update {} => {} for {} (not fast-forwardable)",
+                            &abbrev_commit_id(et),
+                            &abbrev_commit_id(&new_target),
+                            &update.dest
+                        )));
+                        continue;
+                    }
                 } else {
-                    printer.println(&OutputMessage::plain(&format!(
-                        "Skipping update {} => {} for {} (not fast-forwardable)",
-                        &abbrev_commit_id(&existing_target.unwrap()),
-                        &abbrev_commit_id(&new_target),
-                        &update.dest
-                    )));
-                    continue;
+                    "fetch (new branch)"
                 };
+
                 repo.update_ref(&update.dest, &update.source.target)?;
                 repo.write_ref_log(
                     existing_target.as_deref(),
