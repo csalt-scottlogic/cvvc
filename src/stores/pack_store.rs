@@ -59,7 +59,7 @@ impl PackStore {
         pack_name: &str,
         printer: &dyn OutputService,
     ) -> Result<Self, anyhow::Error> {
-        printer.println(&OutputMessage::plain(&format!(
+        printer.println_verbose(&OutputMessage::plain(&format!(
             "DEBUG: loading pack {}",
             pack_name
         )));

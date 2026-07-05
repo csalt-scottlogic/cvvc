@@ -68,7 +68,7 @@ pub fn store_from_reader<P: AsRef<Path>, R: Read>(
 ) -> Result<u64, anyhow::Error> {
     let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
     let size = io::copy(&mut reader, &mut file)?;
-    printer.println(&OutputMessage::plain("{size} bytes downloaded"));
+    printer.println(&OutputMessage::plain(&format!("{size} bytes downloaded")));
     Ok(size)
 }
 
