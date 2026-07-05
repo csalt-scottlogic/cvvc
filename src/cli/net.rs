@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::{
     config::{FetchRefMap, GlobalConfig, RemoteInfo},
-    helpers::find_repo_cwd,
+    helpers::{abbrev_commit_id, find_repo_cwd},
     net::{HttpFetchClient, ProtocolVersion},
     output::{OutputMessage, OutputService},
     repo::Repository,
@@ -95,9 +95,9 @@ fn fetch_remote(
                     "fetch (forced)"
                 } else {
                     printer.println(&OutputMessage::plain(&format!(
-                        "Skipping update {}... => {}... for {} (not fast-forwardable)",
-                        &existing_target.unwrap()[..8],
-                        &new_target[..8],
+                        "Skipping update {} => {} for {} (not fast-forwardable)",
+                        &abbrev_commit_id(&existing_target.unwrap()),
+                        &abbrev_commit_id(&new_target),
                         &update.dest
                     )));
                     continue;
@@ -112,10 +112,10 @@ fn fetch_remote(
                     false,
                 )?;
                 printer.println(&OutputMessage::plain(&format!(
-                    "Updated {}: {}... => {}...",
+                    "Updated {}: {} => {}",
                     &update.dest,
-                    &existing_target.map_or_else(|| "(none)".to_string(), |t| t[..8].to_string()),
-                    &new_target[..8]
+                    &abbrev_commit_id(&existing_target.unwrap_or_else(|| "(none)".to_string())),
+                    &abbrev_commit_id(&new_target)
                 )));
             }
         }

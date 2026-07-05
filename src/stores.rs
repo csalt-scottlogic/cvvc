@@ -235,6 +235,16 @@ impl RefSpec {
             _ => None,
         }
     }
+
+    /// Returns a string consisting of the "short name" of the ref; in other words,
+    /// the ref name with its standard prefix removed.
+    pub fn short_name(&self) -> String {
+        match self {
+            RefSpec::Tag(t) => t.name.to_string(),
+            RefSpec::Branch(b) => b.distinguished_name(),
+            RefSpec::Head => "HEAD".to_string(),
+        }
+    }
 }
 
 /// The definition of a branch.

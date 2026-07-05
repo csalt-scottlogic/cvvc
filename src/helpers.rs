@@ -147,8 +147,31 @@ pub fn timestamp_from_timestamped_name(
 ///
 /// This is used to create a ref log message from a commit.
 pub fn shorten_and_prefix_message(prefix: &str, message: &str) -> String {
-    let message_start = message.lines().next().map(|x| x.trim()).unwrap_or("");
-    format!("{prefix}: {message_start}")
+    format!("{prefix}: {}", shorten_message(message))
+}
+
+/// Return the first line of a string, as an owned string.
+pub fn shorten_message(message: &str) -> String {
+    message
+        .lines()
+        .next()
+        .map(|x| x.trim().to_string())
+        .unwrap_or_else(String::new)
+}
+
+/// Return the first *n* characters of a string, suffixed by `...`.
+///
+/// *n* is a compile-time constant, currently `8`.
+///
+/// This function is intended for abbreviating commit IDs for display.
+pub fn abbrev_commit_id(cid: &str) -> String {
+    const COMMIT_DISPLAY_LEN: usize = 8;
+    let lim = if cid.len() > COMMIT_DISPLAY_LEN {
+        COMMIT_DISPLAY_LEN
+    } else {
+        cid.len()
+    };
+    format!("{}...", &cid[..lim])
 }
 
 /// Converts a `&str` to an owned string, appending a `\n` character if the string does not already end with one.
