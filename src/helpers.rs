@@ -152,17 +152,25 @@ pub fn shorten_and_prefix_message(prefix: &str, message: &str) -> String {
 
 /// Return the first line of a string, as an owned string.
 pub fn shorten_message(message: &str) -> String {
-    message.lines().next().map(|x| x.trim().to_string()).unwrap_or_else(String::new)
+    message
+        .lines()
+        .next()
+        .map(|x| x.trim().to_string())
+        .unwrap_or_else(String::new)
 }
 
 /// Return the first *n* characters of a string, suffixed by `...`.
-/// 
+///
 /// *n* is a compile-time constant, currently `8`.
-/// 
+///
 /// This function is intended for abbreviating commit IDs for display.
 pub fn abbrev_commit_id(cid: &str) -> String {
     const COMMIT_DISPLAY_LEN: usize = 8;
-    let lim = if cid.len() > COMMIT_DISPLAY_LEN { COMMIT_DISPLAY_LEN } else { cid.len() };
+    let lim = if cid.len() > COMMIT_DISPLAY_LEN {
+        COMMIT_DISPLAY_LEN
+    } else {
+        cid.len()
+    };
     format!("{}...", &cid[..lim])
 }
 
