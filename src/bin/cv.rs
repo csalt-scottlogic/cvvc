@@ -18,7 +18,7 @@ struct Cli {
     #[command(subcommand)]
     command: Commands,
     /// Print verbose output
-    #[arg(short, long)]
+    #[arg(short, long, global = true)]
     verbose: bool,
 }
 
