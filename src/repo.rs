@@ -760,6 +760,19 @@ impl Repository {
         }
     }
 
+    /// Returns the details of the remote-tracking branch that the current branch (if any) is mapped to.
+    /// Returns `Ok(None)` if there is no current branch, or if the current branch is not mapped to a remote.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if errors are encountered reading from the filesystem, or if the file `.git/HEAD` is missing.
+    pub fn current_remote_tracking_branch(&self) -> Result<Option<BranchSpec>, anyhow::Error> {
+        let current_local_branch = self.current_branch()?;
+        Ok(current_local_branch
+            .map(|b| self.config.branch_config(&b).and_then(|c| c.remote()))
+            .flatten())
+    }
+
     /// Returns the ID of the current commit, or `Ok(None)` if there is no current commit.
     ///
     /// "Current commit" means the commit pointed to by `.git/HEAD`, whether directly or as the tip

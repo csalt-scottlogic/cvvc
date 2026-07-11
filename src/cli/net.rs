@@ -28,6 +28,7 @@ fn fetch_remote(
     config: &GlobalConfig,
     printer: &dyn OutputService,
 ) -> Result<(), anyhow::Error> {
+    let mut warn_flag = false;
     for url in remote.fetch_urls.iter() {
         let protocol_version = version
             .map(ProtocolVersion::try_from)
@@ -79,6 +80,10 @@ fn fetch_remote(
             )?;
             repo.store_pack(reader, printer)?;
         }
+        let current_branch = repo
+            .current_remote_tracking_branch()?
+            .map(|b| b.into_ref_spec());
+
         for update in updates_needed {
             let new_target = update.source.target.to_string();
             if repo.has_object(&new_target)? {
@@ -107,6 +112,9 @@ fn fetch_remote(
                 };
 
                 repo.update_ref(&update.dest, &update.source.target)?;
+                if Some(&update.dest) == current_branch.as_ref() {
+                    warn_flag = true;
+                }
                 repo.write_ref_log(
                     existing_target.as_deref(),
                     &new_target,
@@ -123,6 +131,9 @@ fn fetch_remote(
                 )));
             }
         }
+    }
+    if warn_flag {
+        printer.println(&OutputMessage::plain("Your current branch has been updated on its remote server.\nPull to bring these changes in locally."));
     }
     Ok(())
 }
