@@ -20,6 +20,9 @@ struct Cli {
     /// Print verbose output
     #[arg(short, long, global = true)]
     verbose: bool,
+    /// Do not output coloured text
+    #[arg(long, name = "no-colour", global = true)]
+    no_colour: bool
 }
 
 #[derive(Subcommand)]
@@ -227,7 +230,8 @@ enum RefLogCommands {
 fn parse_dispatch() -> ExitCode {
     let args = Cli::parse();
     let config = GlobalConfig::from_default_files();
-    let output_service = ConsoleOutputService::new(OutputKind::Colour, args.verbose);
+    let output_kind = if args.no_colour { OutputKind::Plain } else { OutputKind::Colour };
+    let output_service = ConsoleOutputService::new(output_kind, args.verbose);
     match args.command {
         Commands::Add { paths } => staging::add_files(&paths, &output_service),
         Commands::Branch {
