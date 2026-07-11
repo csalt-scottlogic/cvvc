@@ -119,7 +119,7 @@ pub trait RefStore {
 }
 
 /// Specifies if a branch or tag is local, or if it is remote, which remote it belongs to.
-#[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum BranchLocation {
     /// A local branch or tag
     Local,
@@ -248,7 +248,7 @@ impl RefSpec {
 }
 
 /// The definition of a branch.
-#[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BranchSpec {
     // Correct behaviour of the branch-list command depends on the
     // ordering of members of this struct, so that the derived
