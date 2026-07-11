@@ -7,6 +7,7 @@ use crate::{
     stores::{BranchLocation, BranchSpec, RefSpec},
 };
 use anyhow::anyhow;
+use colored::Colorize;
 
 /// Entry point for the `cv checkout` command
 pub fn checkout(
@@ -46,15 +47,20 @@ fn list_branches_in_repo(
         .into_iter()
         .filter(|b| list_all || (b.location == BranchLocation::Local))
     {
-        let cb_flag = if cb.as_ref().map(|b| *b == branch).unwrap_or(false) {
-            "*"
+        let is_current = cb.as_ref().map(|b| *b == branch).unwrap_or(false);
+        let plain_string = if is_current {
+            format!("* {}", branch.distinguished_name())
         } else {
-            " "
+            format!("  {}", branch.distinguished_name())
         };
-        printer.println(&OutputMessage::plain(&format!(
-            "{cb_flag} {}",
-            branch.distinguished_name()
-        )));
+        let coloured_string = if is_current {
+            format!("* {}", branch.distinguished_name().green())
+        } else if branch.location != BranchLocation::Local {
+            format!("  {}", branch.distinguished_name().red())
+        } else {
+            format!("  {}", branch.distinguished_name())
+        };
+        printer.println(&OutputMessage::new(&plain_string, Some(&coloured_string)));
     }
     Ok(())
 }
