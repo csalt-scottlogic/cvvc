@@ -20,7 +20,7 @@ struct Cli {
     /// Print verbose output
     #[arg(short, long, global = true)]
     verbose: bool,
-    /// Do not output coloured text
+    /// Do not output coloured or highlighted text
     #[arg(long, name = "no-colour", global = true)]
     no_colour: bool,
 }
@@ -33,17 +33,23 @@ enum Commands {
         #[arg(value_name = "PATH")]
         paths: Vec<String>,
     },
-    /// List, create or delete branches
+    /// List, create or delete branches.  With a branch name given but no other options, this command will create the specified branch.
+    /// With no options or arguments, it will behave as if --list was specified.
     #[command()]
     Branch {
+        /// List branches; local by default, or all with the --all or -a options.
         #[arg(long)]
         list: bool,
+        /// When listing branches, list remote-tracking branches in addition to local ones.
         #[arg(short = 'a', long = "all")]
         list_all: bool,
+        /// Delete a branch, if it is fully merged to the current HEAD.
         #[arg(short, long)]
         delete: bool,
+        /// Force-delete a branch, whether it is merged or not.
         #[arg(short = 'D', long)]
         force_delete: bool,
+        /// The branch to create or delete, unless --list is specified.
         #[arg()]
         branch: Option<String>,
     },
