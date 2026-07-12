@@ -198,6 +198,14 @@ impl RefStore for RefFileStore {
         write_single_line(ref_path, &target.to_string())
     }
 
+    fn delete_ref(&mut self, refspec: &RefSpec) -> Result<(), anyhow::Error> {
+        let ref_path = self.base_path.join(PathBuf::from(refspec));
+        if ref_path.exists() && ref_path.is_file() {
+            fs::remove_file(ref_path)?;
+        }
+        Ok(())
+    }
+
     fn all_refs(&self) -> Result<Vec<RefSpec>, anyhow::Error> {
         let mut results = vec![];
         results.append(&mut self.all_refs_in_path(&self.local_branch_path)?);

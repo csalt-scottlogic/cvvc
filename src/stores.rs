@@ -1,6 +1,7 @@
 use std::{fmt::Display, str::FromStr};
 
 use crate::{
+    helpers,
     objects::{GitObject, RawObject, RawObjectData},
     stores::errors::InvalidRefNameError,
 };
@@ -116,6 +117,11 @@ pub trait RefStore {
     /// unborn symbolic references where it might not.
     fn create_update_ref(&self, refspec: &RefSpec, target: &RefTarget)
         -> Result<(), anyhow::Error>;
+
+    /// Delete a ref, if it exists.
+    /// 
+    /// This function should not error if the `refspec` is known not to exist.
+    fn delete_ref(&mut self, refspec: &RefSpec) -> Result<(), anyhow::Error>;
 }
 
 /// Specifies if a branch or tag is local, or if it is remote, which remote it belongs to.
@@ -354,6 +360,20 @@ pub enum RefTarget {
 
     /// The reference target is another reference.
     SymbolicRef(RefSpec),
+}
+
+impl RefTarget {
+    /// Returns a concise display string.
+    /// 
+    /// For an absolute target, this returns the abbreviated object ID, whereas `to_string()` returns the complete ID. 
+    /// For a symbolic target, this returns the full name of the target, whereas `to_string()` returns the full name
+    /// of the target prefixed by `ref:`.
+    pub fn name(&self) -> String {
+        match self {
+            RefTarget::Object(obj) => helpers::abbrev_commit_id(obj),
+            RefTarget::SymbolicRef(spec) => spec.to_string(),
+        }
+    }
 }
 
 impl Display for RefTarget {

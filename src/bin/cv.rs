@@ -20,9 +20,9 @@ struct Cli {
     /// Print verbose output
     #[arg(short, long, global = true)]
     verbose: bool,
-    /// Do not output coloured text
+    /// Do not output coloured or highlighted text
     #[arg(long, name = "no-colour", global = true)]
-    no_colour: bool
+    no_colour: bool,
 }
 
 #[derive(Subcommand)]
@@ -33,13 +33,23 @@ enum Commands {
         #[arg(value_name = "PATH")]
         paths: Vec<String>,
     },
-    /// List, create or delete branches
+    /// List, create or delete branches.  With a branch name given but no other options, this command will create the specified branch.
+    /// With no options or arguments, it will behave as if --list was specified.
     #[command()]
     Branch {
+        /// List branches; local by default, or all with the --all or -a options.
         #[arg(long)]
         list: bool,
+        /// When listing branches, list remote-tracking branches in addition to local ones.
         #[arg(short = 'a', long = "all")]
         list_all: bool,
+        /// Delete a branch, if it is fully merged to the current HEAD.
+        #[arg(short, long)]
+        delete: bool,
+        /// Force-delete a branch, whether it is merged or not.
+        #[arg(short = 'D', long)]
+        force_delete: bool,
+        /// The branch to create or delete, unless --list is specified.
         #[arg()]
         branch: Option<String>,
     },
@@ -230,7 +240,11 @@ enum RefLogCommands {
 fn parse_dispatch() -> ExitCode {
     let args = Cli::parse();
     let config = GlobalConfig::from_default_files();
-    let output_kind = if args.no_colour { OutputKind::Plain } else { OutputKind::Colour };
+    let output_kind = if args.no_colour {
+        OutputKind::Plain
+    } else {
+        OutputKind::Colour
+    };
     let output_service = ConsoleOutputService::new(output_kind, args.verbose);
     match args.command {
         Commands::Add { paths } => staging::add_files(&paths, &output_service),
@@ -238,11 +252,17 @@ fn parse_dispatch() -> ExitCode {
             list,
             list_all,
             branch,
+            delete,
+            force_delete,
         } => {
             if list {
                 branches::list_branches(list_all, &output_service)
             } else if let Some(branch) = branch {
-                branches::new_branch(&branch, false, &config, &output_service)
+                if delete || force_delete {
+                    branches::delete_branch(&branch, force_delete, &output_service)
+                } else {
+                    branches::new_branch(&branch, false, &config, &output_service)
+                }
             } else {
                 branches::list_branches(list_all, &output_service)
             }

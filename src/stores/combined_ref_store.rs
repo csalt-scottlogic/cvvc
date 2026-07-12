@@ -150,4 +150,14 @@ impl RefStore for CombinedRefStore {
     ) -> Result<(), anyhow::Error> {
         self.loose_store.create_update_ref(refspec, target)
     }
+
+    fn delete_ref(&mut self, refspec: &RefSpec) -> Result<(), anyhow::Error> {
+        self.loose_store.delete_ref(refspec)?;
+        if let Some(ref mut packed_store) = self.packed_store {
+            if packed_store.resolve_target(refspec)?.is_some() {
+                packed_store.delete_ref(refspec)?;
+            }
+        }
+        Ok(())
+    }
 }

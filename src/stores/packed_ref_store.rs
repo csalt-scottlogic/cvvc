@@ -1,4 +1,10 @@
-use std::{collections::HashMap, path::Path, str::FromStr};
+use std::{
+    collections::HashMap,
+    fs::OpenOptions,
+    io::Write,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use anyhow::anyhow;
 
@@ -9,6 +15,7 @@ use crate::stores::{BranchLocation, BranchSpec, RefSpec, RefStore, RefTarget, Ta
 /// This store's data is loaded using the [`PackedRefStore::new_from_file()`] function, and is
 /// kept in memory after loading.
 pub struct PackedRefStore {
+    path: PathBuf,
     contents: HashMap<String, String>,
 }
 
@@ -25,8 +32,11 @@ impl PackedRefStore {
     /// non-comment line that does not contain a space character, or if the file contains
     /// an invalid ref name.
     pub fn new_from_file<P: AsRef<Path>>(file: P) -> Result<Self, anyhow::Error> {
-        let contents = Self::parse_file(file)?;
-        Ok(Self { contents })
+        let contents = Self::parse_file(&file)?;
+        Ok(Self {
+            contents,
+            path: file.as_ref().to_path_buf(),
+        })
     }
 
     fn parse_file<P: AsRef<Path>>(file: P) -> Result<HashMap<String, String>, anyhow::Error> {
@@ -138,5 +148,29 @@ impl RefStore for PackedRefStore {
         _target: &RefTarget,
     ) -> Result<(), anyhow::Error> {
         Err(anyhow!("cannot update packed refs"))
+    }
+
+    fn delete_ref(&mut self, refspec: &RefSpec) -> Result<(), anyhow::Error> {
+        let ref_name = refspec.to_string();
+        if self.contents.contains_key(&ref_name) {
+            self.contents.remove(&ref_name);
+        }
+        let file_contents = std::fs::read_to_string(&self.path)?;
+        let file_contents = file_contents.lines();
+        let tmp_name = self.path.with_added_extension(".tmp");
+        {
+            let mut output_file = OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .truncate(true)
+                .open(&tmp_name)?;
+            for line in file_contents {
+                if !line.ends_with(&ref_name) {
+                    writeln!(output_file, "{line}")?;
+                }
+            }
+        }
+        std::fs::rename(&tmp_name, &self.path)?;
+        Ok(())
     }
 }
