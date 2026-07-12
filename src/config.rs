@@ -359,7 +359,7 @@ impl RepoConfig {
     pub fn branch_config(&self, branch_spec: &BranchSpec) -> Option<BranchConfig> {
         let section = self
             .cf
-            .section(Some(format!("branch \"{}\"", &branch_spec.name)))?;
+            .section(Some(Self::branch_section_key(branch_spec)))?;
         let mut properties = HashMap::<String, String>::new();
         for p in section {
             properties.insert(p.0.to_string(), p.1.to_string());
@@ -368,6 +368,27 @@ impl RepoConfig {
             branch: branch_spec.clone(),
             properties,
         })
+    }
+
+    /// Delete a branch configuration, if it is present.
+    /// 
+    /// This function is assumed to be called when deleting branches.
+    /// 
+    /// # Errors
+    /// 
+    /// This function returns an error if it encounters an error writing the configuration to the filesystem.
+    /// It returns `Ok(())` if the branch configuration did not exist.
+    pub fn branch_config_delete(&mut self, branch_spec: &BranchSpec) -> Result<(), anyhow::Error> {
+        let deleted = self.cf.delete(Some(Self::branch_section_key(branch_spec)));
+        if deleted.is_some() {
+            self.save()
+        } else {
+            Ok(())
+        }
+    }
+
+    fn branch_section_key(branch_spec: &BranchSpec) -> String {
+        format!("branch \"{}\"", &branch_spec.name)
     }
 
     fn default_config() -> Ini {

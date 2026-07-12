@@ -201,6 +201,19 @@ impl RefLog {
         file_path.exists()
     }
 
+    /// Delete the ref log for a branch.
+    /// 
+    /// # Errors
+    /// 
+    /// This method returns an error if it encounters an error deleting the ref log file from the filesystem.
+    pub fn delete(&self, branch: &RefSpec) -> Result<(), anyhow::Error> {
+        let file_path = self.ref_log_file_path(branch);
+        if file_path.exists() {
+            std::fs::remove_file(&file_path)?;
+        }
+        Ok(())
+    }
+
     /// Return a list of extant ref logs on disk.
     ///
     /// This method returns an error if it encounters any errors reading from the filesystem.

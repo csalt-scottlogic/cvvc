@@ -22,7 +22,7 @@ struct Cli {
     verbose: bool,
     /// Do not output coloured text
     #[arg(long, name = "no-colour", global = true)]
-    no_colour: bool
+    no_colour: bool,
 }
 
 #[derive(Subcommand)]
@@ -40,6 +40,10 @@ enum Commands {
         list: bool,
         #[arg(short = 'a', long = "all")]
         list_all: bool,
+        #[arg(short, long)]
+        delete: bool,
+        #[arg(short = 'D', long)]
+        force_delete: bool,
         #[arg()]
         branch: Option<String>,
     },
@@ -230,7 +234,11 @@ enum RefLogCommands {
 fn parse_dispatch() -> ExitCode {
     let args = Cli::parse();
     let config = GlobalConfig::from_default_files();
-    let output_kind = if args.no_colour { OutputKind::Plain } else { OutputKind::Colour };
+    let output_kind = if args.no_colour {
+        OutputKind::Plain
+    } else {
+        OutputKind::Colour
+    };
     let output_service = ConsoleOutputService::new(output_kind, args.verbose);
     match args.command {
         Commands::Add { paths } => staging::add_files(&paths, &output_service),
@@ -238,11 +246,17 @@ fn parse_dispatch() -> ExitCode {
             list,
             list_all,
             branch,
+            delete,
+            force_delete,
         } => {
             if list {
                 branches::list_branches(list_all, &output_service)
             } else if let Some(branch) = branch {
-                branches::new_branch(&branch, false, &config, &output_service)
+                if delete || force_delete {
+                    branches::delete_branch(&branch, force_delete, &output_service)
+                } else {
+                    branches::new_branch(&branch, false, &config, &output_service)
+                }
             } else {
                 branches::list_branches(list_all, &output_service)
             }
