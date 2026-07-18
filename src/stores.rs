@@ -119,7 +119,7 @@ pub trait RefStore {
         -> Result<(), anyhow::Error>;
 
     /// Delete a ref, if it exists.
-    /// 
+    ///
     /// This function should not error if the `refspec` is known not to exist.
     fn delete_ref(&mut self, refspec: &RefSpec) -> Result<(), anyhow::Error>;
 }
@@ -364,8 +364,8 @@ pub enum RefTarget {
 
 impl RefTarget {
     /// Returns a concise display string.
-    /// 
-    /// For an absolute target, this returns the abbreviated object ID, whereas `to_string()` returns the complete ID. 
+    ///
+    /// For an absolute target, this returns the abbreviated object ID, whereas `to_string()` returns the complete ID.
     /// For a symbolic target, this returns the full name of the target, whereas `to_string()` returns the full name
     /// of the target prefixed by `ref:`.
     pub fn name(&self) -> String {
@@ -920,6 +920,34 @@ mod tests {
         let test_output = BranchSpec::from_str(test_input).unwrap_err();
 
         assert_eq!(InvalidRefNameError::new(test_input), test_output);
+    }
+
+    #[test]
+    fn branch_spec_distinguished_name_succeeds_for_local_branch() {
+        let expected_result = "the/branch-name";
+        let test_object = BranchSpec {
+            location: BranchLocation::Local,
+            name: expected_result.to_string(),
+        };
+
+        let test_output = test_object.distinguished_name();
+
+        assert_eq!(expected_result, test_output);
+    }
+
+    #[test]
+    fn branch_spec_distinguished_name_succeeds_for_remote_branch() {
+        let remote_name = "server";
+        let branch_name = "remote-branch";
+        let expected_result = "remotes/server/remote-branch";
+        let test_object = BranchSpec {
+            location: BranchLocation::Remote(remote_name.to_string()),
+            name: branch_name.to_string(),
+        };
+
+        let test_output = test_object.distinguished_name();
+
+        assert_eq!(expected_result, test_output);
     }
 
     #[test]

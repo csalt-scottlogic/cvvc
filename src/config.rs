@@ -371,11 +371,11 @@ impl RepoConfig {
     }
 
     /// Delete a branch configuration, if it is present.
-    /// 
+    ///
     /// This function is assumed to be called when deleting branches.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// This function returns an error if it encounters an error writing the configuration to the filesystem.
     /// It returns `Ok(())` if the branch configuration did not exist.
     pub fn branch_config_delete(&mut self, branch_spec: &BranchSpec) -> Result<(), anyhow::Error> {

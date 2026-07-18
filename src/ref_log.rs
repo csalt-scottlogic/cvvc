@@ -202,9 +202,9 @@ impl RefLog {
     }
 
     /// Delete the ref log for a branch.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// This method returns an error if it encounters an error deleting the ref log file from the filesystem.
     pub fn delete(&self, branch: &RefSpec) -> Result<(), anyhow::Error> {
         let file_path = self.ref_log_file_path(branch);
