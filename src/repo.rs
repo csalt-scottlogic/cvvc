@@ -1196,8 +1196,8 @@ impl Repository {
     ///
     /// This method returns an error if it encounters any errors reading the repository's
     /// refs.
-    pub fn commits<'a>(&'a self, start: Option<&str>) -> Result<CommitIterator<'a>, anyhow::Error> {
-        CommitIterator::new(self, start)
+    pub fn commits<'a>(&'a self, start: Option<&str>) -> Result<Commits<'a>, anyhow::Error> {
+        Commits::new(self, start)
     }
 
     /// Determines whether or not `descendant` is genuinely a descendant of `ancester`.
@@ -1230,7 +1230,7 @@ impl Repository {
         let ancestor_ancestors_ref: Vec<&str> =
             ancestor_ancestors.iter().map(String::as_ref).collect();
         let descendant_ancestors: HashSet<String> =
-            CommitIterator::new_prunable(self, Some(descendant), &ancestor_ancestors_ref)?
+            Commits::new_prunable(self, Some(descendant), &ancestor_ancestors_ref)?
                 .filter_map(|id| id.ok())
                 .collect();
         for da in descendant_ancestors {
@@ -1248,15 +1248,15 @@ impl Repository {
 /// This iterator's associated type is `Result<String, Error>`, because at each iteration
 /// it reads the returned commit to determine its parents and potentially queue them for
 /// later output.  If that read fails, it will error.
-pub struct CommitIterator<'a> {
+pub struct Commits<'a> {
     repo: &'a Repository,
     queue: VecDeque<String>,
     seen: HashSet<String>,
     prune: HashSet<String>,
 }
 
-impl<'a> CommitIterator<'a> {
-    fn new(repo: &'a Repository, start: Option<&str>) -> Result<CommitIterator<'a>, anyhow::Error> {
+impl<'a> Commits<'a> {
+    fn new(repo: &'a Repository, start: Option<&str>) -> Result<Commits<'a>, anyhow::Error> {
         Self::new_prunable(repo, start, &[])
     }
 
@@ -1264,7 +1264,7 @@ impl<'a> CommitIterator<'a> {
         repo: &'a Repository,
         start: Option<&str>,
         prune_commits: &[&str],
-    ) -> Result<CommitIterator<'a>, anyhow::Error> {
+    ) -> Result<Commits<'a>, anyhow::Error> {
         let prune: HashSet<String> = prune_commits.iter().map(|id| id.to_string()).collect();
         let seen = match start {
             Some(sid) => {
@@ -1289,7 +1289,7 @@ impl<'a> CommitIterator<'a> {
         };
 
         let queue = Self::generate_queue(repo, &seen);
-        Ok(CommitIterator {
+        Ok(Commits {
             repo,
             queue,
             seen,
@@ -1330,7 +1330,7 @@ impl<'a> CommitIterator<'a> {
     }
 }
 
-impl<'a> Iterator for CommitIterator<'a> {
+impl<'a> Iterator for Commits<'a> {
     type Item = Result<String, anyhow::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
