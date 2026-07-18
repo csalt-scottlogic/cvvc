@@ -760,6 +760,19 @@ impl Repository {
         }
     }
 
+    /// Returns the details of the remote-tracking branch that the current branch (if any) is mapped to.
+    /// Returns `Ok(None)` if there is no current branch, or if the current branch is not mapped to a remote.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if errors are encountered reading from the filesystem, or if the file `.git/HEAD` is missing.
+    pub fn current_remote_tracking_branch(&self) -> Result<Option<BranchSpec>, anyhow::Error> {
+        let current_local_branch = self.current_branch()?;
+        Ok(current_local_branch
+            .map(|b| self.config.branch_config(&b).and_then(|c| c.remote()))
+            .flatten())
+    }
+
     /// Returns the ID of the current commit, or `Ok(None)` if there is no current commit.
     ///
     /// "Current commit" means the commit pointed to by `.git/HEAD`, whether directly or as the tip
@@ -845,6 +858,16 @@ impl Repository {
     /// Update a ref, creating it if it does not exist.
     pub fn update_ref(&self, refspec: &RefSpec, target: &RefTarget) -> Result<(), anyhow::Error> {
         self.ref_store.create_update_ref(refspec, target)
+    }
+
+    /// Delete a ref, if it exists.
+    pub fn delete_ref(&mut self, refspec: &RefSpec) -> Result<(), anyhow::Error> {
+        self.ref_store.delete_ref(refspec)
+    }
+
+    /// Delete the configuration for a branch
+    pub fn delete_branch_config(&mut self, branch_spec: &BranchSpec) -> Result<(), anyhow::Error> {
+        self.config.branch_config_delete(branch_spec)
     }
 
     /// Update the branch that `HEAD` points to.
@@ -1138,6 +1161,11 @@ impl Repository {
     /// This method is infallible, and returns `Ok(false)` if it encounters filesystem errors.
     pub fn check_ref_log_exists(&self, branch: &RefSpec) -> Result<bool, anyhow::Error> {
         Ok(self.ref_log_store.check_exists(branch))
+    }
+
+    /// Delete a ref log, if it exists.
+    pub fn delete_ref_log(&self, branch: &RefSpec) -> Result<(), anyhow::Error> {
+        self.ref_log_store.delete(branch)
     }
 
     /// List the ref logs present in the repository

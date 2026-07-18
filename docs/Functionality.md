@@ -60,11 +60,11 @@ The `add` command takes one or more paths as positional parameters, but does not
 
 The `branch` command has the following forms:
 
-- `cv branch`
-- `cv branch --list`
-- `cv branch <new-branch>`
+- `cv branch` and `cv branch --list` will display local branches, and with the `-a` option also display remote-tracking branches.
+- `cv branch <new-branch>` creates a new branch that is not checked out.
+- `cv branch -D <branch>` deletes a branch, and `cv branch -d <branch>` deletes a branch if it is fully merged to the current `HEAD` commit.
 
-The first two both list extant branches; the third creates a new branch that is not checked out.
+The `cv branch --list` command colours its output by default; this can be turned off with the `--no-colour` option.
 
 ### `cv cat-file`
 

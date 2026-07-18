@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context};
 use ini::{Ini, Properties};
 use std::{
+    collections::HashMap,
     env,
     ffi::OsStr,
     fmt::Display,
@@ -8,7 +9,7 @@ use std::{
     str::FromStr,
 };
 
-use crate::stores::{RefSpec, TargetedRef};
+use crate::stores::{BranchLocation, BranchSpec, RefSpec, TargetedRef};
 
 /// Global configuration
 ///
@@ -354,6 +355,42 @@ impl RepoConfig {
         })
     }
 
+    /// Get the configuration of a specific branch, if set.
+    pub fn branch_config(&self, branch_spec: &BranchSpec) -> Option<BranchConfig> {
+        let section = self
+            .cf
+            .section(Some(Self::branch_section_key(branch_spec)))?;
+        let mut properties = HashMap::<String, String>::new();
+        for p in section {
+            properties.insert(p.0.to_string(), p.1.to_string());
+        }
+        Some(BranchConfig {
+            branch: branch_spec.clone(),
+            properties,
+        })
+    }
+
+    /// Delete a branch configuration, if it is present.
+    /// 
+    /// This function is assumed to be called when deleting branches.
+    /// 
+    /// # Errors
+    /// 
+    /// This function returns an error if it encounters an error writing the configuration to the filesystem.
+    /// It returns `Ok(())` if the branch configuration did not exist.
+    pub fn branch_config_delete(&mut self, branch_spec: &BranchSpec) -> Result<(), anyhow::Error> {
+        let deleted = self.cf.delete(Some(Self::branch_section_key(branch_spec)));
+        if deleted.is_some() {
+            self.save()
+        } else {
+            Ok(())
+        }
+    }
+
+    fn branch_section_key(branch_spec: &BranchSpec) -> String {
+        format!("branch \"{}\"", &branch_spec.name)
+    }
+
     fn default_config() -> Ini {
         let mut conf = Ini::new();
         conf.with_section(Some("core"))
@@ -684,6 +721,27 @@ impl TargetedRef {
     }
 }
 
+/// The configuration settings of a specific branch.
+///
+/// At present, the only settings that can be extracted is the remote-tracking branch that this
+/// one is mapped to.
+#[derive(Debug)]
+pub struct BranchConfig {
+    branch: BranchSpec,
+    properties: HashMap<String, String>,
+}
+
+impl BranchConfig {
+    /// Get the remote-tracking branch that this branch is mapped to, if any.
+    pub fn remote(&self) -> Option<BranchSpec> {
+        self.properties.get("remote").map(|x| BranchSpec {
+            location: BranchLocation::Remote(x.clone()),
+            name: self.branch.name.clone(),
+        })
+    }
+}
+
+// Determine whether or not a string contains a particular character more than once.
 fn string_has_multitudes(s: &str, c: char) -> bool {
     s.chars().filter(|x| *x == c).count() > 1
 }

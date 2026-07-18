@@ -4,9 +4,10 @@ use crate::{
     objects::StoredObject,
     output::{OutputMessage, OutputService},
     repo::Repository,
-    stores::{BranchLocation, BranchSpec, RefSpec},
+    stores::{BranchLocation, BranchSpec, RefSpec, RefTarget},
 };
 use anyhow::anyhow;
+use colored::Colorize;
 
 /// Entry point for the `cv checkout` command
 pub fn checkout(
@@ -46,15 +47,20 @@ fn list_branches_in_repo(
         .into_iter()
         .filter(|b| list_all || (b.location == BranchLocation::Local))
     {
-        let cb_flag = if cb.as_ref().map(|b| *b == branch).unwrap_or(false) {
-            "*"
+        let is_current = cb.as_ref().map(|b| *b == branch).unwrap_or(false);
+        let plain_string = if is_current {
+            format!("* {}", branch.distinguished_name())
         } else {
-            " "
+            format!("  {}", branch.distinguished_name())
         };
-        printer.println(&OutputMessage::plain(&format!(
-            "{cb_flag} {}",
-            branch.distinguished_name()
-        )));
+        let coloured_string = if is_current {
+            format!("* {}", branch.distinguished_name().green())
+        } else if branch.location != BranchLocation::Local {
+            format!("  {}", branch.distinguished_name().red())
+        } else {
+            format!("  {}", branch.distinguished_name())
+        };
+        printer.println(&OutputMessage::new(&plain_string, Some(&coloured_string)));
     }
     Ok(())
 }
@@ -173,4 +179,55 @@ fn checkout_from_repo(
         &RefSpec::Head,
         false,
     )
+}
+
+/// Entry point for `cv branch -d` and `cv branch -D`
+pub fn delete_branch(
+    branch: &str,
+    force_delete: bool,
+    printer: &dyn OutputService,
+) -> Result<(), anyhow::Error> {
+    delete_branch_from_repo(&mut find_repo_cwd(printer)?, branch, force_delete, printer)
+}
+
+fn delete_branch_from_repo(
+    repo: &mut Repository,
+    branch: &str,
+    force_delete: bool,
+    printer: &dyn OutputService,
+) -> Result<(), anyhow::Error> {
+    if !repo.is_branch_name(branch)? {
+        return Err(anyhow!("branch not found"));
+    }
+    let branch_spec = BranchSpec::local(branch);
+    if repo
+        .current_branch()?
+        .map(|b| b == branch_spec)
+        .unwrap_or_default()
+    {
+        return Err(anyhow!("cannot delete the current branch"));
+    }
+    let ref_spec = branch_spec.clone().into_ref_spec();
+    let branch_target = repo.resolve_ref(&ref_spec)?;
+    if !force_delete {
+        let current_commit = repo.current_commit()?;
+        if let (Some(current_commit), Some(RefTarget::Object(branch_target))) =
+            (current_commit, &branch_target)
+        {
+            if !repo.commit_is_ancestor(&current_commit, branch_target)? {
+                return Err(anyhow!("Branch is not fully merged to HEAD"));
+            }
+        }
+    }
+    repo.delete_ref(&ref_spec)?;
+    repo.delete_ref_log(&ref_spec)?;
+    repo.delete_branch_config(&branch_spec)?;
+    printer.println(&OutputMessage::plain(&format!(
+        "Deleted branch {} (was {})",
+        branch,
+        branch_target
+            .map(|x| x.name())
+            .unwrap_or_else(|| "nothing".to_string())
+    )));
+    Ok(())
 }
