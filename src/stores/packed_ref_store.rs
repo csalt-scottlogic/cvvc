@@ -41,7 +41,10 @@ impl PackedRefStore {
 
     #[cfg(test)]
     fn new_from_map(map: HashMap<String, String>) -> Self {
-        Self { contents: map }
+        Self {
+            contents: map,
+            path: PathBuf::new(),
+        }
     }
 
     fn parse_file<P: AsRef<Path>>(file: P) -> Result<HashMap<String, String>, anyhow::Error> {
