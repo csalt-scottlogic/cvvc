@@ -12,7 +12,7 @@ use url::{self, Url};
 use crate::{
     helpers::escaped_byte_string,
     output::{OutputMessage, OutputService},
-    repo::{is_partial_object_id, CommitIterator, Repository},
+    repo::{is_partial_object_id, Commits, Repository},
     stores::{RefSpec, RefTarget, TargetedRef},
 };
 
@@ -651,9 +651,9 @@ impl HttpFetchClient {
 
     fn top_up_common_objects<'a>(
         common_objects: &mut IndexSet<String>,
-        mut iter: CommitIterator<'a>,
+        mut iter: Commits<'a>,
         to_level: usize,
-    ) -> Result<Option<CommitIterator<'a>>, anyhow::Error> {
+    ) -> Result<Option<Commits<'a>>, anyhow::Error> {
         while common_objects.len() < to_level {
             match iter.next() {
                 Some(res) => {
