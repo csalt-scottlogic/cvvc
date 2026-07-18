@@ -903,6 +903,34 @@ mod tests {
     }
 
     #[test]
+    fn branch_spec_distinguished_name_succeeds_for_local_branch() {
+        let expected_result = "the/branch-name";
+        let test_object = BranchSpec {
+            location: BranchLocation::Local,
+            name: expected_result.to_string(),
+        };
+
+        let test_output = test_object.distinguished_name();
+
+        assert_eq!(expected_result, test_output);
+    }
+
+    #[test]
+    fn branch_spec_distinguished_name_succeeds_for_remote_branch() {
+        let remote_name = "server";
+        let branch_name = "remote-branch";
+        let expected_result = "remotes/server/remote-branch";
+        let test_object = BranchSpec {
+            location: BranchLocation::Remote(remote_name.to_string()),
+            name: branch_name.to_string(),
+        };
+
+        let test_output = test_object.distinguished_name();
+
+        assert_eq!(expected_result, test_output);
+    }
+
+    #[test]
     fn tag_spec_fmt_succeeds_for_unpeeled_tag() {
         let test_input = TagSpec {
             name: "the-example-tag".to_string(),
