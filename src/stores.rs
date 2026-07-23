@@ -1,9 +1,7 @@
-use std::{fmt::Display, str::FromStr};
+use std::{fmt::Display, iter::FilterMap, str::FromStr, vec::IntoIter};
 
 use crate::{
-    helpers,
-    objects::{GitObject, RawObject, RawObjectData},
-    stores::errors::InvalidRefNameError,
+    helpers, objects::{GitObject, ObjectId, RawObject, RawObjectData}, stores::errors::InvalidRefNameError,
 };
 
 // The store that records ref details using the filesystem.
@@ -43,7 +41,7 @@ pub trait ObjectStore {
     ///
     /// This function should return `OK(vec![])` if no objects with the matching partial ID are found,
     /// rather than erroring.
-    fn search_objects(&self, partial_object_id: &str) -> Result<Vec<String>, anyhow::Error>;
+    fn objects_by_id(&self, object_id_prefix: &str) -> Result<Objects, anyhow::Error>;
 
     /// Determine if a store holds a copy of a given object.
     fn has_object(&self, object_id: &str) -> Result<bool, anyhow::Error>;
@@ -79,24 +77,25 @@ pub trait RefStore {
     fn is_existing_ref(&self, r: &RefSpec) -> Result<bool, anyhow::Error>;
 
     /// List all of the local branches in the store.
-    fn local_branches(&self) -> Result<Vec<BranchSpec>, anyhow::Error>;
+    fn local_branches(&self) -> Result<LocalBranches, anyhow::Error> {
+        Ok(self.branches()?.into())
+    }
 
     /// List all of the branches in the store, either local or remote-tracking.
-    fn branches(&self) -> Result<Vec<BranchSpec>, anyhow::Error>;
+    fn branches(&self) -> Result<Branches, anyhow::Error> {
+        Ok(self.refs()?.into())
+    }
 
     /// List all of the tags in the store.
     fn tags(&self) -> Result<Vec<RefSpec>, anyhow::Error>;
 
     /// List all of the refs in the store.
-    fn all_refs(&self) -> Result<Vec<RefSpec>, anyhow::Error>;
+    fn refs(&self) -> Result<Refs, anyhow::Error>;
 
     /// List all of the refs in the store, and their target objects.
     ///
-    /// This method should return a vector of tuples, each tuple consisting of a [`RefSpec`], and the ID of
-    /// the object it points to.
-    ///
     /// This method should peel symbolic refs until it gets an object ID, but does not unpeel annotated tags.
-    fn all_ref_targets(&self) -> Result<Vec<TargetedRef>, anyhow::Error>;
+    fn ref_targets(&self) -> Result<RefTargets, anyhow::Error>;
 
     /// Return the ID of the ref (the tip of the branch, or the tag).
     ///
@@ -106,10 +105,8 @@ pub trait RefStore {
     /// This function should return `Ok(None)` if the branch does not exist rather than erroring.
     fn resolve_target(&self, r: &RefSpec) -> Result<Option<RefTarget>, anyhow::Error>;
 
-    /// Return all of the remote branches with the matching name.
-    ///
-    /// This function should return `Ok(vec![])` if no branches with the given name exist, rather than erroring.
-    fn search_remotes_for_branch(&self, name: &str) -> Result<Vec<BranchSpec>, anyhow::Error>;
+    /// Return all of the remote branches with the matching name, if any.
+    fn remote_branches_by_name(&self, name: &str) -> Result<RemoteBranches, anyhow::Error>;
 
     /// Create a new ref, or update an existing one.
     ///
@@ -122,6 +119,147 @@ pub trait RefStore {
     ///
     /// This function should not error if the `refspec` is known not to exist.
     fn delete_ref(&mut self, refspec: &RefSpec) -> Result<(), anyhow::Error>;
+}
+
+/// An iterator which iterates over object IDs in the form of [`String`]s.
+pub struct Objects {
+    items: IntoIter<ObjectId>,
+}
+
+impl FromIterator<ObjectId> for Objects {
+    fn from_iter<T: IntoIterator<Item = ObjectId>>(iter: T) -> Self {
+        Self {
+            items: iter.into_iter().collect::<Vec<ObjectId>>().into_iter(),
+        }
+    }
+}
+
+impl Iterator for Objects {
+    type Item = ObjectId;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.items.next()
+    }
+}
+
+/// An iterator which iterates over the [`RefSpec`]s in a store.
+pub struct Refs {
+    content: IntoIter<RefSpec>,
+}
+
+impl FromIterator<RefSpec> for Refs {
+    fn from_iter<T: IntoIterator<Item = RefSpec>>(iter: T) -> Self {
+        Self {
+            content: iter.into_iter().collect::<Vec<RefSpec>>().into_iter(),
+        }
+    }
+}
+
+impl Iterator for Refs {
+    type Item = RefSpec;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.content.next()
+    }
+}
+
+/// An iterator which iterates over the branches in a store.
+pub struct Branches {
+    branches: FilterMap<Refs, fn(RefSpec) -> Option<BranchSpec>>,
+}
+
+impl Branches {
+    fn branch_filter(r: RefSpec) -> Option<BranchSpec> {
+        match r {
+            RefSpec::Branch(b) => Some(b),
+            _ => None,
+        }
+    }
+}
+
+impl From<Refs> for Branches {
+    fn from(value: Refs) -> Self {
+        Self {
+            branches: value.filter_map(Self::branch_filter),
+        }
+    }
+}
+
+impl Iterator for Branches {
+    type Item = BranchSpec;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.branches.next()
+    }
+}
+
+/// An iterator which iterates over the "local" branches in the repository; in other
+/// words, the branches which are not remote-tracking branches.
+pub struct LocalBranches {
+    local_branches: FilterMap<Branches, fn(BranchSpec) -> Option<BranchSpec>>,
+}
+
+impl LocalBranches {
+    fn local_branch_filter(b: BranchSpec) -> Option<BranchSpec> {
+        match b.location {
+            BranchLocation::Local => Some(b),
+            _ => None,
+        }
+    }
+}
+
+impl From<Branches> for LocalBranches {
+    fn from(value: Branches) -> Self {
+        Self {
+            local_branches: value.filter_map(Self::local_branch_filter),
+        }
+    }
+}
+
+impl Iterator for LocalBranches {
+    type Item = BranchSpec;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.local_branches.next()
+    }
+}
+
+/// An iterator over [`TargetedRef`] structs.
+pub struct RefTargets {
+    content: IntoIter<TargetedRef>,
+}
+
+impl FromIterator<TargetedRef> for RefTargets {
+    fn from_iter<T: IntoIterator<Item = TargetedRef>>(iter: T) -> Self {
+        Self { content: iter.into_iter().collect::<Vec<TargetedRef>>().into_iter() }
+    }
+}
+
+impl Iterator for RefTargets {
+    type Item = TargetedRef;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.content.next()
+    }
+}
+
+/// An iterator over remote-tracking branches.
+pub struct RemoteBranches {
+    content: IntoIter<BranchSpec>,
+}
+
+impl FromIterator<BranchSpec> for RemoteBranches {
+    fn from_iter<T: IntoIterator<Item = BranchSpec>>(iter: T) -> Self {
+        Self { content: iter.into_iter().collect::<Vec<BranchSpec>>().into_iter() }
+    }
+}
+
+impl Iterator for RemoteBranches {
+    type Item = BranchSpec;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.content.next()
+    }
 }
 
 /// Specifies if a branch or tag is local, or if it is remote, which remote it belongs to.

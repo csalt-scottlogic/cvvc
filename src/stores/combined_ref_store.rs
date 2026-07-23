@@ -4,9 +4,10 @@ use std::{
 };
 
 use crate::stores::{
-    packed_ref_store::PackedRefStore, ref_file_store::RefFileStore, BranchSpec, RefSpec, RefStore,
-    RefTarget, TargetedRef,
+    BranchSpec, RefSpec, RefStore, RefTarget, RefTargets, RemoteBranches, TargetedRef, packed_ref_store::PackedRefStore, ref_file_store::RefFileStore,
 };
+
+use super::Refs;
 
 /// A [`RefStore`] implementation which provides a facade over both a loose ref store and, optionally, a packed ref store.
 ///
@@ -50,32 +51,6 @@ impl RefStore for CombinedRefStore {
         }
     }
 
-    fn local_branches(&self) -> Result<Vec<BranchSpec>, anyhow::Error> {
-        let mut results = HashSet::<BranchSpec>::new();
-        for b in self.loose_store.local_branches()? {
-            results.insert(b);
-        }
-        if let Some(packed_store) = &self.packed_store {
-            for b in packed_store.local_branches()? {
-                results.insert(b);
-            }
-        }
-        Ok(results.into_iter().collect())
-    }
-
-    fn branches(&self) -> Result<Vec<BranchSpec>, anyhow::Error> {
-        let mut results = HashSet::<BranchSpec>::new();
-        for b in self.loose_store.branches()? {
-            results.insert(b);
-        }
-        if let Some(packed_store) = &self.packed_store {
-            for b in packed_store.branches()? {
-                results.insert(b);
-            }
-        }
-        Ok(results.into_iter().collect())
-    }
-
     fn tags(&self) -> Result<Vec<RefSpec>, anyhow::Error> {
         let mut results = HashSet::<RefSpec>::new();
         for t in self.loose_store.tags()? {
@@ -89,26 +64,26 @@ impl RefStore for CombinedRefStore {
         Ok(results.into_iter().collect())
     }
 
-    fn all_refs(&self) -> Result<Vec<RefSpec>, anyhow::Error> {
+    fn refs(&self) -> Result<Refs, anyhow::Error> {
         let mut results = HashSet::<RefSpec>::new();
-        for r in self.loose_store.all_refs()? {
+        for r in self.loose_store.refs()? {
             results.insert(r);
         }
         if let Some(packed_store) = &self.packed_store {
-            for r in packed_store.all_refs()? {
+            for r in packed_store.refs()? {
                 results.insert(r);
             }
         }
         Ok(results.into_iter().collect())
     }
 
-    fn all_ref_targets(&self) -> Result<Vec<TargetedRef>, anyhow::Error> {
+    fn ref_targets(&self) -> Result<RefTargets, anyhow::Error> {
         let mut results = HashMap::<RefSpec, RefTarget>::new();
-        for r in self.loose_store.all_ref_targets()? {
+        for r in self.loose_store.ref_targets()? {
             results.insert(r.spec, r.target);
         }
         if let Some(packed_store) = &self.packed_store {
-            for r in packed_store.all_ref_targets()? {
+            for r in packed_store.ref_targets()? {
                 results.insert(r.spec, r.target);
             }
         }
@@ -130,13 +105,13 @@ impl RefStore for CombinedRefStore {
         }
     }
 
-    fn search_remotes_for_branch(&self, name: &str) -> Result<Vec<BranchSpec>, anyhow::Error> {
+    fn remote_branches_by_name(&self, name: &str) -> Result<RemoteBranches, anyhow::Error> {
         let mut results = HashSet::<BranchSpec>::new();
-        for b in self.loose_store.search_remotes_for_branch(name)? {
+        for b in self.loose_store.remote_branches_by_name(name)? {
             results.insert(b);
         }
         if let Some(packed_store) = &self.packed_store {
-            for b in packed_store.search_remotes_for_branch(name)? {
+            for b in packed_store.remote_branches_by_name(name)? {
                 results.insert(b);
             }
         }

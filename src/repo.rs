@@ -426,11 +426,11 @@ impl Repository {
         let mut collected = HashSet::<String>::new();
         if is_partial_object_id(name) {
             let mut all_objects = HashSet::<String>::new();
-            for loose_object in self.loose_object_store.search_objects(name)? {
+            for loose_object in self.loose_object_store.objects_by_id(name)? {
                 all_objects.insert(loose_object);
             }
             for pack in &self.packs {
-                for packed_object in pack.search_objects(name)? {
+                for packed_object in pack.objects_by_id(name)? {
                     all_objects.insert(packed_object);
                 }
             }
@@ -452,7 +452,7 @@ impl Repository {
         if let Some(RefTarget::Object(potential_branch)) = potential_branch {
             collected.insert(potential_branch);
         } else {
-            let potential_remote_branches = self.ref_store.search_remotes_for_branch(name)?;
+            let potential_remote_branches = self.ref_store.remote_branches_by_name(name)?;
             for remote_branch in potential_remote_branches {
                 if let Some(RefTarget::Object(remote_branch_target)) = self
                     .ref_store
@@ -581,8 +581,7 @@ impl Repository {
     pub fn ref_list(&self) -> Result<IndexMap<String, RefTarget>, anyhow::Error> {
         let mut refs = self
             .ref_store
-            .all_ref_targets()?
-            .into_iter()
+            .ref_targets()?
             .map(|x| (x.spec.to_string(), x.target))
             .collect::<Vec<(String, RefTarget)>>();
         refs.sort_by(|a, b| a.0.cmp(&b.0));
@@ -597,10 +596,9 @@ impl Repository {
     ///
     /// Returns an error if any errors are encountered accessing the filesystem.
     pub fn tag_list(&self) -> Result<IndexMap<String, RefTarget>, anyhow::Error> {
-        let refs = self.ref_store.all_ref_targets()?;
+        let refs = self.ref_store.ref_targets()?;
         let mut result = IndexMap::<String, RefTarget>::new();
         for item in refs
-            .into_iter()
             .filter(|x| matches!(x.spec, RefSpec::Tag(_)))
             .map(|x| (x.spec.to_string(), x.target))
         {
@@ -810,7 +808,7 @@ impl Repository {
     /// Returns an error if errors are encountered reading from the filesystem or if the file `.git/HEAD`
     /// is missing.
     pub fn branches(&self) -> Result<Vec<BranchSpec>, anyhow::Error> {
-        let mut branches = self.ref_store.branches()?;
+        let mut branches: Vec<BranchSpec> = self.ref_store.branches()?.collect();
         if let Some(cb) = self.current_branch()? {
             if !branches.contains(&cb) {
                 branches.push(cb);
@@ -832,8 +830,8 @@ impl Repository {
 
     /// Determine if a given string is a valid remote branch name.
     pub fn is_remote_branch_name(&self, query_name: &str) -> Result<bool, anyhow::Error> {
-        let search_results = self.ref_store.search_remotes_for_branch(query_name)?;
-        Ok(!search_results.is_empty())
+        let mut search_results = self.ref_store.remote_branches_by_name(query_name)?;
+        Ok(search_results.next().is_some())
     }
 
     /// Update the commit that a branch points to, creating it if it does not exist.
@@ -1280,8 +1278,7 @@ impl<'a> Commits<'a> {
             }
             None => repo
                 .ref_store
-                .all_ref_targets()?
-                .into_iter()
+                .ref_targets()?
                 .filter_map(|r| target_to_commit_id(r, repo))
                 .filter_map(|id| peel_to_commit(&id, repo))
                 .filter(|id| !prune.contains(id))

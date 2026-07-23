@@ -9,9 +9,7 @@ use std::{
 };
 
 use crate::{
-    objects::{RawObject, RawObjectData},
-    repo::is_partial_object_id,
-    stores::ObjectStore,
+    objects::{RawObject, RawObjectData}, repo::is_partial_object_id, stores::{ObjectStore, Objects},
 };
 
 /// The "loose object store" of a Git or CVVC repository.
@@ -82,14 +80,14 @@ impl ObjectStore for LooseObjectStore {
     /// The method will return an error if the parameter is not a valid partial or full object ID.
     ///
     /// The method will return an error if it encounters any filesystem errors.
-    fn search_objects(&self, partial_object_id: &str) -> Result<Vec<String>, anyhow::Error> {
+    fn objects_by_id(&self, partial_object_id: &str) -> Result<Objects, anyhow::Error> {
         if !is_partial_object_id(partial_object_id) {
             return Err(anyhow!("parameter is not a valid partial object ID"));
         }
         let search_dir = self.base_path.join(&partial_object_id[..2]);
         let mut collected = Vec::<String>::new();
         if !search_dir.exists() {
-            return Ok(collected);
+            return Ok(collected.into_iter().collect());
         }
         let dir_entries = fs::read_dir(&search_dir)
             .context(format!(
@@ -105,7 +103,7 @@ impl ObjectStore for LooseObjectStore {
             f.insert_str(0, &partial_object_id[..2]);
             collected.push(f);
         }
-        Ok(collected)
+        Ok(collected.into_iter().collect())
     }
 
     /// Confirm whether or not the given object exists in the loose object store.

@@ -14,6 +14,13 @@ pub use raw::{combine_object_delta_data, ObjectMetadata, RawObject, RawObjectDat
 mod tree;
 pub use tree::{Tree, TreeNode};
 
+/// Used to represent the full or partial ID of a Git object.
+/// 
+/// At present this is an alias for [`String`], and CVVC only supports 20-byte SHA1 IDs
+/// presented as 40-character strings in lower case hexadecimal format.  Try not to make 
+/// assumptions that this will continue.
+pub type ObjectId = String;
+
 /// The legal types of repository object.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ObjectKind {

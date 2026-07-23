@@ -11,9 +11,10 @@ use anyhow::anyhow;
 use crate::{
     helpers::fs::{
         check_and_create_dir, path_translate, path_translate_rev, walk_fs, write_single_line,
-    },
-    stores::{BranchLocation, BranchSpec, RefSpec, RefStore, RefTarget, TagSpec, TargetedRef},
+    }, stores::{BranchLocation, BranchSpec, RefSpec, RefStore, RefTarget, RefTargets, RemoteBranches, TagSpec, TargetedRef},
 };
+
+use super::Refs;
 
 /// The git-compatible filesystem store for local and remote branch information.
 ///
@@ -74,46 +75,6 @@ impl RefStore for RefFileStore {
         Ok(ref_path.try_exists()? && ref_path.is_file())
     }
 
-    /// List all of the local branches in the repository.
-    ///
-    /// On success, this method returns a [`Vec`] of all of the local branches currently stored in the repository.
-    /// It does not check the branches themselves for validity --- in other words, it does not check that the head
-    /// of each branch is a valid commit.
-    ///
-    /// This method may return an error, if any filesystem errors were encountered.
-    fn local_branches(&self) -> Result<Vec<BranchSpec>, anyhow::Error> {
-        Ok(self
-            .all_refs_in_path(&self.local_branch_path)?
-            .into_iter()
-            .filter_map(|r| match r {
-                RefSpec::Branch(b) => Some(b),
-                _ => None,
-            })
-            .collect())
-    }
-
-    /// List all of the branches in the repository, including remote-tracking branches.
-    ///
-    /// On success, this method returns a [`Vec`] of all of the local branches currently stored in the repository.
-    /// It does not check the branches themselves for validity --- in other words, it does not check that the head
-    /// of each branch is a valid commit.
-    ///
-    /// This method may return an error, if any filesystem errors were encountered.
-    fn branches(&self) -> Result<Vec<BranchSpec>, anyhow::Error> {
-        let mut results: Vec<BranchSpec> = vec![];
-        results.append(&mut self.local_branches()?);
-        results.extend(
-            self.all_refs_in_path(&self.remote_branch_path)?
-                .into_iter()
-                .filter_map(|r| match r {
-                    RefSpec::Branch(b) => Some(b),
-                    _ => None,
-                }),
-        );
-        results.sort();
-        Ok(results)
-    }
-
     /// Get the ID of the commit at the head of a branch, or the target of a tag ref
     ///
     /// On success, if the parameter is a valid branch, this method returns the commit ID at the
@@ -147,12 +108,8 @@ impl RefStore for RefFileStore {
 
     /// Find which remote repositories (if any) contain a branch with the given name.
     ///
-    /// This method searches the repository for remote branches with the given `name`.  On success,
-    /// it returns a `Vec<BranchSpec>`, which will be empty if no remote branches with the given name
-    /// are present in the repository.
-    ///
     /// This method may return an error, if any filesystem errors were encountered.
-    fn search_remotes_for_branch(&self, name: &str) -> Result<Vec<BranchSpec>, anyhow::Error> {
+    fn remote_branches_by_name(&self, name: &str) -> Result<RemoteBranches, anyhow::Error> {
         let mut results = Vec::<BranchSpec>::new();
         for dir_entry in fs::read_dir(&self.remote_branch_path)? {
             let dir_entry = dir_entry?;
@@ -173,7 +130,7 @@ impl RefStore for RefFileStore {
                 }
             }
         }
-        Ok(results)
+        Ok(results.into_iter().collect())
     }
 
     fn tags(&self) -> Result<Vec<RefSpec>, anyhow::Error> {
@@ -206,16 +163,16 @@ impl RefStore for RefFileStore {
         Ok(())
     }
 
-    fn all_refs(&self) -> Result<Vec<RefSpec>, anyhow::Error> {
+    fn refs(&self) -> Result<Refs, anyhow::Error> {
         let mut results = vec![];
         results.append(&mut self.all_refs_in_path(&self.local_branch_path)?);
         results.append(&mut self.all_refs_in_path(&self.remote_branch_path)?);
         results.append(&mut self.all_refs_in_path(&self.tag_path)?);
-        Ok(results)
+        Ok(results.into_iter().collect())
     }
 
-    fn all_ref_targets(&self) -> Result<Vec<TargetedRef>, anyhow::Error> {
-        let refs = self.all_refs()?;
+    fn ref_targets(&self) -> Result<RefTargets, anyhow::Error> {
+        let refs = self.refs()?;
         let mut results: Vec<TargetedRef> = vec![];
         for item in refs {
             let Some(target) = self.resolve_target(&item)? else {
@@ -223,7 +180,7 @@ impl RefStore for RefFileStore {
             };
             results.push(TargetedRef { spec: item, target });
         }
-        Ok(results)
+        Ok(results.into_iter().collect())
     }
 }
 

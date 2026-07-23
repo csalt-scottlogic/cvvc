@@ -13,13 +13,10 @@ use std::{
 };
 
 use crate::{
-    objects::{GitObject, ObjectKind, RawObject, RawObjectData},
-    output::{OutputMessage, OutputService},
-    stores::{
-        pack_store::helpers::{
+    objects::{GitObject, ObjectKind, RawObject, RawObjectData}, output::{OutputMessage, OutputService}, stores::{
+        ObjectStore, Objects, pack_store::helpers::{
             confirm_pack_name, primary_file_name, randomish_string, store_from_reader,
         },
-        ObjectStore,
     },
 };
 
@@ -438,7 +435,7 @@ impl ObjectStore for PackStore {
     /// This method will return an error if the index is not a version 2 index, or if any filesystem errors
     /// occur whilst reading the index.  It also returns an error if the parameter is not a valid partial object ID,
     /// or if it only consists of a single character.
-    fn search_objects(&self, partial_object_id: &str) -> Result<Vec<String>, anyhow::Error> {
+    fn objects_by_id(&self, partial_object_id: &str) -> Result<Objects, anyhow::Error> {
         let mut reader = self.open_index_file()?;
         if !Self::check_index_version(&mut reader)? {
             return Err(anyhow!("pack index file format not recognised"));
