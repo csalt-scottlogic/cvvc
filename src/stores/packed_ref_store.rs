@@ -8,7 +8,9 @@ use std::{
 
 use anyhow::anyhow;
 
-use crate::stores::{BranchLocation, BranchSpec, RefSpec, RefStore, RefTarget, TargetedRef};
+use crate::stores::{BranchLocation, RefSpec, RefStore, RefTarget, RefTargets, RemoteBranches, TargetedRef};
+
+use super::Refs;
 
 /// The git-compatible "packed refs" store.
 ///
@@ -96,24 +98,6 @@ impl RefStore for PackedRefStore {
         Ok(self.contents.contains_key(&r.to_string()))
     }
 
-    fn branches(&self) -> Result<Vec<BranchSpec>, anyhow::Error> {
-        Ok(self
-            .specs()
-            .filter_map(|r| match r {
-                RefSpec::Branch(x) => Some(x),
-                _ => None,
-            })
-            .collect::<Vec<BranchSpec>>())
-    }
-
-    fn local_branches(&self) -> Result<Vec<BranchSpec>, anyhow::Error> {
-        Ok(self
-            .branches()?
-            .into_iter()
-            .filter(|b| b.location == BranchLocation::Local)
-            .collect())
-    }
-
     fn tags(&self) -> Result<Vec<RefSpec>, anyhow::Error> {
         Ok(self
             .specs()
@@ -124,11 +108,11 @@ impl RefStore for PackedRefStore {
             .collect::<Vec<RefSpec>>())
     }
 
-    fn all_refs(&self) -> Result<Vec<RefSpec>, anyhow::Error> {
-        Ok(self.specs().collect::<Vec<RefSpec>>())
+    fn refs(&self) -> Result<Refs, anyhow::Error> {
+        Ok(self.specs().collect())
     }
 
-    fn all_ref_targets(&self) -> Result<Vec<TargetedRef>, anyhow::Error> {
+    fn ref_targets(&self) -> Result<RefTargets, anyhow::Error> {
         Ok(self
             .contents
             .iter()
@@ -148,7 +132,7 @@ impl RefStore for PackedRefStore {
         }
     }
 
-    fn search_remotes_for_branch(&self, name: &str) -> Result<Vec<BranchSpec>, anyhow::Error> {
+    fn remote_branches_by_name(&self, name: &str) -> Result<RemoteBranches, anyhow::Error> {
         Ok(self
             .specs()
             .filter_map(|r| match r {
@@ -160,7 +144,7 @@ impl RefStore for PackedRefStore {
                 _ => None,
             })
             .filter(|b| b.name == name)
-            .collect::<Vec<BranchSpec>>())
+            .collect())
     }
 
     fn create_update_ref(
